@@ -149,11 +149,11 @@
   <!-- 歌单 -->
   <section class="tab" id="tab-songs">
     <div class="card">
-      <h2>点歌队列（来自点歌系统）</h2>
+      <h2>点歌队列（内嵌网易云，无需登录 cookie）</h2>
       <div id="songBox" class="muted">加载中…</div>
       <div class="row" style="margin-top:10px">
         <button onclick="refreshSongs()">刷新</button>
-        <span class="muted">「点歌 歌名」会写入 tools/logs/song_requests.jsonl，由 songbot 处理</span>
+        <span class="muted">「点歌 歌名」自动搜索入队；也可以直接 POST /api/songs/request</span>
       </div>
     </div>
   </section>

@@ -2,7 +2,8 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { invoke } from './api';
 
-const API = location.port === '5173' ? 'http://127.0.0.1:8788' : location.origin;
+const API = (typeof window !== 'undefined' && window.whale && window.whale.base)
+  || (location.port === '5173' ? 'http://127.0.0.1:8788' : location.origin);
 
 const tabs = [
   { key: 'session', label: '会话' },

@@ -4,5 +4,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('whale', {
   version: process.versions.electron,
   platform: process.platform,
+  base: process.env.WT_BASE || 'http://127.0.0.1:8788',
   invoke: (channel, payload) => ipcRenderer.invoke(channel, payload)
 });

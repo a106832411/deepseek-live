@@ -4,7 +4,8 @@
  * - 浏览器/无 Electron（headless）：回退到 HTTP API
  */
 const hasIpc = typeof window !== 'undefined' && window.whale && typeof window.whale.invoke === 'function';
-const BASE = typeof location !== 'undefined' && location.port === '5173' ? 'http://127.0.0.1:8788' : location.origin;
+const BASE = (typeof window !== 'undefined' && window.whale && window.whale.base)
+  || (typeof location !== 'undefined' && location.port === '5173' ? 'http://127.0.0.1:8788' : location.origin);
 
 async function fetchJson(path, opts) {
   const r = await fetch(BASE + path, opts);

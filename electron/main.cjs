@@ -6,6 +6,7 @@ const core = require('../app/main/core.cjs');
 const { registerIpc } = require('../app/main/ipc.cjs');
 
 const PORT = Number(process.env.WT_PORT || 8788);
+process.env.WT_BASE = 'http://127.0.0.1:' + PORT;
 let win = null;
 
 function createWindow() {
@@ -21,8 +22,12 @@ function createWindow() {
       sandbox: false
     }
   });
+  const fs = require('fs');
   const devUrl = process.env.VITE_DEV_SERVER_URL;
-  win.loadURL(devUrl || `http://127.0.0.1:${PORT}/console`);
+  const distIndex = path.join(__dirname, '..', 'dist', 'index.html');
+  if (devUrl) win.loadURL(devUrl);
+  else if (fs.existsSync(distIndex)) win.loadFile(distIndex);
+  else win.loadURL(`http://127.0.0.1:${PORT}/console`);
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
