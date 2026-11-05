@@ -731,6 +731,7 @@ async function route(req, res) {
   if (method === 'GET' && p === '/overlay') return serveFile(res, 'overlay.html');
   if (method === 'GET' && p === '/songs') return serveFile(res, 'songs.html');
   if (method === 'GET' && p === '/stats') return serveFile(res, 'stats.html');
+  if (method === 'GET' && p === '/subtitle') return serveFile(res, 'subtitle.html');
   if (method === 'GET' && p === '/console') return serveFile(res, 'console.html');
   if (method === 'GET' && p === '/live2d') return serveFile(res, 'live2d.html');
   if (method === 'GET' && p.startsWith('/live2d/')) return serveStatic(res, p.slice(1));

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>字幕</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  #wrap { position: absolute; left: 0; right: 0; bottom: 8px; display: flex; justify-content: center; }
+  #line {
+    max-width: 96%; padding: 10px 22px; border-radius: 12px;
+    background: rgba(8, 12, 20, .62); backdrop-filter: blur(4px);
+    color: #fff; font-family: "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 34px; font-weight: 600; letter-spacing: 1px; line-height: 1.45;
+    text-align: center; opacity: 0; transform: translateY(8px);
+    transition: opacity .25s ease, transform .25s ease;
+    text-shadow: 0 2px 8px rgba(0,0,0,.65);
+    border: 1px solid rgba(255,255,255,.12);
+  }
+  #line.show { opacity: 1; transform: none; }
+  #line .by { color: #ffd479; font-size: 24px; margin-right: 10px; }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="line"></div></div>
+<script>
+  const line = document.getElementById('line');
+  let hideTimer = null;
+  let currentText = '';
+
+  function show(text, by) {
+    if (!text) return;
+    currentText = text;
+    line.innerHTML = (by ? '<span class="by">' + escapeHtml(by) + '：</span>' : '') + escapeHtml(text);
+    line.classList.add('show');
+    clearTimeout(hideTimer);
+    // 字幕停留时间：按字数估算，至少 3 秒
+    const ms = Math.max(3000, Math.min(12000, text.length * 220));
+    hideTimer = setTimeout(() => line.classList.remove('show'), ms);
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function connect() {
+    try {
+      const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+      ws.onmessage = (e) => {
+        try {
+          const j = JSON.parse(e.data);
+          if (j.kind === 'speak' && j.text) show(j.text);
+          else if (j.kind === 'reply' && j.text) show(j.text, j.by);
+          else if (j.kind === 'speak_end') {
+            clearTimeout(hideTimer);
+            hideTimer = setTimeout(() => line.classList.remove('show'), 2500);
+          }
+        } catch (err) {}
+      };
+      ws.onclose = () => setTimeout(connect, 2000);
+    } catch (e) { setTimeout(connect, 3000); }
+  }
+  connect();
+</script>
+</body>
+</html>
