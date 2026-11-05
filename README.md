@@ -80,6 +80,18 @@ copy .env.example .env      # Linux/macOS: cp
 | `/songs` | 点歌列表（OBS 浏览器源） |
 | `/dashboard` | 精简控制台 |
 
+## 本地模型（省钱模式）
+
+不想按 token 付费，可以用本机 Ollama 跑 7B 模型，token 成本归零：
+
+```ini
+DEEPLIVE_AI_BASE=http://127.0.0.1:11434/v1
+DEEPLIVE_AI_MODEL=qwen2.5:7b
+DEEPLIVE_AI_KEY=ollama
+```
+
+详细步骤（模型下载、测速、常见问题）见 [docs/本地模型.md](docs/本地模型.md)。
+
 ## OBS 一键配置
 
 控制台「形象与画面 → OBS 一键配置」，或直接调接口：
