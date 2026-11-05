@@ -1,6 +1,6 @@
 /**
- * 鲸语核心服务（移植版，零 npm 依赖）
- * - 兼容原 WhaleTalk 的 HTTP API（8787 那套）+ WS /ws
+ * 深语直播核心服务（零 npm 依赖）
+ * - HTTP API + WS /ws
  * - AI 回复走 DeepSeek，语音走本地 GPT-SoVITS 代理（9881）
  * - 点歌请求转发给独立点歌系统（写 song_requests.jsonl）
  * - 静态页：/dashboard /overlay /songs
@@ -32,7 +32,7 @@ const DEFAULT_CONFIG = {
   platform: 'douyin',
   douyin: { mode: 'relay', web_rid: '447058766923' },
   ai: { backend: 'openai', openai_base: 'https://api.deepseek.com/v1', openai_model: 'deepseek-chat', openai_key: '', thinking: 'off', max_chars: 20 },
-  persona: { system: '你是直播间里的小鲸鱼，说话可爱简短。' },
+  persona: { system: '你是直播间里的虚拟主播小深，说话自然简洁。' },
   tts: { api_url: 'http://127.0.0.1:9881', ref_audio: '', prompt_text: '梁山在上，今天大白饭也要变得美味呀。', speed: 0.95, sample_steps: 32, top_k: 20, temperature: 1.0, auto_play: true },
   events: {
     danmaku: { enabled: true, probability: 100, cooldown_user: 5, mode: 'ai' },
@@ -188,8 +188,8 @@ function httpPostJson(url, obj, headers = {}, timeout = 30000) {
 async function aiReply(event, extraPrompt) {
   const ai = config.ai || {};
   if (!ai.openai_key) return null;
-  const persona = (config.persona && config.persona.system) || '你是直播间的小鲸鱼。';
-  const sys = `你是直播间的虚拟主播小鲸鱼。${persona}
+  const persona = (config.persona && config.persona.system) || '你是直播间的小深。';
+  const sys = `你是直播间的虚拟主播小深。${persona}
 规则：只输出要说的那一句话，20字以内，口语化，不要解释、不要引号、不要表情符号。`;
   let user = '';
   if (event.type === 'enter') user = `观众「${event.name}」进入直播间，欢迎他（她）。`;
@@ -245,7 +245,7 @@ async function ttsSpeak(text) {
   if (!text) return;
   const tts = config.tts || {};
   state.stats.say++;
-  pushRecent('say', '小鲸鱼', text);
+  pushRecent('say', '小深', text);
   wsBroadcast({ kind: 'speak', text, t: Date.now() });
   state.speaking = true;
   try {
@@ -763,7 +763,7 @@ function start(port) {
     else socket.destroy();
   });
   server.listen(port, '127.0.0.1', () => {
-    log(`鲸语移植版已启动: http://127.0.0.1:${port}`);
+    log(`深语直播服务已启动: http://127.0.0.1:${port}`);
     log(`面板 http://127.0.0.1:${port}/dashboard  弹幕层 http://127.0.0.1:${port}/overlay  歌单 http://127.0.0.1:${port}/songs`);
   });
   return server;

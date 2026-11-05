@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>鲸语 · 控制台（完整版）</title>
+<title>深语直播 · 控制台</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -48,7 +48,7 @@
 </head>
 <body>
 <header>
-  <h1>🐳 鲸语 · 移植版控制台</h1>
+  <h1>🎙 深语直播 · 控制台</h1>
   <span class="pill" id="runPill">未开始</span>
   <span class="pill" id="modePill">relay</span>
   <span class="muted" id="uptime"></span>
@@ -75,7 +75,7 @@
         <div class="stats" id="statsBox"></div>
         <h2 style="margin-top:14px">手动说话（TTS）</h2>
         <div class="row">
-          <input id="sayText" placeholder="输入要让小鲸鱼说的话" onkeyup="if(event.key==='Enter')say()">
+          <input id="sayText" placeholder="输入要播报的内容" onkeyup="if(event.key==='Enter')say()">
           <button onclick="say()">说</button>
         </div>
         <h2 style="margin-top:14px">测试事件</h2>

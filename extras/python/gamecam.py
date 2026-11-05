@@ -7,7 +7,7 @@ import time
 from aiohttp import web
 from PIL import Image
 
-sys.path.insert(0, r"D:\文档\deepseek-harness\default-workspace\whaletalk\pvz_ai")
+sys.path.insert(0, r"D:\文档\deepseek-harness\default-workspace\deeplive\pvz_ai")
 from util import capture_game  # noqa: E402
 
 PORT = 9800

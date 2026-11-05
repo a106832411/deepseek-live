@@ -12,7 +12,7 @@
                "openai_model":  "deepseek-chat"
            },
     "persona":  {
-                    "system":  "你是直播间里的虚拟主播小鲸鱼，自称「咱家小鲸鱼」，说话可爱简短。"
+                    "system":  "你是直播间里的虚拟主播「小深」，说话自然简洁，偶尔带点小幽默。"
                 },
     "tts":  {
                 "api_url":  "http://127.0.0.1:9881",
@@ -54,7 +54,7 @@
                                   "cooldown_user":  60,
                                   "templates":  [
                                                     "谢谢{name}的关注！",
-                                                    "{name}关注啦，咕噜咕噜～"
+                                                    "{name}关注啦，嘿嘿～"
                                                 ],
                                   "mode":  "template",
                                   "enabled":  true
@@ -62,7 +62,7 @@
                },
     "fixed_replies":  [
                           {
-                              "reply":  "宝子好呀，咕噜咕噜～",
+                              "reply":  "宝子好呀，嘿嘿～",
                               "keywords":  [
                                                "你好",
                                                "嗨",

@@ -1,7 +1,7 @@
-# 独立点歌系统（不依赖鲸语内置点歌，绕开网易云登录 cookie 风控）
+# 独立点歌系统（不依赖深语直播内置点歌，绕开网易云登录 cookie 风控）
 #  - 中继把「点歌 xxx」写进 tools\logs\song_requests.jsonl
 #  - 本脚本读请求 → cloudsearch 匿名搜索（失败再回退 /api/search/get/web）→ 取播放地址 → 播报 → 播放
-#  - 监听鲸语 WS：AI 说话时自动 duck（降低音乐音量）
+#  - 监听深语直播 WS：AI 说话时自动 duck（降低音乐音量）
 #  - 本场去重：同一首歌只点一次；每场记录 logs\songs_日期_时间.log
 import asyncio, json, os, re, sys, time, io, urllib.parse, urllib.request, tempfile
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -33,7 +33,7 @@ def log(msg):
 
 def cfg():
     try:
-        with open(os.path.join(BASE, "WhaleTalk", "config.json"), encoding="utf-8") as f:
+        with open(os.path.join(BASE, "DeepLive", "config.json"), encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
@@ -46,7 +46,7 @@ def norm_query(q):
 def api_post(path, payload, timeout=15):
     data = json.dumps(payload, ensure_ascii=False).encode()
     req = urllib.request.Request(API + path, data=data,
-                                 headers={"Content-Type": "application/json", "X-BVB": "1"})
+                                 headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read().decode("utf-8", "replace")
@@ -162,12 +162,12 @@ def record(name, query, status):
 
 
 async def ws_listener(player):
-    """监听鲸语 WS，AI 说话时 duck 音乐"""
+    """监听深语直播 WS，AI 说话时 duck 音乐"""
     while True:
         try:
             async with aiohttp.ClientSession() as s:
                 async with s.ws_connect("ws://127.0.0.1:8787/ws", heartbeat=20) as ws:
-                    log("已连上鲸语 WS（用于 duck）")
+                    log("已连上深语直播 WS（用于 duck）")
                     async for msg in ws:
                         if msg.type != aiohttp.WSMsgType.TEXT:
                             continue

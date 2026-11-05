@@ -1,9 +1,9 @@
 {
   "version": 1,
   "model": "c_0120",
-  "displayName": "DS 鲸鱼娘",
+  "displayName": "默认皮套（示例）",
   "url": "c_0120.model3.json",
-  "source": "DS鲸鱼娘（B站@氵六青），VTube Studio 模型",
+  "source": "DS水花娘（B站@氵六青），VTube Studio 模型",
   "motions": {
     "idle": {
       "group": "idle",
@@ -255,7 +255,7 @@
     "splash": {
       "group": "splash",
       "file": "喷水.motion3.json",
-      "label": "鲸鱼喷水",
+      "label": "水花",
       "loop": false,
       "params": [
         "pengshui"
@@ -989,8 +989,8 @@
         }
       ]
     },
-    "鲸鱼": {
-      "file": "expressions/鲸鱼.exp3.json",
+    "水花": {
+      "file": "expressions/whale_splash.exp3.json",
       "params": [
         {
           "id": "jingyu",
@@ -999,8 +999,8 @@
         }
       ]
     },
-    "鲸鱼放桌上": {
-      "file": "expressions/鲸鱼放桌上.exp3.json",
+    "桌布水花": {
+      "file": "expressions/whale_table.exp3.json",
       "params": [
         {
           "id": "fangzhuoshang",

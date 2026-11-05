@@ -1,4 +1,4 @@
-/** Electron 主进程：内嵌启动鲸语核心服务 + IPC 桥 + 控制台窗口 */
+/** Electron 主进程：内嵌启动深语直播核心服务 + IPC 桥 + 控制台窗口 */
 const path = require('path');
 const { app, BrowserWindow, shell, Menu } = require('electron');
 
@@ -14,7 +14,7 @@ function createWindow() {
     width: 1440,
     height: 960,
     backgroundColor: '#0b1220',
-    title: '鲸语 · 移植版',
+    title: '深语直播',
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

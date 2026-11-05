@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>鲸语 · Live2D 皮套</title>
+<title>深语直播 · 皮套</title>
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
   canvas { display: block; }
@@ -17,7 +17,7 @@
 <script>
 (async function () {
   const q = new URLSearchParams(location.search);
-  const MODEL_URL = q.get('model') || '/live2d/models/WhaleGirl/c_0120.model3.json';
+  const MODEL_URL = q.get('model') || '/live2d/models/avatar/c_0120.model3.json';
   const SCALE = Number(q.get('scale') || 0.92);
   const err = document.getElementById('err');
   function showErr(e) { err.textContent = String((e && e.stack) || e); }
@@ -81,7 +81,7 @@
       try { model.expression(n); } catch (e) {}
     }
 
-    // ---- 接鲸语 WS ----
+    // ---- 接深语直播 WS ----
     function connectWs() {
       try {
         const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');

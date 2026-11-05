@@ -1,4 +1,4 @@
-"""窗口抓帧 + 鼠标点击 + 鲸语播报 基础工具。"""
+"""窗口抓帧 + 鼠标点击 + 深语直播播报 基础工具。"""
 import ctypes
 import json
 import os
@@ -103,7 +103,7 @@ def click(x, y, delay=0.08):
     _u32.mouse_event(0x0004, 0, 0, 0, 0)  # left up
 
 
-# ---------------- 鲸语播报 ----------------
+# ---------------- 深语直播播报 ----------------
 def say(text, timeout=10):
     import urllib.request
 
@@ -111,7 +111,7 @@ def say(text, timeout=10):
     req = urllib.request.Request(
         "http://127.0.0.1:8787/api/say",
         data=body,
-        headers={"Content-Type": "application/json", "X-BVB": "1"},
+        headers={"Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -126,9 +126,9 @@ def load_config():
 
 
 def app_ai_config():
-    """从鲸语 config 里取 DeepSeek 的 key。"""
+    """从深语直播 config 里取 DeepSeek 的 key。"""
     try:
-        p = os.path.join(BASE_DIR, "..", "WhaleTalk", "config.json")
+        p = os.path.join(BASE_DIR, "..", "DeepLive", "config.json")
         with open(p, encoding="utf-8") as f:
             c = json.load(f)
         return c["ai"]["openai_key"], c["ai"].get("openai_base", "https://api.deepseek.com/v1")

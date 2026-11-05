@@ -1,7 +1,7 @@
 {
-  "name": "whaletalk-app",
+  "name": "deeplive-app",
   "version": "0.1.0",
-  "description": "鲸语功能移植版：Vue + Electron，保持原有 API/Overlay 兼容",
+  "description": "深语直播：AI 虚拟主播直播控制台（Vue 3 + Electron）",
   "main": "electron/main.cjs",
   "scripts": {
     "serve": "node server/index.cjs",

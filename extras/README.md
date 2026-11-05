@@ -9,7 +9,7 @@
 | `real_ai.py` `util.py` `brain.py` `winrt_ocr.py` | 用 DeepSeek 自动玩《植物大战僵尸》真游戏（截图识别 → 决策 → 点击） | pip: windows-capture pillow numpy opencv-python |
 | `pvz_config.example.json` | PvZ AI 的坐标配置模板 | — |
 
-这些脚本里的路径（如 `D:\gsv_rocm_gpu\venv`、`whaletalk\...`）是按开发机写的，
+这些脚本里的路径（如 `D:\gsv_rocm_gpu\venv`、`deeplive\...`）是按开发机写的，
 克隆后请把路径改成你自己的，或设置对应环境变量。
 
 启动示例：

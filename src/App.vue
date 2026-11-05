@@ -11,7 +11,7 @@ const MENU = [
     { key: 'events', label: '实时事件', icon: '💬' }
   ] },
   { title: '形象与画面', icon: '🎭', items: [
-    { key: 'live2d', label: 'Live2D 皮套', icon: '🐳' },
+    { key: 'live2d', label: 'Live2D 皮套', icon: '🎙' },
     { key: 'overlay', label: 'OBS 叠加层', icon: '🖼' }
   ] },
   { title: '互动玩法', icon: '🎁', items: [
@@ -267,9 +267,9 @@ onUnmounted(() => {
   <div class="app theme-ink">
     <aside class="sidebar">
       <div class="brand">
-        <div class="logo">🐳</div>
+        <div class="logo">🎙</div>
         <div>
-          <div class="name">鲸语控制台</div>
+          <div class="name">深语直播</div>
           <div class="ver">deepseek-live · v0.2</div>
         </div>
       </div>
@@ -297,7 +297,7 @@ onUnmounted(() => {
 
     <section class="main">
       <header class="topbar">
-        <div class="crumb"><span class="muted">鲸语</span><span class="sep">/</span><b>{{ currentLabel }}</b></div>
+        <div class="crumb"><span class="muted">深语直播</span><span class="sep">/</span><b>{{ currentLabel }}</b></div>
         <div class="top-actions">
           <button v-if="running" class="ghost warn" @click="invoke('session:stop').then(refresh)">结束会话</button>
           <button v-else class="primary" @click="invoke('session:start').then(refresh)">▶ 开始会话</button>
@@ -434,12 +434,12 @@ onUnmounted(() => {
         <div v-if="current === 'say'" class="card">
           <div class="card-head"><h2>手动说话</h2><span class="hint">走 GPT-SoVITS 9881</span></div>
           <div class="row">
-            <input v-model="sayText" placeholder="输入要让小鲸鱼说的话" @keyup.enter="doSay" />
+            <input v-model="sayText" placeholder="输入要播报的内容" @keyup.enter="doSay" />
             <button class="primary" @click="doSay">🔊 说话</button>
           </div>
           <div class="chips" style="margin-top:12px">
             <button class="chip" @click="quickSay('欢迎来到直播间，宝子们晚上好呀')">欢迎语</button>
-            <button class="chip" @click="quickSay('谢谢宝子的礼物，咕噜咕噜～')">感谢礼物</button>
+            <button class="chip" @click="quickSay('谢谢宝子的礼物，嘿嘿～')">感谢礼物</button>
             <button class="chip" @click="quickSay('今天想听什么歌，点歌台给你们安排')">点歌引导</button>
           </div>
         </div>
@@ -571,7 +571,7 @@ onUnmounted(() => {
         <div v-if="current === 'about'" class="card">
           <div class="card-head"><h2>关于</h2></div>
           <ul class="about">
-            <li><b>deepseek-live</b> · 鲸语直播系统移植版（Vue 3 + Electron 33）</li>
+            <li><b>deepseek-live</b> · 深语直播控制台（Vue 3 + Electron 33）</li>
             <li>核心：<code>app/main/core.cjs</code>（零依赖 Node，HTTP + WS + AI + TTS + 点歌）</li>
             <li>控制：IPC（window.whale.invoke）· OBS 叠加层走 HTTP</li>
             <li>皮套：pixi-live2d-display + Cubism 4（内置模型）</li>

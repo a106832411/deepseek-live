@@ -132,12 +132,12 @@
                                                    "File":  "expressions/挤.exp3.json"
                                                },
                                                {
-                                                   "Name":  "鲸鱼.exp3",
-                                                   "File":  "expressions/鲸鱼.exp3.json"
+                                                   "Name":  "whale_splash.exp3",
+                                                   "File":  "expressions/whale_splash.exp3.json"
                                                },
                                                {
-                                                   "Name":  "鲸鱼放桌上.exp3",
-                                                   "File":  "expressions/鲸鱼放桌上.exp3.json"
+                                                   "Name":  "whale_table.exp3",
+                                                   "File":  "expressions/whale_table.exp3.json"
                                                },
                                                {
                                                    "Name":  "开心兴奋.exp3",

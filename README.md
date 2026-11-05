@@ -1,125 +1,85 @@
-# deepseek-live · 鲸语直播系统（Vue + Electron 移植版）
+# 深语直播 · DeepLive
 
-DeepSeek 驱动的 AI 虚拟主播直播系统：抖音弹幕接入 → AI 回复 → TTS 语音 → OBS 网页叠加层，全套自托管。
+开源 AI 虚拟主播直播控制台：抖音弹幕接入 → DeepSeek 生成回复 → TTS 语音播报 → Live2D 皮套 + OBS 网页叠加层，全部自托管。
 
-> 本仓库是原版 WhaleTalk（PyInstaller exe）的**移植版**，保持原 HTTP API 兼容，
-> 所以原有的抖音中继、OBS 网页源、看门狗脚本都可以直接继续用。
+- **零依赖核心**：`app/main/core.cjs` 只用 Node 标准库，HTTP + WebSocket + AI + TTS + 点歌全在里面
+- **桌面控制台**：Electron 主进程拉起核心服务，渲染层通过 IPC 控制（也可纯网页使用）
+- **实时皮套**：pixi.js + pixi-live2d-display（Cubism 4），说话时自动口型、随机表情
+- **多音源点歌**：网易云 + QQ 音乐，自动回退
+- **OBS 友好**：`/live2d` `/overlay` `/songs` 三个透明网页源
 
-## 快速开始（3 步）
+## 目录结构
+
+```
+app/main/core.cjs      核心服务（零 npm 依赖）
+app/main/ipc.cjs       IPC 通道表
+electron/main.cjs      Electron 主进程（起服务 + 开窗口）
+electron/preload.cjs   渲染层 API（window.whale.invoke）
+src/                   Vue 3 控制台（Vite 构建）
+public/                免构建页面：console/dashboard/live2d/overlay/songs
+server/index.cjs       纯 Node 启动入口（无 Electron）
+extras/python/         可选增强脚本（点歌/合成/游戏画面等）
+```
+
+## 快速开始
 
 ```bash
 git clone https://github.com/a106832411/deepseek-live.git
 cd deepseek-live
-cp config.example.json config.json    # Windows: copy config.example.json config.json
+copy config.example.json config.json      # Linux/macOS: cp
 ```
 
-编辑 `config.json`，填三样东西：
+编辑 `config.json` 填三项：
 
 1. `ai.openai_key` —— DeepSeek API Key（https://platform.deepseek.com）
-2. `tts.ref_audio` / `tts.prompt_text` —— GPT-SoVITS 参考音频路径与对应文字（本机需跑 9881 TTS 服务）
-3. `douyin.web_rid` —— 你的抖音直播间号
+2. `tts.ref_audio` / `tts.prompt_text` —— GPT-SoVITS 参考音频路径与对应文字（本机需跑 TTS 服务）
+3. `douyin.web_rid` —— 抖音直播间号
 
-然后启动（**不需要装任何 npm 依赖**就能跑服务端）：
+启动：
 
 ```bash
-node server/index.cjs --port 8788
+node server/index.cjs --port 8788     # 纯服务
+npm install && npm run electron        # 桌面控制台（自动起 8788 + IPC）
 ```
+
+## 地址
 
 | 地址 | 用途 |
 |---|---|
-| http://127.0.0.1:8788/console | **完整控制台**（会话/事件/配置/皮套预览/叠加层预览/歌单） |
-| http://127.0.0.1:8788/live2d | **Live2D 皮套**（透明背景，OBS 浏览器源） |
-| http://127.0.0.1:8788/overlay | 弹幕层（OBS 浏览器源） |
-| http://127.0.0.1:8788/songs | 点歌列表（OBS 浏览器源） |
-| http://127.0.0.1:8788/dashboard | 精简控制台 |
+| `/console` | 完整控制台（网页版） |
+| `/live2d` | Live2D 皮套（OBS 浏览器源，透明） |
+| `/overlay` | 弹幕层（OBS 浏览器源） |
+| `/songs` | 点歌列表（OBS 浏览器源） |
+| `/dashboard` | 精简控制台 |
 
-## Electron 桌面版（可选）
-
-```bash
-npm install            # 或 pnpm install
-npm run electron       # 桌面窗口：主进程自动起 8788 核心服务 + IPC 桥
-```
-
-## Live2D 皮套
-
-/live2d 是自带渲染页：本地内置 pixi.js、pixi-live2d-display（Cubism4）和 Cubism Core，
-模型在 public/live2d/models/WhaleGirl/（换成自己的模型改目录 + 地址即可）。
-
-- 地址参数：/live2d?scale=0.92 控制大小
-- 说话口型：监听 WS /ws 的 speak / 
-eply 事件，自动张嘴 + 随机表情
-- OBS：浏览器源 URL 填 http://127.0.0.1:8788/live2d，背景透明可直接叠
-
-## 架构（Electron 端控制 + IPC）
-
-```
-┌─────────────────────── Electron 主进程 ───────────────────────┐
-│  app/main/core.cjs   核心服务：配置/事件/AI/TTS/点歌/WS        │
-│  app/main/ipc.cjs    IPC 桥：渲染进程直接控制核心              │
-└───────────┬───────────────────────────────┬───────────────────┘
-            │ IPC（contextBridge）           │ HTTP + WS
-            ▼                               ▼
-   Vue 控制台（渲染进程）            OBS 浏览器源 / 抖音中继 / 脚本
-   - 会话、统计、配置                - /overlay 弹幕层
-   - 皮套/叠加层预览                 - /songs 歌单
-   - 点歌队列                        - /live2d 皮套
-                                     - POST /api/douyin/ingest
-```
-
-- **有 Electron**：Vue 通过 `window.whale.invoke(channel, payload)` 直接控制核心（不经过 HTTP）。
-- **没有 Electron**：`node server/index.cjs --port 8788` 以 headless 方式跑同一套核心，
-  前端自动回退到 HTTP API（`src/api.js` 里做适配），OBS/中继完全不受影响。
-
-## 目录
-
-```
-app/main/core.cjs    核心服务：HTTP API + WS + AI + TTS + 事件 + 点歌（零 npm 依赖）
-app/main/ipc.cjs     Electron IPC 桥（渲染进程 → 核心服务）
-server/index.cjs     headless 启动入口：node server/index.cjs --port 8788
-public/             控制台 / 弹幕层 / 歌单 三个页面
-electron/           Electron 主进程（内嵌服务 + 窗口）
-src/App.vue         Vue 版控制台
-extras/python/      可选：点歌播放、真游戏采集桥、PvZ AI（见该目录 README）
-docs/移植说明.md     功能对照与移植细节
-scripts/            Windows 一键脚本
-```
-
-## API（与鲸语原版兼容）
+## 主要 API
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET/POST | `/api/session/start` · `/api/session/stop` | 开始/结束会话 |
-| POST | `/api/douyin/ingest` | 抖音事件投递 `{events:[...]}` |
-| POST | `/api/say` | 手动说话 `{text}` |
-| POST | `/api/test_event` | 测试事件 `{event:{...}}` |
-| GET/POST | `/api/config` | 读/改配置 |
-| GET | `/api/health` `/api/douyin/health` `/api/recent` | 状态 |
-| POST | `/api/stats/reset` | 清空统计 |
-| WS | `/ws` | 推送 event / reply / speak / status / hello |
+| POST | `/api/session/start` `/api/session/stop` | 开始/结束会话 |
+| POST | `/api/douyin/ingest` | 弹幕中继投递（外部脚本 → 服务） |
+| POST | `/api/say` | 手动让主播说话（走 TTS） |
+| GET/POST | `/api/config` | 读/改配置（即时生效） |
+| POST | `/api/test_event` | 注入测试事件 |
+| GET | `/api/songs/state` | 点歌队列 |
+| POST | `/api/songs/request` | 点歌 `{name, query}` |
+| WS | `/ws` | 事件/回复/日志/状态推送 |
 
-事件格式：
+## 桌面版特性
 
-```json
-{"type":"danmaku","name":"用户名","text":"你好"}
-{"type":"enter","name":"用户名"}
-{"type":"gift","name":"用户名","gift":"小心心","num":1,"value":0.1}
-{"type":"follow","name":"用户名"}
-{"type":"like","name":"用户名"}
-```
+- 左侧菜单树控制台（会话 / 事件 / 配置 / 皮套 / 叠加层 / 歌单 / 点歌 / 说话）
+- 全部配置表单化（AI、TTS、事件触发、固定回复、过滤词、点歌音源），也支持高级 JSON 编辑
+- 黑金主题，可二次开发换肤
 
-## 功能对照
+## 依赖服务
 
-| 功能 | 状态 |
+| 服务 | 用途 |
 |---|---|
-| 会话 / 事件（进房·弹幕·礼物·关注·点赞）/ 冷却 / 模板 / 固定回复 | ✅ |
-| DeepSeek AI 回复 | ✅ |
-| TTS（GPT-SoVITS 9881） | ✅（需本机 TTS 服务） |
-| OBS 弹幕层 / 歌单 / 控制台 | ✅ |
-| 点歌（内嵌网易云匿名搜索 + 队列 + 播放） | ✅ |
-| 真游戏画面采集桥（OBS 抓不到老 DirectDraw 游戏时用） | ✅ extras/python/gamecam.py |
-| Live2D 皮套渲染 | ✅ 已移植（pixi-live2d-display + Cubism4 Core，说话时口型动、随机表情） |
-| 自动歌单播放 | ⏳ 先用 extras/python/songbot.py |
+| DeepSeek API | AI 回复 |
+| GPT-SoVITS（可选） | 语音克隆 TTS；不可用时自动降级 edge-tts |
+| OBS Studio（可选） | 直播推流与叠加层合成 |
+| 抖音中继脚本（可选） | 弹幕采集后 POST 到 `/api/douyin/ingest` |
 
-## License
+## 许可
 
-MIT（移植代码本身）。GPT-SoVITS、DeepSeek、抖音相关服务请遵守各自条款；直播内容需遵守平台规则（AI 主播建议明示）。
+MIT

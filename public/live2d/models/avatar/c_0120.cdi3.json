@@ -29,7 +29,7 @@
 		{
 			"Id": "jingyu",
 			"GroupId": "ParamGroup14",
-			"Name": "鲸鱼"
+			"Name": "水花"
 		},
 		{
 			"Id": "pengshui",
@@ -59,7 +59,7 @@
 		{
 			"Id": "fangzhuoshang",
 			"GroupId": "ParamGroup14",
-			"Name": "鲸鱼放桌上"
+			"Name": "桌布水花"
 		},
 		{
 			"Id": "ParamAngleX",
