@@ -65,34 +65,18 @@ function envOf(key, def) {
 }
 
 function applyEnv(c) {
-  const str = (k, pathArr) => {
-    const v = envOf(k);
-    if (v === undefined) return;
+  const setPath = (pathArr, v) => {
     let o = c;
-    for (let i = 0; i < pathArr.length - 1; i++) o = o[pathArr[i]];
+    for (let i = 0; i < pathArr.length - 1; i++) {
+      if (!o[pathArr[i]] || typeof o[pathArr[i]] !== 'object') o[pathArr[i]] = {};
+      o = o[pathArr[i]];
+    }
     o[pathArr[pathArr.length - 1]] = v;
   };
-  const num = (k, pathArr) => {
-    const v = envOf(k);
-    if (v === undefined) return;
-    let o = c;
-    for (let i = 0; i < pathArr.length - 1; i++) o = o[pathArr[i]];
-    o[pathArr[pathArr.length - 1]] = Number(v);
-  };
-  const bool = (k, pathArr) => {
-    const v = envOf(k);
-    if (v === undefined) return;
-    let o = c;
-    for (let i = 0; i < pathArr.length - 1; i++) o = o[pathArr[i]];
-    o[pathArr[pathArr.length - 1]] = ['1', 'true', 'yes', 'on'].includes(String(v).toLowerCase());
-  };
-  const list = (k, pathArr) => {
-    const v = envOf(k);
-    if (v === undefined) return;
-    let o = c;
-    for (let i = 0; i < pathArr.length - 1; i++) o = o[pathArr[i]];
-    o[pathArr[pathArr.length - 1]] = String(v).split(',').map((x) => x.trim()).filter(Boolean);
-  };
+  const str = (k, pathArr) => { const v = envOf(k); if (v !== undefined) setPath(pathArr, v); };
+  const num = (k, pathArr) => { const v = envOf(k); if (v !== undefined) setPath(pathArr, Number(v)); };
+  const bool = (k, pathArr) => { const v = envOf(k); if (v !== undefined) setPath(pathArr, ['1', 'true', 'yes', 'on'].includes(String(v).toLowerCase())); };
+  const list = (k, pathArr) => { const v = envOf(k); if (v !== undefined) setPath(pathArr, String(v).split(',').map((x) => x.trim()).filter(Boolean)); };
 
   str('DEEPLIVE_AI_BASE', ['ai', 'openai_base']);
   str('DEEPLIVE_AI_MODEL', ['ai', 'openai_model']);
@@ -145,6 +129,7 @@ const DEFAULT_CONFIG = {
   ai: { backend: 'openai', openai_base: 'https://api.deepseek.com/v1', openai_model: 'deepseek-chat', openai_key: '', thinking: 'off', max_chars: 20 },
   persona: { system: '你是直播间里的虚拟主播小深，说话自然简洁。' },
   tts: { api_url: 'http://127.0.0.1:9881', ref_audio: '', prompt_text: '梁山在上，今天大白饭也要变得美味呀。', speed: 0.95, sample_steps: 32, top_k: 20, temperature: 1.0, auto_play: true },
+  obs: { host: '127.0.0.1', port: 4455, password: '', scene: '深语直播', bgColor: '0b0c0e' },
   events: {
     danmaku: { enabled: true, probability: 100, cooldown_user: 5, mode: 'ai' },
     enter: { enabled: true, cooldown_user: 30, mode: 'template', templates: ['欢迎{name}，随便坐别客气～'] },
@@ -805,6 +790,14 @@ async function route(req, res) {
     state.stats = { enter: 0, danmaku: 0, gift: 0, follow: 0, like: 0, say: 0 };
     return json(res, { ok: true });
   }
+  if (p === '/api/obs/probe') {
+    const body = await readBody(req);
+    return json(res, await obsProbe(body || {}));
+  }
+  if (p === '/api/obs/setup') {
+    const body = await readBody(req);
+    return json(res, await obsSetup(body || {}));
+  }
   if (p === '/api/songs/request') {
     const body = await readBody(req);
     const r = await requestSong(body.name || '手动点歌', body.query || body.song || '');
@@ -891,19 +884,22 @@ function obsSettings(overrides) {
       port: Number(c.port || 4455),
       password: c.password || '',
       scene: c.scene || '深语直播',
-      bgColor: parseInt(String(c.bgColor || '0b0c0e').replace('#', ''), 16) * 256 + 0xff,
+      bgColor: String(c.bgColor || '0b0c0e'),
       baseUrl: 'http://127.0.0.1:' + (state.port || 8788)
     },
     overrides || {}
   );
 }
 
+function obsProbe(overrides) { return obs.probe(obsSettings(overrides)); }
+function obsSetup(overrides) { return obs.setupScene(obsSettings(overrides)); }
+
 module.exports = {
   start,
   resolvePort,
   envOf,
-  obsProbe(overrides) { return obs.probe(obsSettings(overrides)); },
-  obsSetup(overrides) { return obs.setupScene(obsSettings(overrides)); },
+  obsProbe,
+  obsSetup,
   get config() { return config; },
   state,
   handleEvent,

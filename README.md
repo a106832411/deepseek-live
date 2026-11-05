@@ -63,6 +63,8 @@ copy .env.example .env      # Linux/macOS: cp
 | `DEEPLIVE_TTS_SPEED` / `_STEPS` / `_TOP_K` / `_TEMPERATURE` | 合成参数 |
 | `DEEPLIVE_DOUYIN_MODE` / `DEEPLIVE_DOUYIN_RID` | 抖音接入方式（relay/browser）与房间号 |
 | `DEEPLIVE_SONGS_ENABLED` / `_SOURCES` / `_MAX_QUEUE` | 点歌开关、音源顺序、队列长度 |
+| `DEEPLIVE_OBS_HOST` / `_PORT` / `_PASSWORD` | OBS WebSocket 地址（默认 4455）与密码 |
+| `DEEPLIVE_OBS_SCENE` / `_BG` | 自动创建的场景名、背景色（hex） |
 | `DEEPLIVE_MERGE_WINDOW` | 同用户事件合并窗口（秒） |
 | `DEEPLIVE_FILTER_BLOCKLIST` | 弹幕过滤词，逗号分隔 |
 
@@ -77,6 +79,27 @@ copy .env.example .env      # Linux/macOS: cp
 | `/overlay` | 弹幕层（OBS 浏览器源） |
 | `/songs` | 点歌列表（OBS 浏览器源） |
 | `/dashboard` | 精简控制台 |
+
+## OBS 一键配置
+
+控制台「形象与画面 → OBS 一键配置」，或直接调接口：
+
+```bash
+curl -X POST http://127.0.0.1:8788/api/obs/probe   -d '{}'   # 连接测试
+curl -X POST http://127.0.0.1:8788/api/obs/setup   -d '{}'   # 一键建场景
+```
+
+会自动在 OBS 里：
+
+1. 创建/复用场景（默认名 `深语直播`，可配置）
+2. 加背景色层（默认 `#0b0c0e`）
+3. 加 3 个浏览器源并按画布自动摆位（横屏/竖屏自动判断）：
+   - 皮套 `/live2d?scale=0.95`
+   - 弹幕层 `/overlay`
+   - 歌单 `/songs`
+4. 切到该场景
+
+需要在 OBS 里开启：**工具 → WebSocket 服务器设置 → 启用**，把端口/密码填进 `.env` 或控制台。
 
 ## 主要 API
 

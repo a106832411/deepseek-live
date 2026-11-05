@@ -227,6 +227,14 @@ class ObsClient {
   }
 }
 
+function bgAbgr(hexLike) {
+  const hex = String(hexLike || '0b0c0e').replace('#', '').padStart(6, '0');
+  const r = parseInt(hex.slice(0, 2), 16) || 0x0b;
+  const g = parseInt(hex.slice(2, 4), 16) || 0x0c;
+  const b = parseInt(hex.slice(4, 6), 16) || 0x0e;
+  return (0xff000000 + (b << 16) + (g << 8) + r) >>> 0;
+}
+
 function layoutFor(canvasW, canvasH) {
   const portrait = canvasH > canvasW;
   const W = canvasW;
@@ -289,7 +297,7 @@ async function setupScene(opts) {
           sceneName,
           inputName: '背景',
           inputKind: 'color_source_v3',
-          inputSettings: { color: Number(o.bgColor || 0x0b0c0eff), width: W, height: H },
+          inputSettings: { color: bgAbgr(o.bgColor), width: W, height: H },
           sceneItemEnabled: true
         });
         const bgItem = await client.request('GetSceneItemId', { sceneName, sourceName: '背景' });
@@ -301,6 +309,17 @@ async function setupScene(opts) {
         say('已添加背景层');
       } catch (e) {
         say('背景层跳过：' + e.message);
+      }
+    } else {
+      try {
+        await client.request('SetInputSettings', {
+          inputName: '背景',
+          inputSettings: { color: bgAbgr(o.bgColor), width: W, height: H },
+          overlay: true
+        });
+        say('已更新背景色');
+      } catch (e) {
+        say('背景更新失败：' + e.message);
       }
     }
 
