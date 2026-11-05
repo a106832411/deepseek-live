@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>鲸语 · 歌单</title>
+<style>
+  html, body { margin: 0; background: transparent; font-family: "Microsoft YaHei", sans-serif; color: #EAF2FF; }
+  #box { margin: 0; background: linear-gradient(160deg, rgba(16, 30, 58, .78), rgba(8, 16, 34, .72));
+         border: 2px solid rgba(127, 179, 255, .45); border-radius: 22px; padding: 16px 20px; min-height: 480px; }
+  .title { font-size: 26px; color: #8FC1FF; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .title small { font-size: 16px; color: #9FB4D8; }
+  .now { font-size: 27px; color: #fff; margin-bottom: 4px; }
+  .sub { font-size: 17px; color: #9FB4D8; margin-bottom: 8px; }
+  ol { list-style: none; padding: 0; margin: 4px 0 0; }
+  li { display: flex; align-items: center; padding: 8px 0; border-top: 1px dashed rgba(127, 179, 255, .25); }
+  li .n { color: #7FB3FF; width: 32px; font-size: 21px; flex: 0 0 32px; }
+  li .s { color: #EAF2FF; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 21px; padding-right: 12px; }
+  li .by { color: #8FA8CC; font-size: 16px; margin-left: auto; }
+  .empty { color: #9FB4D8; font-size: 19px; }
+</style>
+</head>
+<body>
+<div id="box">
+  <div class="title">点歌列表 <small>点歌免费</small></div>
+  <div class="now" id="now">当前没有播放</div>
+  <div class="sub">弹幕发「点歌 歌名」即可点歌</div>
+  <ol id="list"><li><span class="s empty">还没有人点歌</span></li></ol>
+</div>
+<script>
+const API = location.origin;
+async function tick() {
+  try {
+    const r = await fetch(API + '/api/songs/state', { cache: 'no-store' });
+    const d = await r.json();
+    const now = document.getElementById('now');
+    now.textContent = d.current ? '正在播放：' + d.current.name + (d.current.artist ? ' · ' + d.current.artist : '') : '当前没有播放';
+    const list = document.getElementById('list');
+    if (!d.queue || !d.queue.length) list.innerHTML = '<li><span class="s empty">还没有人点歌</span></li>';
+    else list.innerHTML = d.queue.map((x, i) => '<li><span class="n">' + (i + 1) + '.</span><span class="s">' + x.name + '</span><span class="by">' + x.by + ' 点</span></li>').join('');
+  } catch (e) {}
+}
+tick();
+setInterval(tick, 1500);
+</script>
+</body>
+</html>

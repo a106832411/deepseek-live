@@ -1,0 +1,86 @@
+{
+    "platform":  "douyin",
+    "douyin":  {
+                   "web_rid":  "替换成你的直播间号",
+                   "mode":  "relay"
+               },
+    "ai":  {
+               "backend":  "openai",
+               "max_chars":  20,
+               "openai_key":  "sk-替换成你的DeepSeekKey",
+               "openai_base":  "https://api.deepseek.com/v1",
+               "openai_model":  "deepseek-chat"
+           },
+    "persona":  {
+                    "system":  "你是直播间里的虚拟主播小鲸鱼，自称「咱家小鲸鱼」，说话可爱简短。"
+                },
+    "tts":  {
+                "api_url":  "http://127.0.0.1:9881",
+                "ref_audio":  "替换成参考音频的绝对路径.wav",
+                "top_k":  20,
+                "speed":  0.95,
+                "temperature":  1,
+                "sample_steps":  32,
+                "auto_play":  true,
+                "prompt_text":  "这个声音说的那句话"
+            },
+    "events":  {
+                   "gift":  {
+                                "cooldown_user":  10,
+                                "mode":  "ai",
+                                "enabled":  true
+                            },
+                   "danmaku":  {
+                                   "cooldown_user":  5,
+                                   "probability":  100,
+                                   "mode":  "ai",
+                                   "enabled":  true
+                               },
+                   "enter":  {
+                                 "cooldown_user":  30,
+                                 "templates":  [
+                                                   "欢迎{name}，随便坐别客气～",
+                                                   "{name}来啦，浪花把你送来啦！",
+                                                   "欢迎{name}，今天心情怎么样？"
+                                               ],
+                                 "mode":  "template",
+                                 "enabled":  true
+                             },
+                   "like":  {
+                                "cooldown_user":  60,
+                                "enabled":  true
+                            },
+                   "follow":  {
+                                  "cooldown_user":  60,
+                                  "templates":  [
+                                                    "谢谢{name}的关注！",
+                                                    "{name}关注啦，咕噜咕噜～"
+                                                ],
+                                  "mode":  "template",
+                                  "enabled":  true
+                              }
+               },
+    "fixed_replies":  [
+                          {
+                              "reply":  "宝子好呀，咕噜咕噜～",
+                              "keywords":  [
+                                               "你好",
+                                               "嗨",
+                                               "hi"
+                                           ]
+                          },
+                          {
+                              "reply":  "唱歌还在练，练好了唱给你听！",
+                              "keywords":  [
+                                               "唱歌"
+                                           ]
+                          }
+                      ],
+    "merge_window":  0,
+    "songs":  {
+                  "request_file":  "song_requests.jsonl",
+                  "max_minutes":  10,
+                  "max_queue":  20,
+                  "enabled":  true
+              }
+}

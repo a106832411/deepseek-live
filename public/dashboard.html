@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>鲸语移植版 · 控制台</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Microsoft YaHei", system-ui, sans-serif; background: #0b1220; color: #e6f0ff; }
+  header { display: flex; align-items: center; gap: 16px; padding: 14px 20px; background: #101a2e; border-bottom: 1px solid #22314d; }
+  header h1 { font-size: 18px; margin: 0; }
+  .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: #1b2a45; color: #9fc4ff; }
+  .pill.on { background: #123a2a; color: #6ef2b0; }
+  .pill.off { background: #3a1a1f; color: #ff8f9a; }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 18px 20px; }
+  .card { background: #101a2e; border: 1px solid #22314d; border-radius: 12px; padding: 14px; }
+  .card h2 { font-size: 14px; margin: 0 0 10px; color: #9fc4ff; font-weight: 600; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stat { background: #0c1526; border-radius: 10px; padding: 10px; text-align: center; }
+  .stat b { display: block; font-size: 22px; }
+  .stat span { font-size: 12px; color: #7f9ac0; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { background: #1d3a66; color: #dbeaff; border: 1px solid #2f5287; border-radius: 8px; padding: 7px 14px; cursor: pointer; font-size: 13px; }
+  button:hover { background: #25497e; }
+  button.warn { background: #4a2230; border-color: #7d3350; }
+  input, textarea { width: 100%; background: #0c1526; color: #dbeaff; border: 1px solid #22314d; border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+  textarea { min-height: 220px; font-family: Consolas, monospace; line-height: 1.5; }
+  ul { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow: auto; }
+  li { padding: 6px 0; border-bottom: 1px dashed #1d2a42; font-size: 13px; color: #c9dcf5; }
+  li .k { color: #7f9ac0; font-size: 12px; margin-right: 6px; }
+  a { color: #7fb6ff; }
+  .muted { color: #7f9ac0; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🐳 鲸语 · 移植版控制台</h1>
+  <span class="pill" id="runPill">未开始</span>
+  <span class="pill" id="connPill">relay</span>
+  <span class="muted" id="uptime"></span>
+  <span class="muted" style="margin-left:auto">
+    <a href="/overlay" target="_blank">弹幕层</a> ·
+    <a href="/songs" target="_blank">歌单</a> ·
+    <a href="http://127.0.0.1:9886/songs" target="_blank">点歌系统</a>
+  </span>
+</header>
+<main>
+  <section class="card">
+    <h2>会话</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button onclick="api('/api/session/start',{})">开始会话</button>
+      <button class="warn" onclick="api('/api/session/stop',{})">结束会话</button>
+      <button onclick="api('/api/stats/reset',{})">清空统计</button>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="s_enter">0</b><span>进房</span></div>
+      <div class="stat"><b id="s_danmaku">0</b><span>弹幕</span></div>
+      <div class="stat"><b id="s_gift">0</b><span>礼物</span></div>
+      <div class="stat"><b id="s_follow">0</b><span>关注</span></div>
+      <div class="stat"><b id="s_like">0</b><span>点赞</span></div>
+      <div class="stat"><b id="s_say">0</b><span>说话</span></div>
+    </div>
+    <h2 style="margin-top:16px">手动说话（走 TTS）</h2>
+    <div class="row">
+      <input id="sayText" placeholder="输入要说的内容" style="flex:1">
+      <button onclick="say()">说</button>
+    </div>
+    <h2 style="margin-top:16px">测试事件</h2>
+    <div class="row">
+      <button onclick="testEvent('danmaku')">模拟弹幕</button>
+      <button onclick="testEvent('enter')">模拟进房</button>
+      <button onclick="testEvent('gift')">模拟礼物</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>实时事件</h2>
+    <ul id="feed"></ul>
+  </section>
+
+  <section class="card" style="grid-column: 1 / -1">
+    <h2>配置（JSON，改完点保存）</h2>
+    <textarea id="cfg"></textarea>
+    <div class="row" style="margin-top:10px">
+      <button onclick="saveCfg()">保存配置</button>
+      <button onclick="loadCfg()">重新读取</button>
+      <span class="muted">TTS 走 9881 代理，点歌转交 tools/logs/song_requests.jsonl</span>
+    </div>
+  </section>
+</main>
+<script>
+async function api(p, body) {
+  const r = await fetch(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  return r.json();
+}
+async function say() {
+  const t = document.getElementById('sayText').value.trim();
+  if (!t) return;
+  await api('/api/say', { text: t });
+}
+async function testEvent(type) {
+  const map = {
+    danmaku: { type: 'danmaku', name: '测试观众', text: '你好呀' },
+    enter: { type: 'enter', name: '进房测试鱼' },
+    gift: { type: 'gift', name: '送礼测试鱼', gift: '小心心', num: 1, value: 0.1 }
+  };
+  await api('/api/test_event', { event: map[type] });
+}
+async function loadCfg() {
+  const r = await fetch('/api/config');
+  const j = await r.json();
+  document.getElementById('cfg').value = JSON.stringify(j, null, 2);
+}
+async function saveCfg() {
+  const txt = document.getElementById('cfg').value;
+  try {
+    const j = JSON.parse(txt);
+    await api('/api/config', j);
+    alert('已保存');
+  } catch (e) { alert('JSON 格式错误: ' + e.message); }
+}
+function renderFeed(items) {
+  const ul = document.getElementById('feed');
+  ul.innerHTML = items.map((x) => `<li><span class="k">${x.t} ${x.kind}</span>${x.name ? '<b>' + x.name + '</b>：' : ''}${x.text || ''}</li>`).join('');
+}
+async function refresh() {
+  try {
+    const h = await (await fetch('/api/health')).json();
+    document.getElementById('runPill').textContent = h.running ? '会话进行中' : '未开始';
+    document.getElementById('runPill').className = 'pill ' + (h.running ? 'on' : 'off');
+    document.getElementById('connPill').textContent = 'mode: ' + h.mode;
+    document.getElementById('uptime').textContent = h.uptime ? h.uptime + 's' : '';
+    for (const k of ['enter', 'danmaku', 'gift', 'follow', 'like', 'say']) {
+      const el = document.getElementById('s_' + k);
+      if (el) el.textContent = (h.stats && h.stats[k]) || 0;
+    }
+    const r = await (await fetch('/api/recent')).json();
+    renderFeed(r);
+  } catch (e) {}
+}
+loadCfg();
+refresh();
+setInterval(refresh, 1500);
+</script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>鲸语 · 弹幕层</title>
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; font-family: "Microsoft YaHei", sans-serif; }
+  #wrap { width: 100vw; height: 100vh; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-end; }
+  .line { margin: 3px 0; font-size: 18px; line-height: 1.35; color: #eaf4ff; text-shadow: 0 1px 2px rgba(0, 0, 0, .75); }
+  .nick { color: #7fd0ff; font-weight: 600; }
+  .me .nick { color: #ffd479; }
+  .reply { color: #cfeeff; }
+  .fade { animation: fadeIn .25s ease-out; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<div id="wrap"></div>
+<script>
+const API = location.origin;
+const wrap = document.getElementById('wrap');
+const seen = new Map();
+let ws = null;
+
+function addLine(html, cls) {
+  const div = document.createElement('div');
+  div.className = 'line fade' + (cls ? ' ' + cls : '');
+  div.innerHTML = html;
+  wrap.appendChild(div);
+  while (wrap.children.length > 10) wrap.removeChild(wrap.firstChild);
+  setTimeout(() => { try { div.remove(); } catch (e) {} }, 45000);
+}
+
+function esc(s) {
+  return String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function addEvent(ev) {
+  if (!ev) return;
+  if (ev.type === 'danmaku') {
+    const text = String(ev.text || '');
+    if (/送出了|送出.*×\d+/.test(text)) return;
+    const key = 'd:' + (ev.name || '') + ':' + text;
+    const now = Date.now();
+    if (seen.has(key) && now - seen.get(key) < 90000) return;
+    seen.set(key, now);
+    addLine('<span class="nick">' + esc(ev.name) + '</span>：' + esc(text.replace(/（.*?元.*?）/g, '')));
+  } else if (ev.type === 'enter') {
+    const key = 'e:' + (ev.name || '');
+    const now = Date.now();
+    if (seen.has(key) && now - seen.get(key) < 90000) return;
+    seen.set(key, now);
+    addLine('<span class="nick">' + esc(ev.name) + '</span> 来了');
+  } else if (ev.type === 'gift') {
+    addLine('<span class="nick">' + esc(ev.name) + '</span> 送出 ' + esc(ev.gift || '礼物') + (ev.num > 1 ? ' ×' + ev.num : ''));
+  }
+}
+
+function addReply(text) {
+  addLine('<span class="nick">小鲸鱼：</span>' + esc(text), 'me reply');
+}
+
+function connect() {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.onmessage = (m) => {
+    try {
+      const j = JSON.parse(m.data);
+      if (j.kind === 'event') addEvent(j.event);
+      else if (j.kind === 'reply' || j.kind === 'speak') addReply(j.text);
+      else if (j.kind === 'hello' && Array.isArray(j.recent)) {
+        j.recent.slice().reverse().forEach((x) => { if (x.kind === 'event') addEvent({ type: 'danmaku', name: x.name, text: x.text }); });
+      }
+    } catch (e) {}
+  };
+  ws.onclose = () => setTimeout(connect, 3000);
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
+}
+connect();
+setInterval(() => { if (!ws || ws.readyState > 1) connect(); }, 15000);
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of seen) if (now - v > 180000) seen.delete(k);
+}, 60000);
+</script>
+</body>
+</html>

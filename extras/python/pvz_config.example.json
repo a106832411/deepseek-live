@@ -1,0 +1,54 @@
+{
+    "window_title":  "Plants vs. Zombies",
+    "capture":  {
+                    "engine":  "winrt",
+                    "out_dir":  "shots"
+                },
+    "ui":  {
+               "seed_bank":  {
+                                 "slot_w":  55,
+                                 "slot_h":  84,
+                                 "slot_y":  8,
+                                 "slot_x0":  97,
+                                 "slots":  6
+                             },
+               "lawn":  {
+                            "x0":  40,
+                            "y0":  182,
+                            "cell_w":  83,
+                            "cell_h":  72,
+                            "cols":  9,
+                            "rows":  5
+                        },
+               "sun_region":  {
+                                  "x":  30,
+                                  "y":  56,
+                                  "w":  65,
+                                  "h":  32
+                              },
+               "sun_click":  {
+                                 "x":  45,
+                                 "y":  60
+                             },
+               "seeds":  [
+                             {
+                                 "name":  "豌豆射手",
+                                 "cost":  100,
+                                 "slot":  0
+                             },
+                             {
+                                 "name":  "向日葵",
+                                 "cost":  50,
+                                 "slot":  1
+                             }
+                         ]
+           },
+    "brain":  {
+                  "model":  "deepseek-chat",
+                  "base":  "https://api.deepseek.com/v1",
+                  "max_tokens":  120,
+                  "temperature":  0.3
+              },
+    "speak_decisions":  true,
+    "tick_seconds":  3.0
+}
