@@ -315,7 +315,7 @@ onUnmounted(() => {
               <div class="s-label">{{ m.label }}</div>
             </div>
           </div>
-          <div class="grid2" style="margin-bottom:18px">
+          <div class="session-cols">
             <div class="card">
               <div class="card-head"><h2>开播自检</h2><span class="hint">全绿即可开播</span></div>
               <ul class="checklist">
@@ -342,8 +342,6 @@ onUnmounted(() => {
                 还没有人点歌，弹幕发「点歌 歌名」试试
               </div>
             </div>
-          </div>
-          <div class="grid2">
             <div class="card">
               <div class="card-head"><h2>快捷测试</h2><span class="hint">不用开播也能测</span></div>
               <div class="chips">
@@ -354,6 +352,25 @@ onUnmounted(() => {
               </div>
               <div class="card-head" style="margin-top:16px"><h2>统计</h2></div>
               <button class="ghost" @click="invoke('stats:reset').then(refresh)">清空统计</button>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2>快捷入口</h2><span class="hint">OBS / 浏览器直接打开</span></div>
+              <div class="link-list">
+                <a :href="API + '/console'" target="_blank">🖥 网页控制台 <span>/console</span></a>
+                <a :href="API + '/overlay'" target="_blank">💬 弹幕层 <span>/overlay</span></a>
+                <a :href="API + '/songs'" target="_blank">🎵 歌单 <span>/songs</span></a>
+                <a :href="API + '/live2d'" target="_blank">🎭 皮套 <span>/live2d</span></a>
+                <a href="https://github.com/a106832411/deepseek-live" target="_blank">📦 仓库 <span>GitHub</span></a>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2>使用提示</h2><span class="hint">常用操作</span></div>
+              <ul class="tips">
+                <li>弹幕发「点歌 歌名」自动搜索入队（网易云 → QQ 音乐回退）</li>
+                <li>中继脚本把弹幕 POST 到 <code>/api/douyin/ingest</code> 即可接入</li>
+                <li>密钥/人设/TTS 路径改 <code>.env</code> 后重启生效</li>
+                <li>OBS 浏览器源：弹幕层 <code>/overlay</code>、歌单 <code>/songs</code>、皮套 <code>/live2d</code></li>
+              </ul>
             </div>
             <div class="card">
               <div class="card-head"><h2>最近事件</h2><span class="hint">实时</span></div>
@@ -502,16 +519,20 @@ onUnmounted(() => {
             <section class="card">
               <div class="card-head"><h2>🎯 事件触发</h2><span class="hint">每个事件的开关 / 模式 / 冷却</span></div>
               <div v-for="em in EVENT_META" :key="em.key" class="event-row">
-                <div class="ev-title">{{ em.icon }} {{ em.label }}</div>
-                <label class="check"><input type="checkbox" v-model="cfg.events[em.key].enabled" @change="markDirty" /> 启用</label>
-                <label class="field inline"><span>模式</span>
-                  <select v-model="cfg.events[em.key].mode" @change="markDirty">
-                    <option value="ai">AI 生成</option>
-                    <option value="template">模板</option>
-                  </select>
-                </label>
-                <label class="field inline"><span>概率%</span><input type="number" min="1" max="100" v-model.number="cfg.events[em.key].probability" @input="markDirty" /></label>
-                <label class="field inline"><span>冷却(秒)</span><input type="number" v-model.number="cfg.events[em.key].cooldown_user" @input="markDirty" /></label>
+                <div class="ev-left">
+                  <div class="ev-title">{{ em.icon }} {{ em.label }}</div>
+                  <label class="check"><input type="checkbox" v-model="cfg.events[em.key].enabled" @change="markDirty" /> 启用</label>
+                </div>
+                <div class="ev-right">
+                  <label class="field inline"><span>模式</span>
+                    <select v-model="cfg.events[em.key].mode" @change="markDirty">
+                      <option value="ai">AI 生成</option>
+                      <option value="template">模板</option>
+                    </select>
+                  </label>
+                  <label class="field inline"><span>概率</span><input type="number" min="1" max="100" v-model.number="cfg.events[em.key].probability" @input="markDirty" /></label>
+                  <label class="field inline"><span>冷却</span><input type="number" v-model.number="cfg.events[em.key].cooldown_user" @input="markDirty" /></label>
+                </div>
               </div>
               <div class="field">
                 <span>进房欢迎模板（每行一条，{name} 会替换成昵称）</span>
@@ -737,7 +758,7 @@ body {
 .crumb { font-size: 12px; color: var(--muted); display: flex; align-items: center; letter-spacing: 1px; }
 .crumb b { font-size: 15px; color: #f2efe9; font-weight: 600; letter-spacing: 2px; }
 .crumb .sep { color: #45403a; margin: 0 10px; }
-.top-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.top-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .pill {
   font-size: 10px; font-weight: 700; letter-spacing: 2px; padding: 6px 12px; border-radius: 6px;
   border: 1px solid var(--line-2); color: var(--muted); background: transparent;
@@ -794,7 +815,9 @@ button { font-family: inherit; }
 .s-label { font-size: 11px; color: var(--muted); margin-top: 4px; letter-spacing: 1.5px; }
 
 /* 卡片 */
-.grid2 { display: grid; grid-template-columns: 1fr 1.15fr; gap: 18px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1.15fr; gap: 18px; align-items: start; }
+.session-cols { column-count: 2; column-gap: 18px; }
+.session-cols > .card { break-inside: avoid; margin: 0 0 18px; }
 .card {
   position: relative; background: var(--panel); border: 1px solid var(--line);
   border-radius: 12px; padding: 20px;
@@ -840,7 +863,17 @@ button { font-family: inherit; }
 .ck.yes { background: rgba(143, 174, 139, .16); color: var(--ok); border: 1px solid rgba(143, 174, 139, .4); }
 .ck.no { background: rgba(185, 138, 138, .14); color: var(--err); border: 1px solid rgba(185, 138, 138, .38); }
 .ck-label { color: #d7d2c9; }
-.ck-hint { color: var(--muted); font-size: 11px; margin-left: auto; }
+.ck-hint { color: var(--muted); font-size: 11px; margin-left: auto; text-align: right; }
+
+/* 快捷入口 / 提示 */
+.link-list { display: flex; flex-direction: column; gap: 2px; }
+.link-list a { display: flex; justify-content: space-between; align-items: center; padding: 9px 2px; border-bottom: 1px dashed var(--line); color: #d7d2c9; font-size: 13px; }
+.link-list a:hover { color: var(--accent); text-decoration: none; }
+.link-list a span { color: var(--muted); font-size: 11px; }
+.tips { list-style: none; margin: 0; padding: 0; }
+.tips li { position: relative; padding: 8px 0 8px 16px; border-bottom: 1px dashed var(--line); font-size: 12px; color: #bdb7ad; line-height: 1.6; }
+.tips li::before { content: ''; position: absolute; left: 2px; top: 17px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); opacity: .7; }
+.tips code, .link-list code { background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
 
 /* 最近点歌 */
 .mini-queue { list-style: none; margin: 8px 0 0; padding: 0; }
@@ -896,19 +929,22 @@ button { font-family: inherit; }
 
 /* 配置 */
 .cfg-actions {
-  display: flex; gap: 12px; align-items: center; margin-bottom: 18px;
-  position: sticky; top: -26px; padding: 12px 0;
-  background: linear-gradient(180deg, rgba(10, 11, 13, .97) 40%, rgba(10, 11, 13, 0));
-  z-index: 3;
+  display: flex; gap: 12px; align-items: center; margin: 0 0 16px;
+  position: sticky; top: 0; padding: 12px 0 10px;
+  background: rgba(10, 11, 13, .96);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(8px);
+  z-index: 5;
 }
 .dirty { color: var(--warn); font-size: 12px; letter-spacing: .5px; }
-.cfg-sections { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.cfg-sections { column-count: 2; column-gap: 18px; }
+.cfg-sections > .card { break-inside: avoid; margin: 0 0 18px; }
 .cfg-sections .card { display: flex; flex-direction: column; gap: 13px; }
 .field { display: flex; flex-direction: column; gap: 7px; font-size: 11px; color: var(--muted); }
 .field > span { color: var(--muted); letter-spacing: 1px; }
 .field.inline { flex-direction: row; align-items: center; gap: 10px; }
 .field.inline > span { flex: 0 0 auto; }
-.field.inline input, .field.inline select { width: auto; min-width: 90px; }
+.field.inline input, .field.inline select { width: auto; min-width: 0; flex: 1 1 auto; }
 .field.inline b { color: #f0ede7; }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
@@ -929,11 +965,23 @@ textarea.json { min-height: 300px; font-family: Consolas, monospace; }
 .chips .check { background: #101216; border: 1px solid var(--line-2); border-radius: 7px; padding: 8px 13px; }
 .chips .check input { margin-right: 4px; }
 .event-row {
-  display: grid; grid-template-columns: 150px 84px 152px 120px 120px; gap: 10px; align-items: center;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px;
   padding: 10px 0; border-bottom: 1px solid var(--line);
 }
-.ev-title { font-size: 13px; color: #d7d2c9; }
-.fixed-row { display: grid; grid-template-columns: 1fr 1.5fr auto; gap: 10px; align-items: center; margin-bottom: 10px; }
+.ev-left { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; }
+.ev-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ev-title { font-size: 13px; color: #d7d2c9; white-space: nowrap; }
+.event-row .check { flex: 0 0 auto; white-space: nowrap; font-size: 12px; }
+.event-row .field.inline { flex: 0 0 auto; gap: 6px; font-size: 11px; }
+.event-row .field.inline > span { white-space: nowrap; }
+.event-row .field.inline select { width: 100px; }
+.event-row .field.inline input { width: 72px; text-align: center; }
+.event-row input[type=number]::-webkit-inner-spin-button,
+.event-row input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.fixed-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto; gap: 10px; align-items: center; margin-bottom: 10px; }
+.fixed-row input { min-width: 0; }
 
 .about { list-style: none; margin: 0; padding: 0; }
 .about li { padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 13px; color: #d7d2c9; }
@@ -954,6 +1002,19 @@ a:hover { text-decoration: underline; }
   background: #14171c; border: 1px solid var(--line-2);
   padding: 11px 16px; border-radius: 9px; font-size: 12px; color: #e6e2da;
   box-shadow: 0 14px 36px rgba(0, 0, 0, .5);
+}
+@media (max-width: 1360px) {
+  .stat-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 1180px) {
+  .grid2 { grid-template-columns: 1fr; }
+  .cfg-sections, .session-cols { column-count: 1; }
+}
+@media (max-width: 820px) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .sidebar { width: 200px; flex-basis: 200px; }
+  .ev-title { flex-basis: 100%; }
+  .topbar { flex-wrap: wrap; height: auto; min-height: 58px; padding: 8px 16px; gap: 8px; }
 }
 .fade-enter-active, .fade-leave-active { transition: opacity .18s, transform .18s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(5px); }
