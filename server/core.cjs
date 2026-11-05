@@ -365,6 +365,9 @@ async function route(req, res) {
   if (method === 'GET' && (p === '/' || p === '/dashboard')) return serveFile(res, 'dashboard.html');
   if (method === 'GET' && p === '/overlay') return serveFile(res, 'overlay.html');
   if (method === 'GET' && p === '/songs') return serveFile(res, 'songs.html');
+  if (method === 'GET' && p === '/console') return serveFile(res, 'console.html');
+  if (method === 'GET' && p === '/live2d') return serveFile(res, 'live2d.html');
+  if (method === 'GET' && p.startsWith('/live2d/')) return serveStatic(res, p.slice(1));
 
   if (p === '/api/health') {
     return json(res, {
@@ -437,6 +440,25 @@ async function route(req, res) {
     } catch (e) { return json(res, { current: null, queue: [] }); }
   }
   return json(res, { ok: false, error: 'not found' }, 404);
+}
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg',
+  '.webp': 'image/webp', '.css': 'text/css; charset=utf-8', '.moc3': 'application/octet-stream',
+  '.wasm': 'application/wasm', '.wav': 'audio/wav', '.mp3': 'audio/mpeg'
+};
+
+function serveStatic(res, rel) {
+  const safe = rel.replace(/\\/g, '/').replace(/\.\./g, '');
+  const file = path.join(PUBLIC, safe);
+  if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    res.writeHead(404); return res.end('not found');
+  }
+  const ext = path.extname(file).toLowerCase();
+  const body = fs.readFileSync(file);
+  res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Content-Length': body.length, 'Cache-Control': 'no-cache' });
+  res.end(body);
 }
 
 function serveFile(res, name) {

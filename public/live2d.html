@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>鲸语 · Live2D 皮套</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  canvas { display: block; }
+  #err { position: fixed; left: 8px; top: 8px; color: #ff9aa8; font: 13px/1.5 "Microsoft YaHei", sans-serif; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="err"></div>
+<script src="/live2d/vendor/live2dcubismcore.min.js"></script>
+<script src="/live2d/vendor/pixi.min.js"></script>
+<script src="/live2d/vendor/pixi-live2d-display.cubism4.min.js"></script>
+<script>
+(async function () {
+  const q = new URLSearchParams(location.search);
+  const MODEL_URL = q.get('model') || '/live2d/models/WhaleGirl/c_0120.model3.json';
+  const SCALE = Number(q.get('scale') || 0.92);
+  const err = document.getElementById('err');
+  function showErr(e) { err.textContent = String((e && e.stack) || e); }
+  window.addEventListener('error', (e) => showErr(e.error || e.message));
+
+  try {
+    const { Application, live2d } = PIXI;
+    const app = new Application({
+      view: document.createElement('canvas'),
+      autoStart: true,
+      backgroundAlpha: 0,
+      antialias: true,
+      powerPreference: 'high-performance',
+      resizeTo: window
+    });
+    document.body.appendChild(app.view);
+
+    const model = await live2d.Live2DModel.from(MODEL_URL, { autoInteract: false });
+    app.stage.addChild(model);
+
+    // 自动缩放、脚底对齐底部居中
+    function fit() {
+      const im = model.internalModel;
+      const mw = im.width || im.originalWidth || 1000;
+      const mh = im.height || im.originalHeight || 1000;
+      const s = (app.screen.height * SCALE) / mh;
+      model.scale.set(s);
+      model.x = (app.screen.width - mw * s) / 2;
+      model.y = app.screen.height - mh * s;
+    }
+    fit();
+    window.addEventListener('resize', fit);
+
+    // ---- 说话口型 + 表情 ----
+    let speaking = false;
+    let mouthPhase = 0;
+    let mouthTarget = 0;
+    const core = () => model.internalModel.coreModel;
+    function setMouth(v) {
+      try { core().setParameterValueById('ParamMouthOpenY', v); } catch (e) {}
+    }
+    app.ticker.add(() => {
+      if (speaking) {
+        mouthPhase += 0.35;
+        mouthTarget = 0.35 + 0.45 * Math.abs(Math.sin(mouthPhase));
+      } else {
+        mouthTarget = 0;
+      }
+      setMouth(mouthTarget * (0.6 + 0.4 * Math.sin(mouthPhase * 0.7)));
+    });
+
+    let exprNames = [];
+    try {
+      const j = await (await fetch(MODEL_URL)).json();
+      if (j.FileReferences && j.FileReferences.Expressions) exprNames = j.FileReferences.Expressions.map((x) => x.Name);
+    } catch (e) {}
+
+    function randomExpression() {
+      if (!exprNames.length) return;
+      const n = exprNames[Math.floor(Math.random() * exprNames.length)];
+      try { model.expression(n); } catch (e) {}
+    }
+
+    // ---- 接鲸语 WS ----
+    function connectWs() {
+      try {
+        const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+        ws.onmessage = (m) => {
+          let j;
+          try { j = JSON.parse(m.data); } catch (e) { return; }
+          if (j.kind === 'speak' || j.kind === 'reply') {
+            speaking = true;
+            mouthPhase = 0;
+            const len = (j.text || '').length;
+            const ms = Math.min(9000, 800 + len * 140);
+            setTimeout(() => { speaking = false; }, ms);
+            if (Math.random() < 0.5) randomExpression();
+          } else if (j.kind === 'speak_end') {
+            speaking = false;
+          }
+        };
+        ws.onclose = () => setTimeout(connectWs, 3000);
+      } catch (e) {}
+    }
+    connectWs();
+
+    // 空闲时随机眨眼/表情
+    setInterval(() => { if (!speaking && Math.random() < 0.25) randomExpression(); }, 12000);
+
+    err.textContent = '';
+    window.__l2dReady = true;
+  } catch (e) {
+    showErr(e);
+  }
+})();
+</script>
+</body>
+</html>

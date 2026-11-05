@@ -27,9 +27,11 @@ node server/index.cjs --port 8788
 
 | 地址 | 用途 |
 |---|---|
-| http://127.0.0.1:8788/dashboard | 控制台（会话/统计/事件/手动说话/配置） |
+| http://127.0.0.1:8788/console | **完整控制台**（会话/事件/配置/皮套预览/叠加层预览/歌单） |
+| http://127.0.0.1:8788/live2d | **Live2D 皮套**（透明背景，OBS 浏览器源） |
 | http://127.0.0.1:8788/overlay | 弹幕层（OBS 浏览器源） |
 | http://127.0.0.1:8788/songs | 点歌列表（OBS 浏览器源） |
+| http://127.0.0.1:8788/dashboard | 精简控制台 |
 
 ## Electron 桌面版（可选）
 
@@ -37,6 +39,15 @@ node server/index.cjs --port 8788
 npm install            # 或 pnpm install
 npm run electron       # 打开桌面窗口，内部自动起 8788 服务
 ```
+
+## Live2D 皮套
+
+/live2d 是自带渲染页：本地内置 pixi.js、pixi-live2d-display（Cubism4）和 Cubism Core，
+模型在 public/live2d/models/WhaleGirl/（换成自己的模型改目录 + 地址即可）。
+
+- 地址参数：/live2d?scale=0.92 控制大小
+- 说话口型：监听 WS /ws 的 speak / eply 事件，自动张嘴 + 随机表情
+- OBS：浏览器源 URL 填 http://127.0.0.1:8788/live2d，背景透明可直接叠
 
 ## 架构
 
@@ -98,7 +109,7 @@ scripts/            Windows 一键脚本
 | OBS 弹幕层 / 歌单 / 控制台 | ✅ |
 | 点歌（转交点歌系统） | ✅ |
 | 真游戏画面采集桥（OBS 抓不到老 DirectDraw 游戏时用） | ✅ extras/python/gamecam.py |
-| Live2D 皮套渲染 | ⏳ 待移植（建议 pixi-live2d-display） |
+| Live2D 皮套渲染 | ✅ 已移植（pixi-live2d-display + Cubism4 Core，说话时口型动、随机表情） |
 | 自动歌单播放 | ⏳ 先用 extras/python/songbot.py |
 
 ## License
