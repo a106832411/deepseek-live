@@ -1,5 +1,5 @@
 /**
- * 深语直播核心服务（零 npm 依赖）
+ * 鲸live核心服务（零 npm 依赖）
  * - HTTP API + WS /ws
  * - AI 回复走 DeepSeek，语音走本地 GPT-SoVITS 代理（9881）
  * - 点歌请求转发给独立点歌系统（写 song_requests.jsonl）
@@ -110,6 +110,7 @@ function applyEnv(c) {
   str('DEEPLIVE_OBS_PASSWORD', ['obs', 'password']);
   str('DEEPLIVE_OBS_SCENE', ['obs', 'scene']);
   str('DEEPLIVE_OBS_BG', ['obs', 'bgColor']);
+  str('DEEPLIVE_OBS_PRESET', ['obs', 'preset']);
 
   num('DEEPLIVE_MERGE_WINDOW', ['merge_window']);
   list('DEEPLIVE_FILTER_BLOCKLIST', ['filter', 'blocklist']);
@@ -129,7 +130,7 @@ const DEFAULT_CONFIG = {
   ai: { backend: 'openai', openai_base: 'https://api.deepseek.com/v1', openai_model: 'deepseek-chat', openai_key: '', thinking: 'off', max_chars: 20 },
   persona: { system: '你是直播间里的虚拟主播小深，说话自然简洁。' },
   tts: { api_url: 'http://127.0.0.1:9881', ref_audio: '', prompt_text: '梁山在上，今天大白饭也要变得美味呀。', speed: 0.95, sample_steps: 32, top_k: 20, temperature: 1.0, auto_play: true },
-  obs: { host: '127.0.0.1', port: 4455, password: '', scene: '深语直播', bgColor: '0b0c0e' },
+  obs: { host: '127.0.0.1', port: 4455, password: '', scene: '鲸live直播', bgColor: '0b0c0e' },
   events: {
     danmaku: { enabled: true, probability: 100, cooldown_user: 5, mode: 'ai' },
     enter: { enabled: true, cooldown_user: 30, mode: 'template', templates: ['欢迎{name}，随便坐别客气～'] },
@@ -870,7 +871,7 @@ function start(port) {
   });
   server.listen(port, '127.0.0.1', () => {
     state.port = port;
-  log(`深语直播服务已启动: http://127.0.0.1:${port}`);
+  log(`鲸live服务已启动: http://127.0.0.1:${port}`);
     log(`面板 http://127.0.0.1:${port}/dashboard  弹幕层 http://127.0.0.1:${port}/overlay  歌单 http://127.0.0.1:${port}/songs`);
   });
   return server;
@@ -883,8 +884,9 @@ function obsSettings(overrides) {
       host: c.host || '127.0.0.1',
       port: Number(c.port || 4455),
       password: c.password || '',
-      scene: c.scene || '深语直播',
+      scene: c.scene || '鲸live',
       bgColor: String(c.bgColor || '0b0c0e'),
+      preset: c.preset || 'simple',
       baseUrl: 'http://127.0.0.1:' + (state.port || 8788)
     },
     overrides || {}

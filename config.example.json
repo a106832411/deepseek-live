@@ -92,6 +92,7 @@
     "port": 4455,
     "password": "替换成你的 OBS WebSocket 密码",
     "scene": "深语直播",
-    "bgColor": "0b0c0e"
+    "bgColor": "0b0c0e",
+    "preset": "simple"
   }
 }

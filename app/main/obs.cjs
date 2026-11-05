@@ -255,6 +255,110 @@ function layoutFor(canvasW, canvasH) {
 }
 
 /** 一键配置：创建（或复用）场景 + 三个浏览器源并按画布摆好 */
+function scaleSpec(spec, W, H) {
+  // 旧场景基准 1080x1920
+  const sx = W / 1080;
+  const sy = H / 1920;
+  const out = Object.assign({}, spec);
+  if (out.x != null) out.x = Math.round(out.x * sx);
+  if (out.y != null) out.y = Math.round(out.y * sy);
+  if (out.w != null) out.w = Math.round(out.w * sx);
+  if (out.h != null) out.h = Math.round(out.h * sy);
+  return out;
+}
+
+function presetSources(preset, W, H, api) {
+  const p = preset === 'game' ? 'game' : 'simple';
+  if (p === 'simple') {
+    return [
+      { name: '皮套', kind: 'browser', url: '/live2d?scale=0.95', iw: 972, ih: 1056, w: 972, h: 1056, x: Math.round(W * 0.05), y: Math.round(H * 0.30) },
+      { name: '弹幕层', kind: 'browser', url: '/overlay', iw: 1015, ih: 384, w: 1015, h: 384, x: Math.round(W * 0.03), y: Math.round(H * 0.02) },
+      { name: '歌单', kind: 'browser', url: '/songs', iw: 432, ih: 422, w: 432, h: 422, x: Math.round(W * 0.57), y: Math.round(H * 0.76) }
+    ].map((s) => scaleSpec(s, W, H));
+  }
+
+  // 完整直播：复刻旧版「AI主播直播间-竖屏」布局（1080x1920 基准）
+  const base = [
+    { name: '背景板', kind: 'image', file: 'D:/文档/deepseek-harness/default-workspace/whaletalk/assemble/ai_bg/1080x1920/bg3_星空鲸海.png', w: 1080, h: 1920, x: 0, y: 0 },
+    { name: '游戏画面', kind: 'browser', url: 'http://127.0.0.1:9800/cam', iw: 800, ih: 600, w: 1080, h: 810, x: 0, y: 190 },
+    { name: '文字叠加', kind: 'image', file: 'D:\文档\deepseek-harness\default-workspace\whaletalk\assemble\叠加层_竖屏_文字_v2.png', w: 1080, h: 1920, x: -5, y: 0 },
+    { name: '皮套', kind: 'browser', url: '/live2d?scale=0.95', iw: 1080, ih: 1080, w: 324, h: 324, x: 745, y: 1500 },
+    { name: '本场数据', kind: 'text', text: '本场数据', w: 234, h: 126, x: 640, y: 950 },
+    { name: '歌单', kind: 'browser', url: '/songs', iw: 432, ih: 422, w: 268, h: 262, x: 575, y: 1050 },
+    { name: '字幕', kind: 'browser', url: '/overlay', iw: 1280, ih: 200, w: 1024, h: 160, x: 0, y: 1005 },
+    { name: '弹幕', kind: 'browser', url: '/overlay', iw: 420, ih: 400, w: 260, h: 248, x: 10, y: 1050 },
+    { name: '游戏面板', kind: 'browser', url: '/overlay', iw: 760, ih: 700, w: 760, h: 700, x: 160, y: 600, hidden: true }
+  ];
+  return base.map((x) => scaleSpec(x, W, H)).map((x) => {
+    if (x.kind === 'browser' && x.url && !x.url.startsWith('http')) x.url = '/live2d' === x.url ? x.url : x.url;
+    return x;
+  });
+}
+
+async function createOrUpdateSource(client, sceneName, spec, api, existing) {
+  const fullUrl = spec.url && spec.url.startsWith('http') ? spec.url : spec.url ? api + spec.url : '';
+  const isBrowser = spec.kind === 'browser';
+  const isImage = spec.kind === 'image';
+  const isText = spec.kind === 'text';
+
+  let inputKind = 'browser_source';
+  if (isImage) inputKind = 'image_source';
+  if (isText) inputKind = 'text_gdiplus_v3';
+
+  let settings = {};
+  if (isBrowser) settings = { url: fullUrl, width: spec.iw || 800, height: spec.ih || 600, reroute_audio: false };
+  if (isImage) settings = { file: spec.file, unload: false };
+  if (isText) settings = {
+    text: spec.text || sceneName,
+    font: { face: 'Microsoft YaHei', size: 46, style: 'Bold' },
+    color: 0xffffffff,
+    align: 'center',
+    valign: 'center',
+    outline: true,
+    outline_color: 0xff000000,
+    outline_size: 2
+  };
+
+  if (existing.has(spec.name)) {
+    if (isBrowser || isImage || isText) {
+      await client.request('SetInputSettings', { inputName: spec.name, inputSettings: settings, overlay: true }).catch(() => {});
+    }
+    const idRes = await client.request('GetSceneItemId', { sceneName, sourceName: spec.name });
+    await client.request('SetSceneItemTransform', {
+      sceneName,
+      sceneItemId: idRes.sceneItemId,
+      sceneItemTransform: { positionX: spec.x || 0, positionY: spec.y || 0, width: spec.w || 0, height: spec.h || 1 }
+    });
+    if (spec.hidden) {
+      await client.request('SetSceneItemEnabled', { sceneName, sceneItemId: idRes.sceneItemId, sceneItemEnabled: false }).catch(() => {});
+    }
+    return '更新';
+  }
+
+  try {
+    await client.request('CreateInput', {
+      sceneName,
+      inputName: spec.name,
+      inputKind,
+      inputSettings: settings,
+      sceneItemEnabled: !spec.hidden
+    });
+  } catch (e) {
+    if (!/already exists/i.test(e.message)) throw e;
+    await client.request('CreateSceneItem', { sceneName, sourceName: spec.name, sceneItemEnabled: !spec.hidden });
+  }
+  const idRes = await client.request('GetSceneItemId', { sceneName, sourceName: spec.name });
+  await client.request('SetSceneItemTransform', {
+    sceneName,
+    sceneItemId: idRes.sceneItemId,
+    sceneItemTransform: { positionX: spec.x || 0, positionY: spec.y || 0, width: spec.w || 0, height: spec.h || 1 }
+  });
+  if (spec.hidden) {
+    await client.request('SetSceneItemEnabled', { sceneName, sceneItemId: idRes.sceneItemId, sceneItemEnabled: false }).catch(() => {});
+  }
+  return '添加';
+}
+
 async function setupScene(opts) {
   const o = Object.assign({}, opts || {});
   const logs = [];
@@ -269,13 +373,9 @@ async function setupScene(opts) {
     const video = await client.request('GetVideoSettings');
     const W = Number(video.baseWidth) || 1080;
     const H = Number(video.baseHeight) || 1920;
-    say('画布：' + W + '×' + H);
+    say('画布：' + W + '×' + H + '，布局：' + (o.preset === 'game' ? '完整直播（旧版场景）' : '简单直播'));
 
-    const sceneName = o.scene || '深语直播';
-    if (o.autoCanvas !== false) {
-      // 不改用户画布，仅按当前画布布局
-    }
-
+    const sceneName = o.scene || '鲸live直播';
     const scenes = await client.request('GetSceneList');
     const exists = (scenes.scenes || []).some((s) => s.sceneName === sceneName);
     if (!exists) {
@@ -304,7 +404,7 @@ async function setupScene(opts) {
         await client.request('SetSceneItemTransform', {
           sceneName,
           sceneItemId: bgItem.sceneItemId,
-          sceneItemTransform: { positionX: 0, positionY: 0 }
+          sceneItemTransform: { positionX: 0, positionY: 0, width: W, height: H }
         });
         say('已添加背景层');
       } catch (e) {
@@ -324,62 +424,24 @@ async function setupScene(opts) {
     }
 
     const api = o.baseUrl || 'http://127.0.0.1:8788';
-    const layout = o.sources || layoutFor(W, H);
-    for (const s of layout) {
-      const url = s.url.startsWith('http') ? s.url : api + s.url;
-      if (existing.has(s.name)) {
-        try {
-          await client.request('SetInputSettings', {
-            inputName: s.name,
-            inputSettings: { url, width: s.w, height: s.h },
-            overlay: true
-          });
-          const idRes = await client.request('GetSceneItemId', { sceneName, sourceName: s.name });
-          await client.request('SetSceneItemTransform', {
-            sceneName,
-            sceneItemId: idRes.sceneItemId,
-            sceneItemTransform: { positionX: s.x, positionY: s.y, width: s.w, height: s.h }
-          });
-          say('更新源：' + s.name + ' → ' + url);
-        } catch (e) {
-          say('更新失败 ' + s.name + '：' + e.message);
-        }
-        continue;
-      }
+    const sources = o.sources || presetSources(o.preset || 'simple', W, H, api);
+    for (const spec of sources) {
+      const title = spec.kind === 'browser' ? (spec.url || '') : spec.kind === 'image' ? (spec.file || '') : (spec.text || '');
       try {
-        try {
-          await client.request('CreateInput', {
-            sceneName,
-            inputName: s.name,
-            inputKind: 'browser_source',
-            inputSettings: { url, width: s.w, height: s.h, reroute_audio: false, shutdown: false, restart_when_active: false },
-            sceneItemEnabled: true
-          });
-        } catch (e) {
-          // 源已存在于其他场景：直接复用
-          if (!/already exists/i.test(e.message)) throw e;
-          await client.request('CreateSceneItem', { sceneName, sourceName: s.name, sceneItemEnabled: true });
-          await client.request('SetInputSettings', {
-            inputName: s.name,
-            inputSettings: { url, width: s.w, height: s.h },
-            overlay: true
-          });
+        if (spec.kind === 'image' && spec.file && !require('fs').existsSync(spec.file)) {
+          say('跳过 ' + spec.name + '：图片不存在 ' + spec.file);
+          continue;
         }
-        const idRes = await client.request('GetSceneItemId', { sceneName, sourceName: s.name });
-        await client.request('SetSceneItemTransform', {
-          sceneName,
-          sceneItemId: idRes.sceneItemId,
-          sceneItemTransform: { positionX: s.x, positionY: s.y, width: s.w, height: s.h }
-        });
-        say('已添加源：' + s.name + ' → ' + url + ' @ ' + s.w + '×' + s.h + ' (' + s.x + ',' + s.y + ')');
+        const action = await createOrUpdateSource(client, sceneName, spec, api, existing);
+        say(action + '源：' + spec.name + ' → ' + title + (spec.hidden ? '（隐藏）' : ''));
       } catch (e) {
-        say('添加失败 ' + s.name + '：' + e.message);
+        say('失败 ' + spec.name + '：' + e.message);
       }
     }
 
     await client.request('SetCurrentProgramScene', { sceneName });
     say('完成 ✅ 场景「' + sceneName + '」已就绪');
-    return { ok: true, scene: sceneName, canvas: [W, H], logs };
+    return { ok: true, scene: sceneName, canvas: [W, H], preset: o.preset || 'simple', logs };
   } catch (e) {
     say('失败：' + e.message);
     return { ok: false, error: e.message, logs };

@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>深语直播 · 皮套</title>
+<title>鲸live · 皮套</title>
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
   canvas { display: block; }
@@ -81,7 +81,7 @@
       try { model.expression(n); } catch (e) {}
     }
 
-    // ---- 接深语直播 WS ----
+    // ---- 接鲸live WS ----
     function connectWs() {
       try {
         const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');

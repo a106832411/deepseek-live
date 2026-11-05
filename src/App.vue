@@ -144,8 +144,9 @@ function normalize(c) {
   if (!c.obs.host) c.obs.host = '127.0.0.1';
   if (c.obs.port == null) c.obs.port = 4455;
   if (c.obs.password == null) c.obs.password = '';
-  if (!c.obs.scene) c.obs.scene = '深语直播';
+  if (!c.obs.scene) c.obs.scene = '鲸live';
   if (!c.obs.bgColor) c.obs.bgColor = '0b0c0e';
+  if (!c.obs.preset) c.obs.preset = 'simple';
   if (c.douyin == null) c.douyin = { mode: 'relay', web_rid: '' };
   if (c.persona == null) c.persona = { system: '' };
   return c;
@@ -243,7 +244,7 @@ function obsPayload() {
     host: o.host || '127.0.0.1',
     port: Number(o.port || 4455),
     password: o.password || '',
-    scene: o.scene || '深语直播'
+    scene: o.scene || '鲸live直播'
   };
 }
 async function obsTest() {
@@ -278,7 +279,7 @@ async function obsSetup() {
 async function obsSave() {
   const o = cfg.value.obs || {};
   await invoke('config:set', {
-    obs: { host: o.host, port: Number(o.port), password: o.password, scene: o.scene, bgColor: o.bgColor || '0b0c0e' }
+    obs: { host: o.host, port: Number(o.port), password: o.password, scene: o.scene, bgColor: o.bgColor || '0b0c0e', preset: o.preset || 'simple' }
   });
   toastShow('OBS 设置已保存');
 }
@@ -323,7 +324,7 @@ onUnmounted(() => {
       <div class="brand">
         <div class="logo">🎙</div>
         <div>
-          <div class="name">深语直播</div>
+          <div class="name">鲸live</div>
           <div class="ver">deepseek-live · v0.2</div>
         </div>
       </div>
@@ -351,7 +352,7 @@ onUnmounted(() => {
 
     <section class="main">
       <header class="topbar">
-        <div class="crumb"><span class="muted">深语直播</span><span class="sep">/</span><b>{{ currentLabel }}</b></div>
+        <div class="crumb"><span class="muted">鲸live</span><span class="sep">/</span><b>{{ currentLabel }}</b></div>
         <div class="top-actions">
           <button v-if="running" class="ghost warn" @click="invoke('session:stop').then(refresh)">结束会话</button>
           <button v-else class="primary" @click="invoke('session:start').then(refresh)">▶ 开始会话</button>
@@ -490,6 +491,12 @@ onUnmounted(() => {
             <label class="field"><span>WebSocket 端口</span><input type="number" v-model.number="cfg.obs.port" @input="markDirty" /></label>
             <label class="field"><span>WebSocket 密码</span><input type="password" v-model="cfg.obs.password" @input="markDirty" placeholder="OBS → 工具 → WebSocket 服务器设置" /></label>
             <label class="field"><span>场景名</span><input v-model="cfg.obs.scene" @input="markDirty" /></label>
+            <label class="field"><span>布局预设</span>
+              <select v-model="cfg.obs.preset" @change="markDirty">
+                <option value="simple">简单直播（皮套 + 弹幕 + 歌单）</option>
+                <option value="game">完整直播 · 旧版竖屏场景（游戏画面 + 文字叠加 + 字幕/弹幕 + 数据）</option>
+              </select>
+            </label>
           </div>
           <div class="row" style="margin-top:16px">
             <button class="ghost" :disabled="obsBusy" @click="obsTest">连接测试</button>
@@ -497,8 +504,10 @@ onUnmounted(() => {
             <button class="primary" :disabled="obsBusy" @click="obsSetup">{{ obsBusy ? '处理中…' : '⚡ 一键配置 OBS' }}</button>
           </div>
           <div class="hint-text">
-            会在 OBS 里创建/复用场景「{{ cfg.obs.scene }}」，添加 <b>背景 / 皮套 / 弹幕层 / 歌单</b> 四个源，按当前画布（横/竖屏自动判断）摆好位置。
-            地址来自当前服务：<code>{{ API }}</code>
+            会在 OBS 里创建/复用场景「{{ cfg.obs.scene }}」。<br>
+            · <b>简单直播</b>：背景 + 皮套 + 弹幕层 + 歌单<br>
+            · <b>完整直播（旧版竖屏场景）</b>：背景 + 游戏画面（gamecam 9800/cam）+ 文字叠加 + 皮套 + 本场数据 + 歌单 + 字幕 + 弹幕 + 游戏面板（隐藏），位置按旧版布局还原<br>
+            服务地址：<code>{{ API }}</code>
           </div>
           <pre class="obs-log" v-if="obsLog">{{ obsLog }}</pre>
         </div>
@@ -667,7 +676,7 @@ onUnmounted(() => {
         <div v-if="current === 'about'" class="card">
           <div class="card-head"><h2>关于</h2></div>
           <ul class="about">
-            <li><b>deepseek-live</b> · 深语直播控制台（Vue 3 + Electron 33）</li>
+            <li><b>deepseek-live</b> · 鲸live控制台（Vue 3 + Electron 33）</li>
             <li>核心：<code>app/main/core.cjs</code>（零依赖 Node，HTTP + WS + AI + TTS + 点歌）</li>
             <li>控制：IPC（window.whale.invoke）· OBS 叠加层走 HTTP</li>
             <li>皮套：pixi-live2d-display + Cubism 4（内置模型）</li>
