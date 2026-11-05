@@ -15,7 +15,9 @@ const CHANNELS = {
   ingest: (svc, payload) => svc.ingest((payload && payload.events) || []),
   'stats:reset': (svc) => svc.resetStats(),
   'songs:state': (svc) => ({ current: svc.state.song.current, queue: svc.state.song.queue.map((x) => ({ name: x.song.name, by: x.by })) }),
-  'songs:request': (svc, payload) => svc.requestSong((payload && payload.name) || '手动点歌', (payload && (payload.query || payload.song)) || '')
+  'songs:request': (svc, payload) => svc.requestSong((payload && payload.name) || '手动点歌', (payload && (payload.query || payload.song)) || ''),
+  'obs:status': (svc, payload) => svc.obsProbe(payload || {}),
+  'obs:setup': (svc, payload) => svc.obsSetup(payload || {})
 };
 
 function registerIpc(service) {

@@ -12,6 +12,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+const obs = require('./obs.cjs');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const PUBLIC = path.join(ROOT, 'public');
@@ -119,6 +120,12 @@ function applyEnv(c) {
   bool('DEEPLIVE_SONGS_AUTO_PLAY', ['songs', 'auto_play']);
   num('DEEPLIVE_SONGS_MAX_QUEUE', ['songs', 'max_queue']);
   list('DEEPLIVE_SONGS_SOURCES', ['songs', 'sources']);
+
+  str('DEEPLIVE_OBS_HOST', ['obs', 'host']);
+  num('DEEPLIVE_OBS_PORT', ['obs', 'port']);
+  str('DEEPLIVE_OBS_PASSWORD', ['obs', 'password']);
+  str('DEEPLIVE_OBS_SCENE', ['obs', 'scene']);
+  str('DEEPLIVE_OBS_BG', ['obs', 'bgColor']);
 
   num('DEEPLIVE_MERGE_WINDOW', ['merge_window']);
   list('DEEPLIVE_FILTER_BLOCKLIST', ['filter', 'blocklist']);
@@ -869,16 +876,34 @@ function start(port) {
     else socket.destroy();
   });
   server.listen(port, '127.0.0.1', () => {
-    log(`深语直播服务已启动: http://127.0.0.1:${port}`);
+    state.port = port;
+  log(`深语直播服务已启动: http://127.0.0.1:${port}`);
     log(`面板 http://127.0.0.1:${port}/dashboard  弹幕层 http://127.0.0.1:${port}/overlay  歌单 http://127.0.0.1:${port}/songs`);
   });
   return server;
+}
+
+function obsSettings(overrides) {
+  const c = (config && config.obs) || {};
+  return Object.assign(
+    {
+      host: c.host || '127.0.0.1',
+      port: Number(c.port || 4455),
+      password: c.password || '',
+      scene: c.scene || '深语直播',
+      bgColor: parseInt(String(c.bgColor || '0b0c0e').replace('#', ''), 16) * 256 + 0xff,
+      baseUrl: 'http://127.0.0.1:' + (state.port || 8788)
+    },
+    overrides || {}
+  );
 }
 
 module.exports = {
   start,
   resolvePort,
   envOf,
+  obsProbe(overrides) { return obs.probe(obsSettings(overrides)); },
+  obsSetup(overrides) { return obs.setupScene(obsSettings(overrides)); },
   get config() { return config; },
   state,
   handleEvent,

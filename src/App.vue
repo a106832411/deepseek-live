@@ -12,7 +12,8 @@ const MENU = [
   ] },
   { title: '形象与画面', icon: '🎭', items: [
     { key: 'live2d', label: 'Live2D 皮套', icon: '🎙' },
-    { key: 'overlay', label: 'OBS 叠加层', icon: '🖼' }
+    { key: 'overlay', label: 'OBS 叠加层', icon: '🖼' },
+      { key: 'obs', label: 'OBS 一键配置', icon: '🎬' }
   ] },
   { title: '互动玩法', icon: '🎁', items: [
     { key: 'songs', label: '点歌队列', icon: '🎵' },
@@ -48,6 +49,8 @@ const toast = ref('');
 const songState = ref({ current: null, queue: [] });
 const iframeKey = ref(0);
 const l2dScale = ref(0.92);
+const obsLog = ref('');
+const obsBusy = ref(false);
 const sayText = ref('');
 const manualSong = ref('');
 const eventFilter = ref('all');
@@ -137,6 +140,12 @@ function normalize(c) {
   if (c.songs.dedupe == null) c.songs.dedupe = true;
   if (c.songs.internal == null) c.songs.internal = true;
   if (!Array.isArray(c.songs.sources) || !c.songs.sources.length) c.songs.sources = ['netease', 'qq'];
+  c.obs = c.obs || {};
+  if (!c.obs.host) c.obs.host = '127.0.0.1';
+  if (c.obs.port == null) c.obs.port = 4455;
+  if (c.obs.password == null) c.obs.password = '';
+  if (!c.obs.scene) c.obs.scene = '深语直播';
+  if (!c.obs.bgColor) c.obs.bgColor = '0b0c0e';
   if (c.douyin == null) c.douyin = { mode: 'relay', web_rid: '' };
   if (c.persona == null) c.persona = { system: '' };
   return c;
@@ -227,6 +236,51 @@ async function requestSong() {
   if (r && r.ok) { toastShow(`✅ 已入队：${r.song.name}`); manualSong.value = ''; }
   else toastShow('点歌失败: ' + ((r && r.error) || '未知'));
   refreshSongs();
+}
+function obsPayload() {
+  const o = cfg.value.obs || {};
+  return {
+    host: o.host || '127.0.0.1',
+    port: Number(o.port || 4455),
+    password: o.password || '',
+    scene: o.scene || '深语直播'
+  };
+}
+async function obsTest() {
+  obsBusy.value = true;
+  obsLog.value = '连接中…';
+  try {
+    const r = await invoke('obs:status', obsPayload());
+    if (r && r.ok) {
+      obsLog.value =
+        '✅ 已连接 OBS ' + r.version + '（obs-websocket ' + r.websocket + '）\n' +
+        '画布：' + r.canvas[0] + '×' + r.canvas[1] + '\n' +
+        '当前场景：' + r.current + '\n' +
+        '场景列表：' + (r.scenes || []).join('、');
+    } else {
+      obsLog.value = '❌ ' + ((r && r.error) || '连接失败');
+    }
+  } finally {
+    obsBusy.value = false;
+  }
+}
+async function obsSetup() {
+  obsBusy.value = true;
+  obsLog.value = '正在配置 OBS…';
+  try {
+    const r = await invoke('obs:setup', obsPayload());
+    obsLog.value = ((r && r.logs) || []).join('\n') || JSON.stringify(r);
+    toastShow(r && r.ok ? '✅ OBS 场景已配置' : '❌ ' + ((r && r.error) || '配置失败'));
+  } finally {
+    obsBusy.value = false;
+  }
+}
+async function obsSave() {
+  const o = cfg.value.obs || {};
+  await invoke('config:set', {
+    obs: { host: o.host, port: Number(o.port), password: o.password, scene: o.scene, bgColor: o.bgColor || '0b0c0e' }
+  });
+  toastShow('OBS 设置已保存');
 }
 function reloadFrames() { iframeKey.value++; }
 
@@ -426,6 +480,27 @@ onUnmounted(() => {
             <div class="fcol"><div class="flabel">弹幕层 <code>/overlay</code></div><iframe :key="'ov' + iframeKey" class="frame" :src="API + '/overlay'"></iframe></div>
             <div class="fcol"><div class="flabel">歌单 <code>/songs</code></div><iframe :key="'sg' + iframeKey" class="frame" :src="API + '/songs'"></iframe></div>
           </div>
+        </div>
+
+        <!-- OBS 一键配置 -->
+        <div v-if="current === 'obs'" class="card">
+          <div class="card-head"><h2>OBS 一键配置</h2><span class="hint">自动建场景 + 浏览器源 + 摆位</span></div>
+          <div class="row2">
+            <label class="field"><span>Host</span><input v-model="cfg.obs.host" @input="markDirty" /></label>
+            <label class="field"><span>WebSocket 端口</span><input type="number" v-model.number="cfg.obs.port" @input="markDirty" /></label>
+            <label class="field"><span>WebSocket 密码</span><input type="password" v-model="cfg.obs.password" @input="markDirty" placeholder="OBS → 工具 → WebSocket 服务器设置" /></label>
+            <label class="field"><span>场景名</span><input v-model="cfg.obs.scene" @input="markDirty" /></label>
+          </div>
+          <div class="row" style="margin-top:16px">
+            <button class="ghost" :disabled="obsBusy" @click="obsTest">连接测试</button>
+            <button class="ghost" :disabled="obsBusy" @click="obsSave">保存设置</button>
+            <button class="primary" :disabled="obsBusy" @click="obsSetup">{{ obsBusy ? '处理中…' : '⚡ 一键配置 OBS' }}</button>
+          </div>
+          <div class="hint-text">
+            会在 OBS 里创建/复用场景「{{ cfg.obs.scene }}」，添加 <b>背景 / 皮套 / 弹幕层 / 歌单</b> 四个源，按当前画布（横/竖屏自动判断）摆好位置。
+            地址来自当前服务：<code>{{ API }}</code>
+          </div>
+          <pre class="obs-log" v-if="obsLog">{{ obsLog }}</pre>
         </div>
 
         <!-- 点歌 -->
@@ -864,6 +939,17 @@ button { font-family: inherit; }
 .ck.no { background: rgba(185, 138, 138, .14); color: var(--err); border: 1px solid rgba(185, 138, 138, .38); }
 .ck-label { color: #d7d2c9; }
 .ck-hint { color: var(--muted); font-size: 11px; margin-left: auto; text-align: right; }
+
+/* OBS 配置 */
+.hint-text { margin-top: 12px; font-size: 12px; line-height: 1.8; color: var(--muted); }
+.hint-text b { color: #d7d2c9; }
+.hint-text code { background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 4px; }
+.obs-log {
+  margin: 14px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px;
+  background: #0c0f13; color: #c9c4ba; font-size: 12px; line-height: 1.75;
+  white-space: pre-wrap; word-break: break-all; max-height: 340px; overflow: auto;
+  font-family: Consolas, "Microsoft YaHei", monospace;
+}
 
 /* 快捷入口 / 提示 */
 .link-list { display: flex; flex-direction: column; gap: 2px; }
