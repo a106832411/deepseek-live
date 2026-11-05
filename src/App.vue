@@ -270,7 +270,7 @@ onUnmounted(() => {
         <template v-if="current === 'session'">
           <div class="stat-grid">
             <div v-for="m in STAT_META" :key="m.key" class="stat-card" :class="m.color">
-              <div class="s-icon">{{ m.icon }}</div>
+              <div class="s-dot"></div>
               <div class="s-num">{{ (stats && stats[m.key]) || 0 }}</div>
               <div class="s-label">{{ m.label }}</div>
             </div>
