@@ -281,7 +281,7 @@ function presetSources(preset, W, H, api) {
   const base = [
     { name: '背景板', kind: 'image', file: 'D:/文档/deepseek-harness/default-workspace/whaletalk/assemble/ai_bg/1080x1920/bg3_星空鲸海.png', w: 1080, h: 1920, x: 0, y: 0 },
     { name: '游戏画面', kind: 'browser', url: 'http://127.0.0.1:9800/cam', iw: 800, ih: 600, w: 1080, h: 810, x: 0, y: 190 },
-    { name: '文字叠加', kind: 'image', file: 'D:\文档\deepseek-harness\default-workspace\whaletalk\assemble\叠加层_竖屏_文字_v2.png', w: 1080, h: 1920, x: -5, y: 0 },
+    { name: '文字叠加', kind: 'image', file: 'D:/文档/deepseek-harness/default-workspace/whaletalk/assemble/叠加层_竖屏_文字_v2.png', w: 1080, h: 1920, x: -5, y: 0 },
     { name: '皮套', kind: 'browser', url: '/live2d?scale=0.95', iw: 1080, ih: 1080, w: 324, h: 324, x: 745, y: 1500 },
     { name: '本场数据', kind: 'text', text: '本场数据', w: 234, h: 126, x: 640, y: 950 },
     { name: '歌单', kind: 'browser', url: '/songs', iw: 432, ih: 422, w: 268, h: 262, x: 575, y: 1050 },
