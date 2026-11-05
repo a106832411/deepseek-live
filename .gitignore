@@ -14,3 +14,5 @@ _err.log
 *.tmp
 _el.*
 *.ps1.log
+.env
+.env.local

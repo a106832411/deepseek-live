@@ -26,6 +26,110 @@ function log(msg) {
   } catch (e) {}
 }
 
+// ---------------- .env（本地配置，不入库）----------------
+function loadDotEnv() {
+  const candidates = [
+    process.env.DEEPLIVE_ENV || '',
+    path.join(process.cwd(), '.env'),
+    path.join(ROOT, '.env')
+  ].filter(Boolean);
+  const out = {};
+  for (const p of candidates) {
+    if (!fs.existsSync(p)) continue;
+    const text = fs.readFileSync(p, 'utf8');
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eq = line.indexOf('=');
+      if (eq <= 0) continue;
+      const key = line.slice(0, eq).trim();
+      let val = line.slice(eq + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      out[key] = val.replace(/\\n/g, '\n');
+    }
+    log('已加载环境变量: ' + p);
+    break;
+  }
+  return out;
+}
+const DOTENV = loadDotEnv();
+
+/** 取值优先级：真实环境变量 > .env > 默认值 */
+function envOf(key, def) {
+  if (process.env[key] !== undefined && process.env[key] !== '') return process.env[key];
+  if (DOTENV[key] !== undefined && DOTENV[key] !== '') return DOTENV[key];
+  return def;
+}
+
+function applyEnv(c) {
+  const str = (k, pathArr) => {
+    const v = envOf(k);
+    if (v === undefined) return;
+    let o = c;
+    for (let i = 0; i < pathArr.length - 1; i++) o = o[pathArr[i]];
+    o[pathArr[pathArr.length - 1]] = v;
+  };
+  const num = (k, pathArr) => {
+    const v = envOf(k);
+    if (v === undefined) return;
+    let o = c;
+    for (let i = 0; i < pathArr.length - 1; i++) o = o[pathArr[i]];
+    o[pathArr[pathArr.length - 1]] = Number(v);
+  };
+  const bool = (k, pathArr) => {
+    const v = envOf(k);
+    if (v === undefined) return;
+    let o = c;
+    for (let i = 0; i < pathArr.length - 1; i++) o = o[pathArr[i]];
+    o[pathArr[pathArr.length - 1]] = ['1', 'true', 'yes', 'on'].includes(String(v).toLowerCase());
+  };
+  const list = (k, pathArr) => {
+    const v = envOf(k);
+    if (v === undefined) return;
+    let o = c;
+    for (let i = 0; i < pathArr.length - 1; i++) o = o[pathArr[i]];
+    o[pathArr[pathArr.length - 1]] = String(v).split(',').map((x) => x.trim()).filter(Boolean);
+  };
+
+  str('DEEPLIVE_AI_BASE', ['ai', 'openai_base']);
+  str('DEEPLIVE_AI_MODEL', ['ai', 'openai_model']);
+  str('DEEPLIVE_AI_KEY', ['ai', 'openai_key']);
+  num('DEEPLIVE_AI_MAX_CHARS', ['ai', 'max_chars']);
+  num('DEEPLIVE_AI_TEMPERATURE', ['ai', 'temperature']);
+  str('DEEPLIVE_PERSONA', ['persona', 'system']);
+
+  str('DEEPLIVE_TTS_URL', ['tts', 'api_url']);
+  str('DEEPLIVE_TTS_REF_AUDIO', ['tts', 'ref_audio']);
+  str('DEEPLIVE_TTS_PROMPT_TEXT', ['tts', 'prompt_text']);
+  num('DEEPLIVE_TTS_SPEED', ['tts', 'speed']);
+  num('DEEPLIVE_TTS_STEPS', ['tts', 'sample_steps']);
+  num('DEEPLIVE_TTS_TOP_K', ['tts', 'top_k']);
+  num('DEEPLIVE_TTS_TEMPERATURE', ['tts', 'temperature']);
+  bool('DEEPLIVE_TTS_AUTO_PLAY', ['tts', 'auto_play']);
+
+  str('DEEPLIVE_DOUYIN_MODE', ['douyin', 'mode']);
+  str('DEEPLIVE_DOUYIN_RID', ['douyin', 'web_rid']);
+  str('DEEPLIVE_DOUYIN_ROOM_URL', ['douyin', 'room_url']);
+
+  bool('DEEPLIVE_SONGS_ENABLED', ['songs', 'enabled']);
+  bool('DEEPLIVE_SONGS_INTERNAL', ['songs', 'internal']);
+  bool('DEEPLIVE_SONGS_DEDUPE', ['songs', 'dedupe']);
+  bool('DEEPLIVE_SONGS_AUTO_PLAY', ['songs', 'auto_play']);
+  num('DEEPLIVE_SONGS_MAX_QUEUE', ['songs', 'max_queue']);
+  list('DEEPLIVE_SONGS_SOURCES', ['songs', 'sources']);
+
+  num('DEEPLIVE_MERGE_WINDOW', ['merge_window']);
+  list('DEEPLIVE_FILTER_BLOCKLIST', ['filter', 'blocklist']);
+  return c;
+}
+
+/** 端口解析：显式参数 > DEEPLIVE_PORT > WT_PORT > 8788 */
+function resolvePort(p) {
+  return Number(p || envOf('DEEPLIVE_PORT') || envOf('WT_PORT') || 8788);
+}
+
 // ---------------- 配置 ----------------
 const CONFIG_PATH = process.env.WT_CONFIG || path.join(ROOT, 'config.json');
 const DEFAULT_CONFIG = {
@@ -65,6 +169,7 @@ function loadConfig() {
     } else {
       log('未找到配置，使用默认配置');
     }
+    applyEnv(config);
   } catch (e) {
     log('配置读取失败: ' + e.message);
   }
@@ -751,6 +856,7 @@ function serveFile(res, name) {
 
 // ---------------- 启动 ----------------
 function start(port) {
+  port = resolvePort(port);
   loadConfig();
   const server = http.createServer((req, res) => {
     route(req, res).catch((e) => {
@@ -771,6 +877,8 @@ function start(port) {
 
 module.exports = {
   start,
+  resolvePort,
+  envOf,
   get config() { return config; },
   state,
   handleEvent,

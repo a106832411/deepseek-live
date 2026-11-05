@@ -5,5 +5,6 @@ function arg(name, def) {
   const i = args.indexOf('--' + name);
   return i >= 0 ? args[i + 1] : def;
 }
-const port = Number(process.env.WT_PORT || arg('port', '8788'));
-require('../app/main/core.cjs').start(port);
+const core = require('../app/main/core.cjs');
+const port = core.resolvePort(Number(arg('port', 0)) || undefined);
+core.start(port);

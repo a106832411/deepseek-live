@@ -42,6 +42,32 @@ node server/index.cjs --port 8788     # 纯服务
 npm install && npm run electron        # 桌面控制台（自动起 8788 + IPC）
 ```
 
+## 环境变量（.env）
+
+推荐用 `.env` 管密钥，不要写进 `config.json`：
+
+```bash
+copy .env.example .env      # Linux/macOS: cp
+```
+
+常用变量：
+
+| 变量 | 说明 |
+|---|---|
+| `DEEPLIVE_PORT` | 服务端口，默认 8788 |
+| `DEEPLIVE_AI_BASE` / `DEEPLIVE_AI_MODEL` / `DEEPLIVE_AI_KEY` | DeepSeek 接口、模型、Key |
+| `DEEPLIVE_AI_MAX_CHARS` / `DEEPLIVE_AI_TEMPERATURE` | 回复字数上限、温度 |
+| `DEEPLIVE_PERSONA` | 主播人设（system prompt），换行写 `\n` |
+| `DEEPLIVE_TTS_URL` | TTS 代理地址（默认 127.0.0.1:9881） |
+| `DEEPLIVE_TTS_REF_AUDIO` / `DEEPLIVE_TTS_PROMPT_TEXT` | 参考音频路径与对应文字 |
+| `DEEPLIVE_TTS_SPEED` / `_STEPS` / `_TOP_K` / `_TEMPERATURE` | 合成参数 |
+| `DEEPLIVE_DOUYIN_MODE` / `DEEPLIVE_DOUYIN_RID` | 抖音接入方式（relay/browser）与房间号 |
+| `DEEPLIVE_SONGS_ENABLED` / `_SOURCES` / `_MAX_QUEUE` | 点歌开关、音源顺序、队列长度 |
+| `DEEPLIVE_MERGE_WINDOW` | 同用户事件合并窗口（秒） |
+| `DEEPLIVE_FILTER_BLOCKLIST` | 弹幕过滤词，逗号分隔 |
+
+优先级：**真实环境变量 > `.env` > `config.json` > 内置默认值**。
+
 ## 地址
 
 | 地址 | 用途 |

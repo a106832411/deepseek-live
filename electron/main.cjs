@@ -5,7 +5,7 @@ const { app, BrowserWindow, shell, Menu } = require('electron');
 const core = require('../app/main/core.cjs');
 const { registerIpc } = require('../app/main/ipc.cjs');
 
-const PORT = Number(process.env.WT_PORT || 8788);
+const PORT = core.resolvePort(Number(process.env.DEEPLIVE_PORT || process.env.WT_PORT || 0) || undefined);
 process.env.WT_BASE = 'http://127.0.0.1:' + PORT;
 let win = null;
 
