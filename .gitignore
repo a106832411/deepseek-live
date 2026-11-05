@@ -12,3 +12,5 @@ _srv.*
 _out.log
 _err.log
 *.tmp
+_el.*
+*.ps1.log
