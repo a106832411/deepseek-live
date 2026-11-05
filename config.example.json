@@ -81,6 +81,10 @@
                   "request_file":  "song_requests.jsonl",
                   "max_minutes":  10,
                   "max_queue":  20,
-                  "enabled":  true
+                  "enabled":  true,
+                  "sources":  [
+                                  "netease",
+                                  "qq"
+                              ]
               }
 }

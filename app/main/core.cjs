@@ -44,7 +44,7 @@ const DEFAULT_CONFIG = {
   fixed_replies: [],
   merge_window: 0,
   filter: { blocklist: ['送出', '送出了'] },
-  songs: { enabled: true, internal: true, request_file: 'song_requests.jsonl', max_queue: 20, auto_play: true, dedupe: true }
+  songs: { enabled: true, internal: true, request_file: 'song_requests.jsonl', max_queue: 20, auto_play: true, dedupe: true, sources: ['netease', 'qq'] }
 };
 
 function deepMerge(a, b) {
@@ -380,13 +380,108 @@ function playMp3(file, durSec) {
   });
 }
 
+// ---------------- QQ 音乐 ----------------
+const QQ_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+
+async function qqSearch(kw, limit = 8) {
+  try {
+    const q = encodeURIComponent(kw);
+    const r = await httpsGetText('https://c.y.qq.com/soso/fcgi-bin/client_search_cp?w=' + q +
+      '&format=json&n=' + limit + '&p=1&cr=1&new_json=1', { Referer: 'https://y.qq.com/', 'User-Agent': QQ_UA });
+    const j = JSON.parse(r);
+    const list = (j.data && j.data.song && j.data.song.list) || [];
+    return list.map((x) => ({
+      id: x.mid || x.songmid,
+      name: x.name || x.songname,
+      artist: (x.singer || []).map((a) => a.name).join('、'),
+      dur: (x.interval || 0)
+    }));
+  } catch (e) { log('QQ 搜索失败: ' + e.message); return []; }
+}
+
+async function qqUrl(mid) {
+  try {
+    const body = JSON.stringify({
+      req: { module: 'CDN.SrfCdnDispatchServer', method: 'GetCdnDispatch', param: { guid: '3982823384', calltype: 0, userip: '' } },
+      req_0: { module: 'vkey.GetVkeyServer', method: 'CgiGetVkey', param: { guid: '3982823384', songmid: [mid], songtype: [0], uin: '0', loginflag: 1, platform: '20' } },
+      comm: { uin: 0, format: 'json', ct: 24, cv: 0 }
+    });
+    const r = await httpsPostRaw('https://u.y.qq.com/cgi-bin/musicu.fcg', body,
+      { Referer: 'https://y.qq.com/', 'User-Agent': QQ_UA, 'Content-Type': 'application/json' });
+    const j = JSON.parse(r);
+    const d = j.req_0 && j.req_0.data;
+    if (!d) return null;
+    const purl = (d.midurlinfo && d.midurlinfo[0] && d.midurlinfo[0].purl) || '';
+    if (!purl) return null;
+    const sip = (d.sip && d.sip[0]) || 'http://ws.stream.qqmusic.qq.com/';
+    return sip + purl;
+  } catch (e) { log('QQ 取地址失败: ' + e.message); return null; }
+}
+
+// ---------------- 通用 GET/POST 文本 ----------------
+function httpsGetText(url, headers = {}, timeout = 20000) {
+  return new Promise((resolve, reject) => {
+    try {
+      const u = new URL(url);
+      const lib = u.protocol === 'https:' ? https : http;
+      lib.get({ hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + u.search,
+        headers: Object.assign({ 'User-Agent': UA }, headers), timeout }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      }).on('error', reject).on('timeout', function () { this.destroy(new Error('timeout')); });
+    } catch (e) { reject(e); }
+  });
+}
+
+function httpsPostRaw(url, body, headers = {}, timeout = 20000) {
+  return new Promise((resolve, reject) => {
+    try {
+      const u = new URL(url);
+      const data = Buffer.from(body);
+      const req = https.request({ hostname: u.hostname, port: 443, path: u.pathname + u.search, method: 'POST',
+        headers: Object.assign({ 'User-Agent': UA, 'Content-Length': data.length }, headers), timeout }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      });
+      req.on('error', reject);
+      req.on('timeout', () => req.destroy(new Error('timeout')));
+      req.write(data);
+      req.end();
+    } catch (e) { reject(e); }
+  });
+}
+
+// ---------------- 多源调度 ----------------
+const SOURCES = {
+  netease: { name: '网易云', search: neteaseSearch, url: (it) => neteaseUrl(it.id) },
+  qq: { name: 'QQ音乐', search: qqSearch, url: (it) => qqUrl(it.id) }
+};
+const SOURCE_LABEL = { netease: '网易云', qq: 'QQ音乐', kugou: '酷狗', qishui: '汽水音乐' };
+
+async function findPlayable(query) {
+  const order = ((config.songs || {}).sources || ['netease', 'qq']).filter((k) => SOURCES[k]);
+  if (!order.length) return null;
+  for (const key of order) {
+    const src = SOURCES[key];
+    const list = await src.search(query);
+    for (const it of list.slice(0, 4)) {
+      const u = await src.url(it);
+      if (u) return { source: key, sourceName: src.name, song: it, url: u };
+    }
+    log(`音源 ${src.name} 未命中《${query}》，尝试下一个`);
+  }
+  return null;
+}
+
 async function songQueueLoop() {
   if (state.song.playing) return;
   state.song.playing = true;
   try {
     while (state.song.queue.length) {
       const item = state.song.queue[0];
-      state.song.current = { name: item.song.name, artist: item.song.artist, by: item.by };
+      state.song.current = { name: item.song.name, artist: item.song.artist, by: item.by, source: item.source || 'netease' };
       wsBroadcast({ kind: 'song', action: 'play', current: state.song.current, t: Date.now() });
       log(`开始播放: 《${item.song.name}》- ${item.song.artist}`);
       await enqueueSpeech(`下面播放${item.by}点的《${item.song.name}》。`);
@@ -425,24 +520,17 @@ async function requestSong(name, query) {
     await enqueueSpeech(`${name}，歌单排满啦！`);
     return { ok: false, error: '队列已满' };
   }
-  const list = await neteaseSearch(query);
-  if (!list.length) {
-    await enqueueSpeech(`抱歉${name}，没找到《${query}》。`);
-    return { ok: false, error: '没找到' };
+  const found = await findPlayable(query);
+  if (!found) {
+    await enqueueSpeech(`抱歉${name}，没找到能播的《${query}》。`);
+    return { ok: false, error: '所有音源都没找到' };
   }
-  let chosen = null, url = null;
-  for (const sng of list.slice(0, 5)) {
-    const u = await neteaseUrl(sng.id);
-    if (u) { chosen = sng; url = u; break; }
-  }
-  if (!chosen) {
-    await enqueueSpeech(`抱歉${name}，这首暂时放不了。`);
-    return { ok: false, error: '无版权/无地址' };
-  }
+  const chosen = found.song;
+  chosen.source = found.source;
   state.song.seen[nq] = name;
   const pos = state.song.queue.length + 1;
-  state.song.queue.push({ by: name, song: chosen, url, query });
-  log(`点歌入队: ${name} -> 《${chosen.name}》 第${pos}首`);
+  state.song.queue.push({ by: name, song: chosen, url: found.url, query, source: found.source });
+  log(`点歌入队: ${name} -> 《${chosen.name}》[${found.sourceName}] 第${pos}首`);
   await enqueueSpeech(`收到${name}点的《${chosen.name}》，排在第${pos}首！`);
   wsBroadcast({ kind: 'song', action: 'queued', queue: state.song.queue.length, t: Date.now() });
   songQueueLoop().catch(() => {});
@@ -617,6 +705,7 @@ async function route(req, res) {
       return json(res, {
         current: state.song.current,
         playing: state.song.playing,
+        sources: ((config.songs || {}).sources || ['netease', 'qq']),
         queue: state.song.queue.slice(state.song.current ? 1 : 0).map((x) => ({ name: x.song.name, by: x.by }))
       });
     }

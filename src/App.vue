@@ -62,6 +62,13 @@ const blockText = ref('');
 const fixedRows = ref([]);
 const saving = ref(false);
 
+const SOURCE_LIST = [
+  { key: 'netease', label: '网易云', na: false },
+  { key: 'qq', label: 'QQ 音乐', na: false },
+  { key: 'kugou', label: '酷狗', na: true },
+  { key: 'qishui', label: '汽水音乐', na: true }
+];
+
 const EVENT_META = [
   { key: 'danmaku', label: '弹幕回复', icon: '💬' },
   { key: 'enter', label: '进房欢迎', icon: '🚪' },
@@ -119,6 +126,7 @@ function normalize(c) {
   if (c.songs.enabled == null) c.songs.enabled = true;
   if (c.songs.dedupe == null) c.songs.dedupe = true;
   if (c.songs.internal == null) c.songs.internal = true;
+  if (!Array.isArray(c.songs.sources) || !c.songs.sources.length) c.songs.sources = ['netease', 'qq'];
   if (c.douyin == null) c.douyin = { mode: 'relay', web_rid: '' };
   if (c.persona == null) c.persona = { system: '' };
   return c;
@@ -464,7 +472,16 @@ onUnmounted(() => {
             </section>
 
             <section class="card">
-              <div class="card-head"><h2>🎵 点歌</h2></div>
+              <div class="card-head"><h2>🎵 点歌</h2><span class="hint">多音源自动回退</span></div>
+              <div class="field">
+                <span>音源优先级（勾选启用，按此顺序依次尝试）</span>
+                <div class="chips">
+                  <label v-for="src in SOURCE_LIST" :key="src.key" class="check" :class="{ dim: src.na }">
+                    <input type="checkbox" :value="src.key" v-model="cfg.songs.sources" :disabled="src.na" @change="markDirty" />
+                    {{ src.label }}<span v-if="src.na" class="muted">（暂无可用接口）</span>
+                  </label>
+                </div>
+              </div>
               <label class="check"><input type="checkbox" v-model="cfg.songs.enabled" @change="markDirty" /> 启用点歌</label>
               <label class="check"><input type="checkbox" v-model="cfg.songs.internal" @change="markDirty" /> 使用内嵌网易云搜索</label>
               <label class="check"><input type="checkbox" v-model="cfg.songs.dedupe" @change="markDirty" /> 本场同歌去重</label>
@@ -634,6 +651,9 @@ textarea { min-height: 92px; line-height: 1.55; resize: vertical; }
 textarea.json { min-height: 300px; font-family: Consolas, monospace; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #cfe2ff; }
 .check input { width: auto; }
+.check.dim { opacity: .55; }
+.chips .check { background: #16263f; border: 1px solid #27406a; border-radius: 999px; padding: 7px 12px; }
+.chips .check input { margin-right: 4px; }
 .event-row { display: grid; grid-template-columns: 140px 84px 150px 120px 120px; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px dashed #1a2740; }
 .ev-title { font-size: 13px; color: #dbe9ff; }
 .fixed-row { display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
