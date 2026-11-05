@@ -13,7 +13,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 
-const ROOT = path.resolve(__dirname, '..');
+const ROOT = path.resolve(__dirname, '..', '..');
 const PUBLIC = path.join(ROOT, 'public');
 const LOG_DIR = path.join(ROOT, 'logs');
 fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -43,7 +43,7 @@ const DEFAULT_CONFIG = {
   },
   fixed_replies: [],
   merge_window: 0,
-  songs: { enabled: true, request_file: 'song_requests.jsonl', max_minutes: 10, max_queue: 20 }
+  songs: { enabled: true, internal: true, request_file: 'song_requests.jsonl', max_queue: 20, auto_play: true, dedupe: true }
 };
 
 function deepMerge(a, b) {
@@ -83,7 +83,8 @@ const state = {
   history: [],
   agents: new Set(),
   ttsQueue: Promise.resolve(),
-  speaking: false
+  speaking: false,
+  song: { current: null, queue: [], seen: {}, playing: false }
 };
 
 function pushRecent(kind, name, text) {
@@ -280,6 +281,173 @@ function enqueueSpeech(text) {
   return state.ttsQueue;
 }
 
+// ---------------- 点歌（内嵌，匿名网易云） ----------------
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+
+function httpsForm(url, body, headers = {}, timeout = 20000) {
+  return new Promise((resolve, reject) => {
+    try {
+      const u = new URL(url);
+      const data = Buffer.from(body);
+      const req = https.request({
+        hostname: u.hostname, port: 443, path: u.pathname + u.search, method: 'POST',
+        headers: Object.assign({
+          'User-Agent': UA, 'Referer': 'https://music.163.com/', 'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Length': data.length
+        }, headers), timeout
+      }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+      });
+      req.on('error', reject);
+      req.on('timeout', () => req.destroy(new Error('timeout')));
+      req.write(data);
+      req.end();
+    } catch (e) { reject(e); }
+  });
+}
+
+function normSongQuery(q) {
+  return String(q || '').toLowerCase().replace(/[\s“”"'《》()（）\[\]【】·,，.。!！?？~～-]/g, '');
+}
+
+async function neteaseSearch(kw, limit = 8) {
+  const body = 's=' + encodeURIComponent(kw) + '&type=1&limit=' + limit + '&offset=0';
+  try {
+    const r = await httpsForm('https://music.163.com/api/cloudsearch/pc', body);
+    if (r.status !== 200) return [];
+    const j = JSON.parse(r.body);
+    const songs = (j.result && j.result.songs) || [];
+    return songs.map((x) => ({
+      id: x.id, name: x.name,
+      artist: (x.ar || []).map((a) => a.name).join('、'),
+      dur: Math.round(((x.dt || 0) / 1000))
+    }));
+  } catch (e) { log('网易云搜索失败: ' + e.message); return []; }
+}
+
+async function neteaseUrl(id) {
+  try {
+    const body = 'ids=' + encodeURIComponent(JSON.stringify([id])) + '&br=320000';
+    const r = await httpsForm('https://music.163.com/api/song/enhance/player/url', body);
+    if (r.status !== 200) return null;
+    const j = JSON.parse(r.body);
+    for (const it of (j.data || [])) {
+      if (it.url && !it.freeTrialInfo) return it.url;
+    }
+  } catch (e) { log('取播放地址失败: ' + e.message); }
+  return null;
+}
+
+function downloadFile(url, dest) {
+  return new Promise((resolve, reject) => {
+    const attempt = (u, redirects = 0) => {
+      const lib = u.startsWith('https:') ? https : http;
+      lib.get(u, { headers: { 'User-Agent': UA }, timeout: 60000 }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects < 4) {
+          res.resume();
+          return attempt(new URL(res.headers.location, u).toString(), redirects + 1);
+        }
+        if (res.statusCode !== 200) { res.resume(); return reject(new Error('http ' + res.statusCode)); }
+        const ws = fs.createWriteStream(dest);
+        res.pipe(ws);
+        ws.on('finish', () => ws.close(() => resolve(dest)));
+        ws.on('error', reject);
+      }).on('error', reject);
+    };
+    attempt(url);
+  });
+}
+
+function playMp3(file, durSec) {
+  if (process.env.WT_NO_AUDIO === '1') return Promise.resolve();
+  return new Promise((resolve) => {
+    const ps = [
+      '$ErrorActionPreference="SilentlyContinue"',
+      '$w = New-Object -ComObject WMPlayer.OCX',
+      '$w.URL = "' + file.replace(/\\/g, '\\\\').replace(/"/g, '`"') + '"',
+      '$w.controls.play()',
+      '$limit = ' + Math.max(15, Math.ceil((durSec || 180) + 15)),
+      'for ($i = 0; $i -lt $limit; $i++) { Start-Sleep -Seconds 1; if ($w.playState -eq 1 -or $w.playState -eq 8) { break } }',
+      '$w.controls.stop()',
+      'try { $w.close() } catch {}'
+    ].join('; ');
+    const p = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], { windowsHide: true });
+    p.on('exit', () => resolve());
+    p.on('error', () => resolve());
+  });
+}
+
+async function songQueueLoop() {
+  if (state.song.playing) return;
+  state.song.playing = true;
+  try {
+    while (state.song.queue.length) {
+      const item = state.song.queue[0];
+      state.song.current = { name: item.song.name, artist: item.song.artist, by: item.by };
+      wsBroadcast({ kind: 'song', action: 'play', current: state.song.current, t: Date.now() });
+      log(`开始播放: 《${item.song.name}》- ${item.song.artist}`);
+      await enqueueSpeech(`下面播放${item.by}点的《${item.song.name}》。`);
+      const file = path.join(os.tmpdir(), 'wt_song_' + item.song.id + '.mp3');
+      try {
+        if (!fs.existsSync(file) || fs.statSync(file).size < 10000) {
+          const u = item.url || await neteaseUrl(item.song.id);
+          if (!u) throw new Error('无播放地址');
+          await downloadFile(u, file);
+        }
+        await playMp3(file, item.song.dur);
+      } catch (e) {
+        log('播放失败: ' + e.message);
+      } finally {
+        try { fs.unlinkSync(file); } catch (e) {}
+        state.song.queue.shift();
+        state.song.current = null;
+        wsBroadcast({ kind: 'song', action: 'next', t: Date.now() });
+      }
+    }
+  } finally {
+    state.song.playing = false;
+  }
+}
+
+async function requestSong(name, query) {
+  const cfgSongs = config.songs || {};
+  if (cfgSongs.enabled === false) return { ok: false, error: '点歌已关闭' };
+  const nq = normSongQuery(query);
+  if (!nq) return { ok: false, error: '空歌名' };
+  if (cfgSongs.dedupe !== false && state.song.seen[nq]) {
+    log('重复点歌跳过: ' + query);
+    return { ok: false, error: '本场已点过' };
+  }
+  if (state.song.queue.length >= (cfgSongs.max_queue || 20)) {
+    await enqueueSpeech(`${name}，歌单排满啦！`);
+    return { ok: false, error: '队列已满' };
+  }
+  const list = await neteaseSearch(query);
+  if (!list.length) {
+    await enqueueSpeech(`抱歉${name}，没找到《${query}》。`);
+    return { ok: false, error: '没找到' };
+  }
+  let chosen = null, url = null;
+  for (const sng of list.slice(0, 5)) {
+    const u = await neteaseUrl(sng.id);
+    if (u) { chosen = sng; url = u; break; }
+  }
+  if (!chosen) {
+    await enqueueSpeech(`抱歉${name}，这首暂时放不了。`);
+    return { ok: false, error: '无版权/无地址' };
+  }
+  state.song.seen[nq] = name;
+  const pos = state.song.queue.length + 1;
+  state.song.queue.push({ by: name, song: chosen, url, query });
+  log(`点歌入队: ${name} -> 《${chosen.name}》 第${pos}首`);
+  await enqueueSpeech(`收到${name}点的《${chosen.name}》，排在第${pos}首！`);
+  wsBroadcast({ kind: 'song', action: 'queued', queue: state.song.queue.length, t: Date.now() });
+  songQueueLoop().catch(() => {});
+  return { ok: true, position: pos, song: chosen };
+}
+
 // ---------------- 事件处理 ----------------
 function pickTemplate(list, name) {
   if (!Array.isArray(list) || !list.length) return null;
@@ -308,6 +476,10 @@ async function handleEvent(ev) {
   if (ev.type === 'danmaku' && ev.text) {
     const m = ev.text.match(/^\s*[/／]?\s*(?:点歌|點歌)\s*[:：]?\s*(.+?)\s*$/);
     if (m) {
+      if ((config.songs || {}).internal !== false) {
+        requestSong(ev.name, m[1].trim()).catch((e) => log('点歌异常: ' + e.message));
+        return;
+      }
       const file = path.join(ROOT, 'tools', 'logs', config.songs.request_file || 'song_requests.jsonl');
       try {
         fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -426,9 +598,21 @@ async function route(req, res) {
     state.stats = { enter: 0, danmaku: 0, gift: 0, follow: 0, like: 0, say: 0 };
     return json(res, { ok: true });
   }
+  if (p === '/api/songs/request') {
+    const body = await readBody(req);
+    const r = await requestSong(body.name || '手动点歌', body.query || body.song || '');
+    return json(res, r, r.ok ? 200 : 400);
+  }
   if (p === '/api/stats') return json(res, state.stats);
   if (p === '/api/recent') return json(res, state.recent);
   if (p === '/api/songs/state') {
+    if ((config.songs || {}).internal !== false) {
+      return json(res, {
+        current: state.song.current,
+        playing: state.song.playing,
+        queue: state.song.queue.slice(state.song.current ? 1 : 0).map((x) => ({ name: x.song.name, by: x.by }))
+      });
+    }
     try {
       const r = await new Promise((resolve, reject) => {
         http.get('http://127.0.0.1:9886/api/songs', (res2) => {
@@ -489,4 +673,35 @@ function start(port) {
   return server;
 }
 
-module.exports = { start, config, state, handleEvent, enqueueSpeech, aiReply };
+module.exports = {
+  start,
+  get config() { return config; },
+  state,
+  handleEvent,
+  enqueueSpeech,
+  aiReply,
+  requestSong,
+  loadConfig,
+  saveConfig,
+  setConfig(patch) {
+    config = deepMerge(config, patch || {});
+    saveConfig();
+    return config;
+  },
+  resetStats() {
+    state.stats = { enter: 0, danmaku: 0, gift: 0, follow: 0, like: 0, say: 0 };
+    return state.stats;
+  },
+  startSession() { state.started = true; state.startedAt = Date.now(); wsBroadcast({ kind: 'status', running: true }); return { ok: true }; },
+  stopSession() { state.started = false; wsBroadcast({ kind: 'status', running: false }); return { ok: true }; },
+  say(text) { enqueueSpeech(text); return { ok: true }; },
+  testEvent(ev) { handleEvent(ev); return { ok: true }; },
+  ingest(events) { (events || []).forEach((e) => handleEvent(e)); return { ok: true, count: (events || []).length }; },
+  status() {
+    return {
+      running: state.started, startedAt: state.startedAt, connected: state.connected,
+      mode: (config.douyin || {}).mode, stats: state.stats, recent: state.recent,
+      song: { current: state.song.current, queue: state.song.queue.slice(state.song.current ? 1 : 0).map((x) => ({ name: x.song.name, by: x.by })) }
+    };
+  }
+};

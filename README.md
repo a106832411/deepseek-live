@@ -37,7 +37,7 @@ node server/index.cjs --port 8788
 
 ```bash
 npm install            # 或 pnpm install
-npm run electron       # 打开桌面窗口，内部自动起 8788 服务
+npm run electron       # 桌面窗口：主进程自动起 8788 核心服务 + IPC 桥
 ```
 
 ## Live2D 皮套
@@ -46,28 +46,36 @@ npm run electron       # 打开桌面窗口，内部自动起 8788 服务
 模型在 public/live2d/models/WhaleGirl/（换成自己的模型改目录 + 地址即可）。
 
 - 地址参数：/live2d?scale=0.92 控制大小
-- 说话口型：监听 WS /ws 的 speak / eply 事件，自动张嘴 + 随机表情
+- 说话口型：监听 WS /ws 的 speak / 
+eply 事件，自动张嘴 + 随机表情
 - OBS：浏览器源 URL 填 http://127.0.0.1:8788/live2d，背景透明可直接叠
 
-## 架构
+## 架构（Electron 端控制 + IPC）
 
 ```
-抖音（经中继 gift_scraper）──POST /api/douyin/ingest──┐
-                                                      ▼
-                             server/core.cjs（Node，零依赖）
-                        ┌─────────────┼──────────────┐
-                        ▼             ▼              ▼
-                   DeepSeek AI    GPT-SoVITS     WebSocket /ws
-                   回复文本        9881 合成语音    ├─ overlay.html（OBS 弹幕层）
-                        │             │            └─ songs.html（歌单）
-                        └──── 播放 wav ─┘
+┌─────────────────────── Electron 主进程 ───────────────────────┐
+│  app/main/core.cjs   核心服务：配置/事件/AI/TTS/点歌/WS        │
+│  app/main/ipc.cjs    IPC 桥：渲染进程直接控制核心              │
+└───────────┬───────────────────────────────┬───────────────────┘
+            │ IPC（contextBridge）           │ HTTP + WS
+            ▼                               ▼
+   Vue 控制台（渲染进程）            OBS 浏览器源 / 抖音中继 / 脚本
+   - 会话、统计、配置                - /overlay 弹幕层
+   - 皮套/叠加层预览                 - /songs 歌单
+   - 点歌队列                        - /live2d 皮套
+                                     - POST /api/douyin/ingest
 ```
+
+- **有 Electron**：Vue 通过 `window.whale.invoke(channel, payload)` 直接控制核心（不经过 HTTP）。
+- **没有 Electron**：`node server/index.cjs --port 8788` 以 headless 方式跑同一套核心，
+  前端自动回退到 HTTP API（`src/api.js` 里做适配），OBS/中继完全不受影响。
 
 ## 目录
 
 ```
-server/core.cjs     核心服务：HTTP API + WS + AI + TTS + 事件处理（零 npm 依赖）
-server/index.cjs    启动入口：node server/index.cjs --port 8788
+app/main/core.cjs    核心服务：HTTP API + WS + AI + TTS + 事件 + 点歌（零 npm 依赖）
+app/main/ipc.cjs     Electron IPC 桥（渲染进程 → 核心服务）
+server/index.cjs     headless 启动入口：node server/index.cjs --port 8788
 public/             控制台 / 弹幕层 / 歌单 三个页面
 electron/           Electron 主进程（内嵌服务 + 窗口）
 src/App.vue         Vue 版控制台
@@ -107,7 +115,7 @@ scripts/            Windows 一键脚本
 | DeepSeek AI 回复 | ✅ |
 | TTS（GPT-SoVITS 9881） | ✅（需本机 TTS 服务） |
 | OBS 弹幕层 / 歌单 / 控制台 | ✅ |
-| 点歌（转交点歌系统） | ✅ |
+| 点歌（内嵌网易云匿名搜索 + 队列 + 播放） | ✅ |
 | 真游戏画面采集桥（OBS 抓不到老 DirectDraw 游戏时用） | ✅ extras/python/gamecam.py |
 | Live2D 皮套渲染 | ✅ 已移植（pixi-live2d-display + Cubism4 Core，说话时口型动、随机表情） |
 | 自动歌单播放 | ⏳ 先用 extras/python/songbot.py |
