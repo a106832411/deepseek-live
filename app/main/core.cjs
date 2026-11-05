@@ -43,6 +43,7 @@ const DEFAULT_CONFIG = {
   },
   fixed_replies: [],
   merge_window: 0,
+  filter: { blocklist: ['送出', '送出了'] },
   songs: { enabled: true, internal: true, request_file: 'song_requests.jsonl', max_queue: 20, auto_play: true, dedupe: true }
 };
 
@@ -467,6 +468,12 @@ async function handleEvent(ev) {
   }
   if (evCfg.probability !== undefined && evCfg.probability < 100) {
     if (Math.random() * 100 > Number(evCfg.probability)) return;
+  }
+  // 过滤词（弹幕/昵称命中就丢弃，避免刷屏与假礼物文案）
+  const block = ((config.filter || {}).blocklist || []).filter(Boolean);
+  if (ev.type === 'danmaku' && ev.text && block.some((w) => String(ev.text).includes(w))) {
+    log('过滤弹幕: ' + ev.text);
+    return;
   }
   state.stats[ev.type] = (state.stats[ev.type] || 0) + 1;
   pushRecent('event', ev.name, ev.text || ev.gift || '');
