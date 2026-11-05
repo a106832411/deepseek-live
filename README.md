@@ -80,6 +80,23 @@ copy .env.example .env      # Linux/macOS: cp
 | `/songs` | 点歌列表（OBS 浏览器源） |
 | `/dashboard` | 精简控制台 |
 
+## 星露谷 AI（本地模型）
+
+AI 玩星露谷走**本机模型、0 token**；鲸live 的直播回复仍走 DeepSeek，两套互不影响：
+
+```
+鲸live 直播回复  → DeepSeek（云端，$DEEPLIVE_AI_*）
+星露谷 AI        → Ollama qwen25-7b-local（本机，$STARDEW_LLM_*）
+```
+
+```powershell
+python extras/python/stardew_agent.py --dry          # 只出计划
+python extras/python/stardew_agent.py --once         # 执行一轮
+python extras/python/stardew_agent.py --loop         # 循环
+```
+
+架构、能力和限制见 [docs/星露谷AI.md](docs/星露谷AI.md)。
+
 ## 本地模型（省钱模式）
 
 不想按 token 付费，可以用本机 Ollama 跑 7B 模型，token 成本归零：
