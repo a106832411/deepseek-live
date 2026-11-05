@@ -1,4 +1,4 @@
-# 一键启动 / 停止 鲸live 全套（TTS + 鲸live + OBS + 可选游戏/抖音中继）
+﻿# 一键启动 / 停止 鲸live 全套（TTS + 鲸live + OBS + 可选游戏/抖音中继）
 #
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File scripts\start-all.ps1

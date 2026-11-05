@@ -1,4 +1,4 @@
-# 停止 鲸live 相关进程（TTS / 鲸live / OBS / 星露谷 / 抖音中继）
+﻿# 停止 鲸live 相关进程（TTS / 鲸live / OBS / 星露谷 / 抖音中继）
 # 用法：powershell -ExecutionPolicy Bypass -File scripts\stop-all.ps1
 param(
   [switch]$KeepOBS,
