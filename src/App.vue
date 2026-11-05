@@ -6,12 +6,11 @@ const API = (typeof window !== 'undefined' && window.whale && window.whale.base)
   || (location.port === '5173' ? 'http://127.0.0.1:8788' : location.origin);
 
 const THEMES = [
-  { key: 'ink', label: '墨金', c1: '#c9ad7a', c2: '#6b5b3e' },
-  { key: 'graphite', label: '石墨', c1: '#a6b4c4', c2: '#5c6875' },
-  { key: 'forest', label: '森林', c1: '#a3b8a0', c2: '#4f6152' },
-  { key: 'wine', label: '酒红', c1: '#bf9494', c2: '#6d4a4a' }
+  { key: 'ink', label: '黑金', c1: '#c9a45c', c2: '#3a3226' },
+  { key: 'element', label: 'Element 蓝', c1: '#409eff', c2: '#1f2d3d' }
 ];
-const theme = ref(localStorage.getItem('wt_theme') || 'ink');
+const STORED = localStorage.getItem('wt_theme');
+const theme = ref(['ink', 'element'].includes(STORED) ? STORED : 'ink');
 function setTheme(k) {
   theme.value = k;
   localStorage.setItem('wt_theme', k);
@@ -560,15 +559,15 @@ body {
 .app {
   --bg: #0a0b0d;
   --bg-soft: #0f1114;
-  --panel: #191d23;
-  --panel-2: #1f242b;
-  --line: rgba(255, 255, 255, .085);
-  --line-2: rgba(255, 255, 255, .18);
-  --text: #ece9e3;
-  --muted: #98938b;
-  --accent: #c9ad7a;
-  --accent-soft: rgba(201, 173, 122, .12);
-  --accent-line: rgba(201, 173, 122, .32);
+  --panel: #171a1f;
+  --panel-2: #1d222a;
+  --line: rgba(255, 255, 255, .08);
+  --line-2: rgba(255, 255, 255, .17);
+  --text: #f0ece4;
+  --muted: #9c968c;
+  --accent: #c9a45c;
+  --accent-soft: rgba(201, 164, 92, .13);
+  --accent-line: rgba(201, 164, 92, .36);
   --ok: #8fae8b;
   --warn: #c9a86a;
   --err: #b98a8a;
@@ -579,16 +578,25 @@ body {
     radial-gradient(900px 460px at 8% 108%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 60%),
     linear-gradient(180deg, #0b0c0e 0%, #0d0f12 100%);
 }
-.theme-graphite {
-  --accent: #a6b4c4; --accent-soft: rgba(166, 180, 196, .12); --accent-line: rgba(166, 180, 196, .32);
-  --bg: #0a0c0e;
+.theme-element {
+  --panel: #1b2029;
+  --panel-2: #222935;
+  --line: rgba(255, 255, 255, .09);
+  --line-2: rgba(255, 255, 255, .18);
+  --text: #eef2f8;
+  --muted: #8e99a8;
+  --accent: #409eff;
+  --accent-soft: rgba(64, 158, 255, .13);
+  --accent-line: rgba(64, 158, 255, .42);
+  --ok: #67c23a;
+  --warn: #e6a23c;
+  --err: #f56c6c;
 }
-.theme-forest {
-  --accent: #a3b8a0; --accent-soft: rgba(163, 184, 160, .12); --accent-line: rgba(163, 184, 160, .3);
-}
-.theme-wine {
-  --accent: #bf9494; --accent-soft: rgba(191, 148, 148, .12); --accent-line: rgba(191, 148, 148, .3);
-}
+.theme-element .tag { background: rgba(64, 158, 255, .12); color: #9cc9ff; }
+.theme-element .tag.enter { background: rgba(103, 194, 58, .14); color: #a9e08a; }
+.theme-element .tag.gift { background: rgba(230, 162, 60, .15); color: #f2c17e; }
+.theme-element .tag.follow { background: rgba(144, 147, 153, .16); color: #c6c9cf; }
+.theme-element .tag.say { background: rgba(64, 158, 255, .12); color: #9cc9ff; }
 /* 极细颗粒质感（很淡，不抢视线） */
 .app::after {
   content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 1;
