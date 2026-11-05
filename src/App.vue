@@ -5,19 +5,6 @@ import { invoke } from './api';
 const API = (typeof window !== 'undefined' && window.whale && window.whale.base)
   || (location.port === '5173' ? 'http://127.0.0.1:8788' : location.origin);
 
-const THEMES = [
-  { key: 'ink', label: '黑金', c1: '#c9a45c', c2: '#3a3226' },
-  { key: 'indigo', label: '墨蓝', c1: '#8fa7c4', c2: '#2b3442' },
-  { key: 'moss', label: '墨绿', c1: '#93ab8e', c2: '#2c352c' },
-  { key: 'wine', label: '酒红', c1: '#b39191', c2: '#382c2c' }
-];
-const STORED = localStorage.getItem('wt_theme');
-const theme = ref(['ink', 'indigo', 'moss', 'wine'].includes(STORED) ? STORED : 'ink');
-function setTheme(k) {
-  theme.value = k;
-  localStorage.setItem('wt_theme', k);
-}
-
 const MENU = [
   { title: '直播控制', icon: '🎛', items: [
     { key: 'session', label: '会话总览', icon: '📊' },
@@ -32,8 +19,7 @@ const MENU = [
     { key: 'say', label: '手动说话', icon: '🗣' }
   ] },
   { title: '系统设置', icon: '⚙', items: [
-    { key: 'config', label: '全部配置', icon: '📝' },
-    { key: 'about', label: '关于', icon: 'ℹ' }
+    { key: 'config', label: '全部配置', icon: '📝' }
   ] }
 ];
 const openGroup = ref({ '直播控制': true, '形象与画面': true, '互动玩法': true, '系统设置': true });
@@ -53,6 +39,7 @@ const STAT_META = [
 ];
 
 const running = ref(false);
+const connected = ref(false);
 const mode = ref('relay');
 const uptime = ref(0);
 const stats = ref({});
@@ -63,6 +50,15 @@ const iframeKey = ref(0);
 const l2dScale = ref(0.92);
 const sayText = ref('');
 const manualSong = ref('');
+const eventFilter = ref('all');
+const EVENT_FILTERS = [
+  { key: 'all', label: '全部' },
+  { key: 'danmaku', label: '弹幕' },
+  { key: 'enter', label: '进房' },
+  { key: 'gift', label: '礼物' },
+  { key: 'follow', label: '关注' },
+  { key: 'say', label: '说话' }
+];
 
 // 配置表单
 const cfg = ref({});
@@ -101,6 +97,7 @@ async function refresh() {
   try {
     const st = await invoke('status');
     running.value = !!st.running;
+    connected.value = !!st.connected;
     mode.value = st.mode || 'relay';
     uptime.value = st.uptime || 0;
     stats.value = st.stats || {};
@@ -233,6 +230,28 @@ async function requestSong() {
 }
 function reloadFrames() { iframeKey.value++; }
 
+const checks = computed(() => [
+  { label: '会话已开始', ok: running.value, hint: running.value ? '' : '点右上角开始会话' },
+  { label: '抖音连接（relay）', ok: connected.value, hint: connected.value ? '' : '中继未就绪' },
+  { label: 'AI Key 已配置', ok: !!(cfg.value.ai && cfg.value.ai.openai_key), hint: '' },
+  { label: 'TTS 地址已配置', ok: !!(cfg.value.tts && cfg.value.tts.api_url), hint: '' },
+  { label: '点歌音源就绪', ok: !!((((cfg.value.songs || {}).sources) || []).length), hint: '' },
+  { label: '皮套模型已内置', ok: true, hint: '' }
+]);
+
+const eventCounts = computed(() => {
+  const c = { all: feed.value.length, danmaku: 0, enter: 0, gift: 0, follow: 0, say: 0 };
+  for (const x of feed.value) {
+    if (c[x.kind] === undefined) c[x.kind] = 0;
+    c[x.kind] += 1;
+  }
+  return c;
+});
+
+const filteredFeed = computed(() =>
+  eventFilter.value === 'all' ? feed.value : feed.value.filter((x) => x.kind === eventFilter.value)
+);
+
 onMounted(async () => {
   await Promise.all([loadCfg(), refresh(), refreshSongs()]);
   timer = setInterval(refresh, 1500);
@@ -245,7 +264,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app" :class="'theme-' + theme">
+  <div class="app theme-ink">
     <aside class="sidebar">
       <div class="brand">
         <div class="logo">🐳</div>
@@ -267,12 +286,6 @@ onUnmounted(() => {
           </div>
         </div>
       </nav>
-      <div class="theme-switch">
-        <span class="ts-label">主题</span>
-        <button v-for="t in THEMES" :key="t.key" class="ts-dot" :class="{ active: theme === t.key }"
-          :style="{ background: 'linear-gradient(135deg,' + t.c1 + ',' + t.c2 + ')' }"
-          :title="t.label" @click="setTheme(t.key)"></button>
-      </div>
       <div class="side-foot">
         <span class="dot" :class="running ? 'on' : 'off'"></span>
         <div>
@@ -300,6 +313,34 @@ onUnmounted(() => {
               <div class="s-dot"></div>
               <div class="s-num">{{ (stats && stats[m.key]) || 0 }}</div>
               <div class="s-label">{{ m.label }}</div>
+            </div>
+          </div>
+          <div class="grid2" style="margin-bottom:18px">
+            <div class="card">
+              <div class="card-head"><h2>开播自检</h2><span class="hint">全绿即可开播</span></div>
+              <ul class="checklist">
+                <li v-for="c in checks" :key="c.label">
+                  <span class="ck" :class="c.ok ? 'yes' : 'no'">{{ c.ok ? '✓' : '✕' }}</span>
+                  <span class="ck-label">{{ c.label }}</span>
+                  <span class="ck-hint" v-if="c.hint">{{ c.hint }}</span>
+                </li>
+              </ul>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2>最近点歌</h2><span class="hint">{{ songState.queue.length }} 首排队</span></div>
+              <div class="now-playing" v-if="songState.current">
+                <span class="eq">▍▍▍</span>
+                <span>正在播放：<b>{{ songState.current.name }}</b></span>
+                <span class="muted" v-if="songState.current.by"> · {{ songState.current.by }} 点</span>
+              </div>
+              <ul class="mini-queue">
+                <li v-for="(x, i) in songState.queue.slice(0, 5)" :key="i">
+                  <span class="idx">{{ i + 1 }}</span><span class="qname">{{ x.name }}</span><span class="muted">{{ x.by }}</span>
+                </li>
+              </ul>
+              <div v-if="!songState.current && !songState.queue.length" class="empty-hint">
+                还没有人点歌，弹幕发「点歌 歌名」试试
+              </div>
             </div>
           </div>
           <div class="grid2">
@@ -332,8 +373,12 @@ onUnmounted(() => {
         <!-- 事件 -->
         <div v-if="current === 'events'" class="card">
           <div class="card-head"><h2>事件流</h2><span class="hint">最近 50 条</span></div>
+          <div class="filter-row">
+            <button v-for="f in EVENT_FILTERS" :key="f.key" class="filter-chip" :class="{ active: eventFilter === f.key }"
+              @click="eventFilter = f.key">{{ f.label }} <b>{{ eventCounts[f.key] || 0 }}</b></button>
+          </div>
           <ul class="feed">
-            <li v-for="(x, i) in feed" :key="i">
+            <li v-for="(x, i) in filteredFeed" :key="i">
               <span class="tag" :class="x.kind">{{ x.kind }}</span>
               <span class="nick" v-if="x.name">{{ x.name }}</span>
               <span class="txt">{{ x.text }}</span>
@@ -534,6 +579,18 @@ onUnmounted(() => {
           </ul>
         </div>
       </div>
+
+      <footer class="app-footer">
+        <button class="foot-link" @click="current = 'about'">ℹ 关于</button>
+        <span class="foot-sep">·</span>
+        <a :href="API + '/overlay'" target="_blank">弹幕层</a>
+        <a :href="API + '/songs'" target="_blank">歌单</a>
+        <a :href="API + '/live2d'" target="_blank">皮套</a>
+        <span class="foot-right">
+          <span class="dot" :class="running ? 'on' : 'off'"></span>
+          {{ running ? 'LIVE' : 'OFF' }} · {{ mode }} · deepseek-live v0.2
+        </span>
+      </footer>
     </section>
 
     <transition name="fade">
@@ -761,6 +818,45 @@ button { font-family: inherit; }
   transition: border-color .15s, color .15s, background .15s;
 }
 .chip:hover { border-color: var(--accent-line); color: #f0ede7; background: var(--accent-soft); }
+
+/* 页脚 */
+.app-footer {
+  flex: 0 0 46px; display: flex; align-items: center; gap: 12px;
+  padding: 0 24px; border-top: 1px solid var(--line);
+  background: rgba(11, 13, 16, .75); backdrop-filter: blur(10px);
+  font-size: 12px; color: var(--muted);
+}
+.foot-link { background: transparent; border: 0; color: var(--muted); font-size: 12px; cursor: pointer; padding: 4px 0; }
+.foot-link:hover { color: var(--accent); }
+.foot-sep { color: #3c3a36; }
+.app-footer a { color: var(--muted); font-size: 12px; }
+.app-footer a:hover { color: var(--accent); text-decoration: none; }
+.foot-right { margin-left: auto; display: flex; align-items: center; gap: 7px; letter-spacing: .5px; }
+
+/* 开播自检 */
+.checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.checklist li { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 0; border: 0; }
+.ck { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; font-size: 11px; flex: 0 0 18px; }
+.ck.yes { background: rgba(143, 174, 139, .16); color: var(--ok); border: 1px solid rgba(143, 174, 139, .4); }
+.ck.no { background: rgba(185, 138, 138, .14); color: var(--err); border: 1px solid rgba(185, 138, 138, .38); }
+.ck-label { color: #d7d2c9; }
+.ck-hint { color: var(--muted); font-size: 11px; margin-left: auto; }
+
+/* 最近点歌 */
+.mini-queue { list-style: none; margin: 8px 0 0; padding: 0; }
+.mini-queue li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.empty-hint { color: var(--muted); font-size: 12px; padding: 14px 0; }
+
+/* 事件过滤 */
+.filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.filter-chip {
+  background: transparent; border: 1px solid var(--line-2); color: var(--muted);
+  border-radius: 999px; padding: 6px 13px; font-size: 12px; cursor: pointer;
+}
+.filter-chip b { color: #d7d2c9; font-weight: 600; margin-left: 4px; }
+.filter-chip:hover { border-color: var(--accent-line); color: #e6e2da; }
+.filter-chip.active { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); }
+.filter-chip.active b { color: var(--accent); }
 
 /* 事件 */
 .feed { list-style: none; margin: 0; padding: 0; max-height: 460px; overflow: auto; }
