@@ -16,3 +16,4 @@ _el.*
 *.ps1.log
 .env
 .env.local
+_envtest.*
