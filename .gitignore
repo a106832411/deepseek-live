@@ -8,3 +8,7 @@ __pycache__/
 .vite/
 shots/
 temp/
+_srv.*
+_out.log
+_err.log
+*.tmp
