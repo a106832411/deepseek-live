@@ -51,6 +51,16 @@ python extras/python/stardew_agent.py --loop --rounds 10
 - 计划里出现传送时，会**先传送、重新观察、再规划**，避免用过时坐标
 - 例：目标「在农场里找东西清理」→ 模型自动输出 15 步（传送 → 走到 59,21 → 斧头 → … → 71,23），逐条执行并在日志里回显结果
 
+## 已修：存档兼容问题
+
+初版 StardewMCPBridge 的 `CompanionNPC` 没有无参构造函数，导致**保存游戏时报
+`cannot be serialized because it does not have a parameterless constructor`，游戏卡在「正在储存…」**。
+
+修复（已重新编译部署）：
+
+1. `CompanionNPC` 增加 `public CompanionNPC() : base() {}`
+2. 加存档钩子：`GameLoop.Saving` 时把同伴从地图移除，`GameLoop.Saved` 后放回原位置，彻底避免自定义 NPC 被写进存档
+
 ## 已知限制
 
 1. **AI 目前控制的是同伴（Player 2）**，主角色仍由键鼠控制——所以"主角走路/回家睡觉"还需要人操作或后续加一个主角色控制模组
