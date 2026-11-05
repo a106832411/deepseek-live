@@ -7,10 +7,12 @@ const API = (typeof window !== 'undefined' && window.whale && window.whale.base)
 
 const THEMES = [
   { key: 'ink', label: '黑金', c1: '#c9a45c', c2: '#3a3226' },
-  { key: 'light', label: 'Element 亮', c1: '#409eff', c2: '#f5f7fa' }
+  { key: 'indigo', label: '墨蓝', c1: '#8fa7c4', c2: '#2b3442' },
+  { key: 'moss', label: '墨绿', c1: '#93ab8e', c2: '#2c352c' },
+  { key: 'wine', label: '酒红', c1: '#b39191', c2: '#382c2c' }
 ];
 const STORED = localStorage.getItem('wt_theme');
-const theme = ref(['ink', 'light'].includes(STORED) ? STORED : 'ink');
+const theme = ref(['ink', 'indigo', 'moss', 'wine'].includes(STORED) ? STORED : 'ink');
 function setTheme(k) {
   theme.value = k;
   localStorage.setItem('wt_theme', k);
@@ -578,98 +580,23 @@ body {
     radial-gradient(900px 460px at 8% 108%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 60%),
     linear-gradient(180deg, #0b0c0e 0%, #0d0f12 100%);
 }
-.theme-light {
-  --panel: #f3f3f5;
-  --panel-2: #eaeaea;
-  --line: rgba(0, 0, 0, .085);
-  --line-2: rgba(0, 0, 0, .16);
-  --text: #3a3c41;
-  --muted: #7f838b;
-  --accent: #5b93cc;
-  --accent-soft: rgba(91, 147, 204, .1);
-  --accent-line: rgba(91, 147, 204, .4);
-  --ok: #6a9e58;
-  --warn: #c79a5a;
-  --err: #c18585;
-  color: #3a3c41;
-  background:
-    radial-gradient(900px 460px at 88% -10%, rgba(91, 147, 204, .06), transparent 62%),
-    linear-gradient(180deg, #eceded 0%, #e3e5e8 100%);
+.theme-indigo {
+  --accent: #8fa7c4;
+  --accent-soft: rgba(143, 167, 196, .12);
+  --accent-line: rgba(143, 167, 196, .34);
+  --ok: #8aa9a0; --warn: #bfa67e; --err: #b28f8f;
 }
-.theme-light::after { display: none; }
-.theme-light .sidebar { background: #eceef0; border-right: 1px solid rgba(0, 0, 0, .08); box-shadow: 2px 0 12px rgba(0, 0, 0, .04); }
-.theme-light .brand { border-bottom: 1px solid rgba(0, 0, 0, .06); }
-.theme-light .brand .logo { background: #e2e9f1; border-color: rgba(91, 147, 204, .35); color: #5b93cc; }
-.theme-light .brand .name { color: #303133; }
-.theme-light .brand .ver { color: #909399; }
-.theme-light .group-head { color: #606266; }
-.theme-light .group-head:hover { color: #303133; }
-.theme-light .chev { color: #c0c4cc; }
-.theme-light .chev.open { color: #409eff; }
-.theme-light .children { border-left-color: rgba(0, 0, 0, .08); }
-.theme-light .leaf { color: #606266; }
-.theme-light .leaf:hover { background: #e4e7ea; color: #2f3136; }
-.theme-light .leaf.active { background: #dde7f1; color: #3f6fa3; }
-.theme-light .leaf.active::before { background: #5b93cc; }
-.theme-light .theme-switch { border-top: 1px solid rgba(0, 0, 0, .06); }
-.theme-light .side-foot { background: #f7f9fc; border-color: rgba(0, 0, 0, .08); color: #606266; }
-.theme-light .side-foot .tiny { color: #909399; }
-.theme-light .topbar { background: rgba(236, 238, 240, .92); border-bottom: 1px solid rgba(0, 0, 0, .07); }
-.theme-light .crumb { color: #909399; }
-.theme-light .crumb b { color: #303133; }
-.theme-light .crumb .sep { color: #dcdfe6; }
-.theme-light .pill { border-color: rgba(0, 0, 0, .12); color: #5b5e64; }
-.theme-light .pill.on { color: #4d7fae; border-color: rgba(91, 147, 204, .45); background: #e2e9f1; }
-.theme-light .pill.off { color: #909399; }
-.theme-light .ghost { color: #55585e; border-color: rgba(0, 0, 0, .14); }
-.theme-light .ghost:hover { color: #3f6fa3; border-color: rgba(91, 147, 204, .5); background: #e2e9f1; }
-.theme-light .stat-card { background: #f4f4f6; border-color: rgba(0, 0, 0, .08); box-shadow: 0 1px 2px rgba(0, 0, 0, .035); }
-.theme-light .stat-card:hover { background: #f8f8fa; border-color: rgba(91, 147, 204, .4); }
-.theme-light .s-num { color: #303133; }
-.theme-light .s-label { color: #909399; }
-.theme-light .card { background: #f3f3f5; border-color: rgba(0, 0, 0, .08); box-shadow: 0 1px 3px rgba(0, 0, 0, .035); background-image: none; }
-.theme-light .card-head { border-bottom-color: rgba(0, 0, 0, .06); }
-.theme-light .card-head h2 { color: #35373c; }
-.theme-light .card-head h2::before { background: #5b93cc; }
-.theme-light .card-head .hint { color: #909399; }
-.theme-light .chip { color: #55585e; border-color: rgba(0, 0, 0, .14); background: #eff0f2; }
-.theme-light .chip:hover { color: #3f6fa3; border-color: rgba(91, 147, 204, .5); background: #e2e9f1; }
-.theme-light .feed li { border-bottom-color: rgba(0, 0, 0, .06); }
-.theme-light .nick { color: #606266; }
-.theme-light .txt { color: #303133; }
-.theme-light .time { color: #b4b8bf; }
-.theme-light .tag { background: #e8e9eb; color: #7f838b; }
-.theme-light .tag.enter { background: #e6efe2; color: #6a9e58; }
-.theme-light .tag.gift { background: #f1e9dc; color: #b78f55; }
-.theme-light .tag.follow { background: #f4f4f5; color: #909399; }
-.theme-light .tag.say { background: #e2e9f1; color: #4d7fae; }
-.theme-light .frame { background: #e9ebee; border-color: rgba(0, 0, 0, .09); }
-.theme-light .checker { background: repeating-conic-gradient(#e6e8ec 0% 25%, #f1f2f4 0% 50%) 50% / 26px 26px; }
-.theme-light .flabel { color: #909399; }
-.theme-light .now-playing { background: #f5f7fa; border-color: rgba(0, 0, 0, .08); }
-.theme-light .eq { color: #67c23a; }
-.theme-light .queue li { border-bottom-color: rgba(0, 0, 0, .06); }
-.theme-light .idx { color: #c0c4cc; }
-.theme-light input, .theme-light select, .theme-light textarea { background: #f8f8f9; color: #3a3c41; border-color: rgba(0, 0, 0, .14); }
-.theme-light input:focus, .theme-light select:focus, .theme-light textarea:focus { border-color: #5b93cc; box-shadow: none; }
-.theme-light input::placeholder, .theme-light textarea::placeholder { color: #c0c4cc; }
-.theme-light .check { color: #606266; }
-.theme-light .chips .check { background: #eff0f2; border-color: rgba(0, 0, 0, .12); }
-.theme-light .field, .theme-light .field > span { color: #606266; }
-.theme-light .event-row { border-bottom-color: rgba(0, 0, 0, .06); }
-.theme-light .ev-title { color: #606266; }
-.theme-light .cfg-actions { background: linear-gradient(180deg, rgba(236, 237, 237, .97) 40%, rgba(236, 237, 237, 0)); }
-.theme-light .dirty { color: #e6a23c; }
-.theme-light .about li { border-bottom-color: rgba(0, 0, 0, .06); color: #606266; }
-.theme-light .muted { color: #909399; }
-.theme-light a { color: #409eff; }
-.theme-light .save-bar, .theme-light .toast { background: #f3f3f5; border-color: rgba(0, 0, 0, .1); color: #3a3c41; box-shadow: 0 10px 24px rgba(0, 0, 0, .1); }
-.theme-light .primary { background: #5b93cc; color: #f7f9fb; }
-
-/* 主题切换平滑过渡，避免闪一下刺眼 */
-.app, .sidebar, .topbar, .card, .stat-card, .leaf, .chip, .frame,
-input, select, textarea, .save-bar, .toast, .tag, .pill, .ghost, .primary {
-  transition: background-color .3s ease, border-color .3s ease, color .22s ease;
+.theme-moss {
+  --accent: #93ab8e;
+  --accent-soft: rgba(147, 171, 142, .12);
+  --accent-line: rgba(147, 171, 142, .34);
+  --ok: #8aa98a; --warn: #c2a878; --err: #b39090;
+}
+.theme-wine {
+  --accent: #b39191;
+  --accent-soft: rgba(179, 145, 145, .13);
+  --accent-line: rgba(179, 145, 145, .36);
+  --ok: #94a98f; --warn: #c19f74; --err: #b78a8a;
 }
 
 /* 极细颗粒质感（很淡，不抢视线） */
