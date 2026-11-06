@@ -320,3 +320,10 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - `distanceFromCatching` 始终 1（游戏每帧重置），之前能出 `FISH_CAUGHT` 的版本是「绿条跟鱼 + inBar=true 且不跳过」
 - 加了「handledFishResult 后跳过」后捕获事件反而消失 → 说明捕获判定依赖我们持续接管绿条若干帧，但跳过时机太早/太晚
 - 结论：钓鱼还差「保持接管直到游戏走完捕获动画」的精确时序；先把钓鱼挂在「抛竿/钩鱼/捕获判定」阶段，转去补动物/工具/任务
+
+### 真实经济链（本轮验证）
+
+- `shop_buy` 买糖：金币 5075 → 5065，背包 `糖x1`
+- `player_ship_all`：`Shipped 1 items (money next morning)`（真实出货箱）
+- 睡觉结算：白天 6:20 时床边 `startSleep` 没触发跨天（游戏可能只在夜里/床边交互才允许睡），暂未验证第二天到账
+- 结论：**购买 → 装船** 链路已真实跑通，只差夜里睡觉结算
