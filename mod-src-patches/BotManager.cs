@@ -879,6 +879,38 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "learn_recipe":
+                    {
+                        string rn = root.TryGetProperty("name", out var rnEl) ? rnEl.GetString() : "";
+                        if (string.IsNullOrEmpty(rn)) break;
+                        bool ok = Game1.player.craftingRecipes.ContainsKey(rn);
+                        if (!ok)
+                        {
+                            try { var recipe = new StardewValley.CraftingRecipe(rn, false); Game1.player.craftingRecipes[rn] = 0; ok = true; }
+                            catch (Exception ex) { this.monitor.Log("recipe err: " + ex.Message, LogLevel.Warn); }
+                        }
+                        this.monitor.Log($"learn_recipe {rn} -> {ok}", LogLevel.Info);
+                        break;
+                    }
+
+                case "place_item_here":
+                    {
+                        string pn = root.TryGetProperty("name", out var pnEl) ? pnEl.GetString() : "";
+                        var pit = Game1.player.Items.FirstOrDefault(i => i != null && (i.DisplayName == pn || i.Name == pn || i.QualifiedItemId == pn));
+                        if (pit == null) { this.monitor.Log($"place_item: no item {pn}", LogLevel.Warn); break; }
+                        int dir = Game1.player.FacingDirection;
+                        var ptile = Game1.player.Tile;
+                        int ox = 0, oy = 0;
+                        if (dir == 0) oy = -1; else if (dir == 1) ox = 1; else if (dir == 2) oy = 1; else ox = -1;
+                        var ptgt = new Microsoft.Xna.Framework.Vector2((ptile.X + ox) * 64f, (ptile.Y + oy) * 64f);
+                        var plac = Game1.player.currentLocation;
+                        bool placed = false;
+                        try { placed = (pit as StardewValley.Object)?.placementAction(plac, (int)ptgt.X, (int)ptgt.Y, Game1.player) ?? false; } catch (Exception ex) { this.monitor.Log("place err: " + ex.Message, LogLevel.Warn); }
+                        if (placed) { Game1.player.removeItemFromInventory(pit); }
+                        this.monitor.Log($"place_item {pn} placed={placed} at {(ptile.X + ox)},{(ptile.Y + oy)}", LogLevel.Info);
+                        break;
+                    }
+
                 case "list_warps":
                     {
                         try

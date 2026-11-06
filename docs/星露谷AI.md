@@ -453,3 +453,13 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - 补丁逻辑：绿条跟鱼 → `distanceFromCatching >= 0.999` 时用 `ItemRegistry.Create("(O)131")` 建鱼、放入背包、关闭小游戏
 - 实测证据：`fish_debug.log` 记录 `catch dist=1 key=(O)131 size=12`，背包出现 **沙丁鱼x1**
 - 完整链路：真实点击抛竿 → 咬钩真实点击 → 小游戏（补丁控绿条）→ 捕获 → 鱼入包
+
+### 熔炉链路（本轮推进）
+
+- 新增动作：`learn_recipe`（直接学会配方）、`place_item_here`（朝向前方格放置物品）
+- 实测：
+  - `learn_recipe Furnace -> True`
+  - 商店买铜矿石 15 个（`Shop bought 15x 铜矿石 for 150g`）
+  - `Craft item Furnace` 成功，背包出现「熔炉x1」（消耗 20 铜矿 + 25 石头）
+  - `place_item 熔炉 placed=True at 9,10`，桥接确认 (9,10) 是 machine「熔炉」
+- 待办：熔炉没在画面里看到（可能被床/家具挡住），用真实点击/交互打不开熔炼菜单，下一轮换交互方式
