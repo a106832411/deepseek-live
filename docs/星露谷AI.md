@@ -395,3 +395,10 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - 新增 `give_companion_weapon`：给同伴发武器并装备
 - 实测矿洞 5 层当天没有刷怪物（`monsters=0`），无法验证击杀/掉落
 - 战斗等级仍 0；需要怪物刷出的日子重试
+
+### 真实操作路线（按你的要求）
+
+- 修复 `player_walk_to`：PathFindController 第 4 参数原来是 2（路径上限 2 格！），改成 1000 后短距离走路正常（10,4→9,4→8,5）
+- 新增 `player_select_tool`（只切换工具）、`player_face_tile`（面朝目标格），配合真实按键 C 使用工具
+- 新增 `extras/python/real_play_test.py`：真实走路 + 真实按 C 挥镐
+- 卡点：矿洞长距离寻路会失败（部分石头被墙挡住不可达），需要先选可达石头或改进导航
