@@ -171,12 +171,18 @@ def fish_phase(h, attempts=4):
     log(f"  钓鱼 {caught} 次，金币 {money()}")
 
 
-def farm_phase(max_plant=5):
-    send({"actionType": "player_warp", "location": "Farm", "x": 64, "y": 15}, 1.5)
+def farm_phase(max_plant=6):
+    """收成熟作物；把空地锄成耕地再播种（真实走位 + 工具/种子）。"""
+    for _ in range(6):
+        b = rd()
+        if b and b.get("location") == "Farm":
+            break
+        send({"actionType": "player_warp", "location": "Farm", "x": 64, "y": 15}, 1.5)
     b = rd()
+    if b.get("location") != "Farm":
+        log(f"  ⚠ 没到农场（{b.get('location')}）")
+        return
     tiles = (b.get("surroundings") or {}).get("Tiles") or []
-    me = tile_of(b)
-    # 收成熟作物
     harvested = 0
     for s in tiles:
         if s.get("CropReady"):
@@ -186,20 +192,40 @@ def farm_phase(max_plant=5):
                     send({"actionType": "player_interact_at", "x": s["X"], "y": s["Y"]}, 0.6)
                     harvested += 1
                     break
+
     planted = 0
-    for s in tiles:
+    tried = set()
+    for _ in range(max_plant * 6):
         if planted >= max_plant:
             break
-        if str(s.get("Terrain") or "").lower().find("hoedirt") < 0:
-            continue
-        if s.get("CropName"):
-            continue
-        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            st = next((t for t in tiles if t["X"] == s["X"] + dx and t["Y"] == s["Y"] + dy and t.get("Passable")), None)
-            if st and walk_until(st["X"], st["Y"], 5):
-                send({"actionType": "player_use_seed_at", "x": s["X"], "y": s["Y"], "seed": "Wheat"}, 0.8)
-                planted += 1
+        b = rd()
+        tiles = (b.get("surroundings") or {}).get("Tiles") or []
+        me = tile_of(b)
+        cand = None
+        for s in tiles:
+            if not s.get("Passable") or s.get("IsWater") or s.get("ObjectName"):
+                continue
+            key = (s["X"], s["Y"])
+            if key in tried:
+                continue
+            if abs(s["X"] - me[0]) + abs(s["Y"] - me[1]) > 6:
+                continue
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                st = next((t for t in tiles if t["X"] == s["X"] + dx and t["Y"] == s["Y"] + dy and t.get("Passable")), None)
+                if st:
+                    cand = (s, st)
+                    break
+            if cand:
                 break
+        if not cand:
+            break
+        s, st = cand
+        tried.add((s["X"], s["Y"]))
+        if not walk_until(st["X"], st["Y"], 6):
+            continue
+        send({"actionType": "player_use_tool", "tool": "hoe", "x": s["X"], "y": s["Y"]}, 0.7)
+        send({"actionType": "player_use_seed_at", "x": s["X"], "y": s["Y"], "seed": "Wheat"}, 0.8)
+        planted += 1
     log(f"  农场：收 {harvested}，种 {planted}，金币 {money()}")
 
 
@@ -209,12 +235,9 @@ def sell_and_sleep():
     send({"actionType": "player_sell_instant"}, 0.8)
     log(f"  卖出后金币 {money()}")
     send({"actionType": "player_warp", "location": "FarmHouse", "x": 9, "y": 11}, 1.0)
-    for _ in range(240):
-        b = rd()
-        if b and b.get("time", 0) >= 1800:
-            break
-        live()
-        time.sleep(3)
+    # 直接调到傍晚（测试用调速），省去等 12 分钟
+    send({"actionType": "set_clock", "time": 1780}, 1.0)
+    b = rd()
     b = rd()
     log(f"  睡觉 day={b.get('day')} time={b.get('time')}")
     for _ in range(4):

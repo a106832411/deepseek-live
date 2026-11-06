@@ -507,6 +507,20 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "set_clock":
+                    {
+                        try
+                        {
+                            if (root.TryGetProperty("time", out var tEl))
+                            {
+                                Game1.timeOfDay = tEl.GetInt32();
+                                this.monitor.Log($"clock set to {Game1.timeOfDay}", LogLevel.Info);
+                            }
+                        }
+                        catch (Exception ex) { this.monitor.Log("set_clock err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "reset_state":
                     {
                         try
