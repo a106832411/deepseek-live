@@ -510,3 +510,11 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - 新增 mod 动作 `walk_to_target`：在当前地图找通往目标地图的出口（地图 warp 或门口 Action 属性），用 PathFindController 真实走过去，踩到 warp 自动过图
 - `walk_fish.py`：BFS 路线 + 逐图走出口，实测 **FarmHouse → Farm → BusStop → Town → Beach 全部用走的**（无传送）
 - 钓鱼仍卡：海滩边「可站水边格」探测不可靠（扫描把水格误判为可通行），靠边寻路也常失败，抛竿点不到水面，暂时没钓上
+
+### 走路钓鱼打通（本轮，无闪现）
+
+- 修 `SurroundingsScanner`：`isTilePassable` 改用 `Vector2` 重载（之前的 viewport 像素矩形判断失真，导致室内/水边可通行格全错）；水格强制不可通行；扫描现在包含空地格（361 格）
+- 新增 mod 动作 `reset_rod`：钓鱼卡住（inUse/nibbling 卡在 true、小游戏不开）时重置鱼竿状态
+- `walk_fish.py`：FarmHouse→Farm→BusStop→Town→Beach 全程走路，到海边找水格、走到岸边、真实点击抛竿/钩鱼
+- 实测：**钓到 沙丁鱼x2 + 鳀鱼x1**（鱼竿卡住时先 reset_rod 再抛）
+- 走到地图边缘会「卡一下没动画」的原因：寻路走到 warp 格后游戏要淡入淡出换图，而我们脚本是 2 秒轮询一次，所以看起来停顿；下一步把轮询缩到 0.4 秒并减少重试间隔

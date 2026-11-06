@@ -596,6 +596,35 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "reset_rod":
+                    {
+                        try
+                        {
+                            var rods = Game1.player.Items.OfType<StardewValley.Tools.FishingRod>().ToList();
+                            foreach (var r in rods)
+                            {
+                                foreach (var name in new[] { "inUse", "isNibbling", "hit", "doneFishing" })
+                                {
+                                    var f = typeof(StardewValley.Tools.FishingRod).GetField(name,
+                                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                                    if (f != null && f.FieldType == typeof(bool)) f.SetValue(r, false);
+                                }
+                                foreach (var name in new[] { "castingPower", "castTimer" })
+                                {
+                                    var f = typeof(StardewValley.Tools.FishingRod).GetField(name,
+                                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                                    if (f != null && f.FieldType == typeof(float)) f.SetValue(r, 0f);
+                                }
+                            }
+                            Game1.player.UsingTool = false;
+                            try { Game1.player.completelyStopAnimatingOrDoingAction(); } catch { }
+                            try { Game1.player.Halt(); } catch { }
+                            this.monitor.Log($"reset_rod done (rods={rods.Count})", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("reset_rod err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "walk_to_target":
                     {
                         try

@@ -172,6 +172,7 @@ def fish_here(h, attempts=3):
     caught = 0
     for i in range(attempts):
         live()
+        send({"actionType": "reset_rod"}, 0.5)
         b = rd()
         tiles = (b.get("surroundings") or {}).get("Tiles") or []
         me = tile_of(b)
@@ -204,6 +205,8 @@ def fish_here(h, attempts=3):
             dy = w["Y"] - pt2[1]
             n = max(1, max(abs(dx), abs(dy)))
             ux, uy = dx / n, dy / n
+            wx = px + ux * 160
+            wy = py + uy * 160
             cast = False
             for scale in (96, 128, 160, 192, 224):
                 click_screen(px + ux * scale, py + uy * scale)
@@ -213,6 +216,8 @@ def fish_here(h, attempts=3):
                     cast = True
                     break
             if cast:
+                stf = (rd().get("player") or {}).get("fishing") or {}
+                log(f"  抛竿成功 inUse={stf.get('inUse')} menu={stf.get('activeMenu')}")
                 done = True
                 break
         if not done:
@@ -227,7 +232,9 @@ def fish_here(h, attempts=3):
             if stf.get("nibbling") and not hooked:
                 click_screen(wx, wy)
                 hooked = True
-                time.sleep(0.5)
+                time.sleep(0.6)
+            if hooked and stf.get("minigame"):
+                break
             time.sleep(0.12)
         deadline = time.time() + 20
         while time.time() < deadline:
@@ -235,6 +242,11 @@ def fish_here(h, attempts=3):
             if not stf.get("minigame"):
                 break
             time.sleep(0.35)
+        stf = (rd().get("player") or {}).get("fishing") or {}
+        if not stf.get("minigame"):
+            log("  咬钩后小游戏没开，重置鱼竿重试")
+            send({"actionType": "reset_rod"}, 0.4)
+            continue
         send({"actionType": "close_menu"}, 0.4)
         caught += 1
         b = rd()
