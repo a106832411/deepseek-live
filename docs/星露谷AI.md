@@ -298,3 +298,10 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 模拟鼠标按住/键盘 C 按住都**无法驱动小游戏绿条**（bar 恒定 464.0），鱼随即脱钩；
 但真实点击抛竿/钩鱼是有效的，且期间**钓到过 1 个海草**（说明捕获链路偶尔能成功）。
 下一轮改用 Harmony 补丁直接控制 BobberBar 更新。
+
+### 钓鱼 Harmony 补丁（本轮）
+
+- 给 mod 加了 Harmony 支持（引用 `smapi-internal/0Harmony.dll`），启动日志 `Harmony patches applied`
+- 补丁 `BobberBar.update` Prefix：每帧把绿条位置同步到鱼（`bobberBarPos = bobberPosition`、速度清零），保留原版捕获判定
+- 效果：小游戏不再秒退，绿条能跟随鱼（bridge 里 `barPos` 与 `fishPos` 同步变化）
+- 仍差：捕获判定进度 `distanceFromCatching` 一直是 1.00，鱼没进背包；下一轮继续看它的真实语义（可能 1=已满需要走 doneFishing 流程）
