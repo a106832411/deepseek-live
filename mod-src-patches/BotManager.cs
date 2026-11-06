@@ -764,12 +764,23 @@ namespace StardewMCPBridge
                             this.monitor.Log("Entered FarmHouse at bed", LogLevel.Info);
                             break;
                         }
-                        var dist = Math.Abs(Game1.player.Tile.X - bed.X) + Math.Abs(Game1.player.Tile.Y - bed.Y);
-                        if (dist > 1)
+                        // 找床边可站立格（床本身不可走）
+                        int standX = bed.X, standY = bed.Y + 1;
+                        try
+                        {
+                            if (!house.isTilePassable(new xTile.Dimensions.Location(bed.X, bed.Y + 1), Game1.viewport))
+                            {
+                                if (house.isTilePassable(new xTile.Dimensions.Location(bed.X, bed.Y - 1), Game1.viewport)) { standY = bed.Y - 1; }
+                                else if (house.isTilePassable(new xTile.Dimensions.Location(bed.X - 1, bed.Y), Game1.viewport)) { standX = bed.X - 1; standY = bed.Y; }
+                                else if (house.isTilePassable(new xTile.Dimensions.Location(bed.X + 1, bed.Y), Game1.viewport)) { standX = bed.X + 1; standY = bed.Y; }
+                            }
+                        }
+                        catch { }
+                        if (Game1.player.Tile.X != standX || Game1.player.Tile.Y != standY)
                         {
                             Game1.player.controller = new PathFindController(Game1.player, house,
-                                new Microsoft.Xna.Framework.Point(bed.X, bed.Y), 1000);
-                            this.monitor.Log($"Walking to bed ({bed.X},{bed.Y}), dist={dist}", LogLevel.Info);
+                                new Microsoft.Xna.Framework.Point(standX, standY), 1000);
+                            this.monitor.Log($"Walking to bedside ({standX},{standY}), from ({Game1.player.Tile.X},{Game1.player.Tile.Y})", LogLevel.Info);
                             break;
                         }
                         var ms = typeof(StardewValley.GameLocation).GetMethods(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)

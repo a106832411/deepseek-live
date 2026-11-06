@@ -488,3 +488,10 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - 修复关键 bug：`player_sleep_bed` 里 PathFindController 的 limit 又是 2（只能走 2 格），改成 1000 后能真正走到床边睡觉
 - 实测：day7 装船后睡床 → day8 06:00 金币 2615 → **3137（+522）**
 - 用法：`python -c "import sys; sys.path.insert(0, r'...\extras\python'); import daily_loop3; daily_loop3.main(3)"`（数字=天数）
+
+### 每日循环实测（攒钱）
+
+- `daily_loop3.py`：每天 进矿挖 20 个 → 装船 → 等到 18:00 后睡床 → 次日金币结算
+- 实测：day9 装船后金币 2615 → 次日 **3283（+668）**，说明「挖矿→装船→跨天」这条攒钱闭环有效
+- 已知不稳：`player_sleep` 有时要调用两次、跨天有 1-2 分钟延迟；睡觉后需要 `close_menu` 清掉装船结算界面
+- 用法：`python -c "import sys; sys.path.insert(0, r'...\extras\python'); import daily_loop3; daily_loop3.main(3)"`

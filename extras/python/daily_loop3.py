@@ -82,29 +82,30 @@ def mine_phase(max_mined=20):
     return mined
 
 
-def ship_and_sleep(max_wait=150):
+def ship_and_sleep():
+    """装船 -> 等到 18:00 -> 走床边睡觉（游戏原生睡觉流程）。"""
     send({"actionType": "player_warp", "location": "Farm", "x": 64, "y": 15}, 1.5)
     send({"actionType": "player_ship_all"}, 0.8)
     b = rd()
     log("  已装船，背包: " + " | ".join(f"{x['name']}x{x['stack']}" for x in (b["player"].get("inventory") or []) if x))
-    send({"actionType": "player_warp", "location": "FarmHouse", "x": 9, "y": 9}, 1.5)
-    # 等到晚上 18:00
-    for _ in range(max_wait):
+    send({"actionType": "player_warp", "location": "FarmHouse", "x": 9, "y": 11}, 1.2)
+    # 等到 18:00（游戏时间 1800）
+    for _ in range(80):
         b = rd()
         if b and b.get("time", 0) >= 1800:
             break
-        live()
+        send({"actionType": "set_focus_pause", "disabled": True}, 0.15)
+        send({"actionType": "reset_state"}, 0.15)
         time.sleep(3)
     b = rd()
-    log(f"  睡觉前 day={b.get('day')} time={b.get('time')}")
-    send({"actionType": "close_menu"}, 0.3)
-    send({"actionType": "reset_state"}, 0.3)
-    send({"actionType": "player_sleep_bed"}, 2)
+    log(f"  准备睡觉 day={b.get('day')} time={b.get('time')}")
+    send({"actionType": "player_sleep"}, 2.5)
+    time.sleep(14)
+    send({"actionType": "player_sleep"}, 2.5)
     time.sleep(16)
     b = rd()
     log(f"  醒来 day={b.get('day')} time={b.get('time')} money={b.get('player', {}).get('money')}")
     send({"actionType": "close_menu"}, 0.5)
-    b = rd()
     return b
 
 
