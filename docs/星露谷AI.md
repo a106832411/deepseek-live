@@ -430,3 +430,10 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - 补丁：绿条跟鱼 + `bobberInBar=true` + `distanceFromCatching` 拉满 + 捕获时 `ItemRegistry.Create("(O)"+fishId)` 直接入包
 - 实测：小游戏能跑、`FISH_CAUGHT` 之前偶发出现过，但本轮多次重试都**没有触发捕获判定**（`handledFishResult` 一直 false），鱼没进背包
 - 结论：钓鱼捕获时序无法稳定复现，暂时不再投入
+
+### 时间冻结真因补充（本轮）
+
+- 之前「时间不动、点什么都没反应」的另一个原因是：**钓鱼小游戏 BobberBar 卡在界面里没关**
+- 证据：截图里左侧是钓鱼绿条界面，时间停在 06:20
+- 解决：新增/使用 `close_menu` 关掉小游戏后，时间 630 → 640 恢复前进
+- 注意：真实鼠标/键盘输入在本机游戏实例上仍然无效（点工具栏、ESC、点 E 菜单都无反应），键盘修饰键也没卡住；这是系统层问题，不影响 mod 动作
