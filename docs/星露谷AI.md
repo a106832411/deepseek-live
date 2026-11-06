@@ -182,3 +182,16 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - 同伴能走到水边、**面朝水面抛竿**（日志 `Cast fishing rod` 每 25 秒一次）
 - 抛竿后仍等不到咬钩（`Fishing timeout`），说明鱼漂没有真正落水/未进入 wait 状态
 - 下一轮改用「玩家自己抛竿 + 自动收杆」方案（玩家 rod 走原版 FishingRod 状态机，更可靠）
+
+### 钓鱼：玩家自动抛竿（本轮进展）
+
+- 新增 `player_fish_cast`：自动发鱼竿 → 找水 → **站到岸边** → 面朝水域 → 真实 `beginUsing` 抛竿
+- 实测日志：`Moved to shore (26,36)` → `Cast: player=(26,36) water=(26,37) facing=2`
+- 抛竿后能检测到咬钩（`Auto-hook`），但钩鱼后**没有进入钓鱼小游戏**（menu 为空），需要下一轮改用原版 `DoFunction`/`Game1.pressUseToolButton` 路径
+- 结论：抛竿 + 朝向已解决；「咬钩→小游戏→收杆」还差最后一环
+
+### 下一步
+
+1. 钓鱼收杆（最后一环）
+2. 商店：走进 Pierre 商店 → 柜台交互 → ShopMenu 真实购买
+3. 挖矿/战斗、烹饪/制作、动物/加工、NPC、节日、工具升级
