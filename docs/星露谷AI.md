@@ -463,3 +463,13 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
   - `Craft item Furnace` 成功，背包出现「熔炉x1」（消耗 20 铜矿 + 25 石头）
   - `place_item 熔炉 placed=True at 9,10`，桥接确认 (9,10) 是 machine「熔炉」
 - 待办：熔炉没在画面里看到（可能被床/家具挡住），用真实点击/交互打不开熔炼菜单，下一轮换交互方式
+
+### 熔炉熔炼打通（本轮成功）
+
+- 新增动作：`machine_drop_in`（把物品投进机器）、`machine_collect`（收取机器产出）
+- 实测链路：
+  - 熔炉放到农场 (70,21)
+  - 投入铜矿石 → 熔炉开始工作（消耗 5 铜矿 + 1 煤）
+  - 等待后 `machine_collect` → 背包得到 **铜锭**
+  - 循环 5 次：**铜锭x5**、铜矿石x10、金币 4535
+- 已 `player_save` 存档，防止重启丢失

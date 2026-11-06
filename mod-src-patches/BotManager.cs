@@ -879,6 +879,43 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "machine_drop_in":
+                    {
+                        try
+                        {
+                            int mx = root.GetProperty("x").GetInt32();
+                            int my = root.GetProperty("y").GetInt32();
+                            string itemName = root.TryGetProperty("item", out var itEl) ? itEl.GetString() : "";
+                            var loc2 = Game1.player.currentLocation;
+                            var tv = new Microsoft.Xna.Framework.Vector2(mx, my);
+                            if (!loc2.Objects.TryGetValue(tv, out var mobj) || mobj == null) { this.monitor.Log("machine_drop_in: no object", LogLevel.Warn); break; }
+                            var invItem = Game1.player.Items.FirstOrDefault(i => i != null && (i.DisplayName == itemName || i.Name == itemName));
+                            if (invItem == null) { this.monitor.Log($"machine_drop_in: no item {itemName}", LogLevel.Warn); break; }
+                            bool res = mobj.performObjectDropInAction(invItem, false, Game1.player);
+                            this.monitor.Log($"machine_drop_in {mobj.DisplayName} <- {itemName} -> {res}", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("machine_drop_in err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "machine_collect":
+                    {
+                        try
+                        {
+                            int mx = root.GetProperty("x").GetInt32();
+                            int my = root.GetProperty("y").GetInt32();
+                            var loc3 = Game1.player.currentLocation;
+                            var tv2 = new Microsoft.Xna.Framework.Vector2(mx, my);
+                            if (loc3.Objects.TryGetValue(tv2, out var mobj2) && mobj2 != null)
+                            {
+                                bool ok2 = mobj2.checkForAction(Game1.player);
+                                this.monitor.Log($"machine_collect {mobj2.DisplayName} -> {ok2}", LogLevel.Info);
+                            }
+                        }
+                        catch (Exception ex) { this.monitor.Log("machine_collect err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "learn_recipe":
                     {
                         string rn = root.TryGetProperty("name", out var rnEl) ? rnEl.GetString() : "";
