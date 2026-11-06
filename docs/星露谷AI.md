@@ -327,3 +327,12 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - `player_ship_all`：`Shipped 1 items (money next morning)`（真实出货箱）
 - 睡觉结算：白天 6:20 时床边 `startSleep` 没触发跨天（游戏可能只在夜里/床边交互才允许睡），暂未验证第二天到账
 - 结论：**购买 → 装船** 链路已真实跑通，只差夜里睡觉结算
+
+### NPC 好感（本轮验证成功）
+
+- 举着工具走到 Blacksmith，`talk_to_npc {npc:"Clint"}`：
+  - `Warped to Blacksmith (10,10)`
+  - `Talked to Clint, friendship=20, dialogue=True`
+- **好感 +20，首次对话真实生效**
+- 发现：NPC 问答式对话会暂停游戏时间（dialogue=True），自动跳过逻辑需要能点掉「选项对话」
+- 工具升级：Blacksmith 货架在手持工具时仍是矿石，升级走 Clint 对话选项（待补）
