@@ -359,3 +359,11 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 ### 睡觉（本轮验证）
 
 - day 26 → day 27 成功跨天，游戏时间 600 早晨刷新（此前后续对话卡住的原因已修）
+
+### 真实制作（本轮验证成功）
+
+- 修复商店切换：`shop_buy` 发现当前商店不对会先关店再开（新增 `close_menu` 动作）
+- 实测链路：
+  - `shop_buy {shop:"Carpenter", item:"木材", count:4}` → 金币 5075 → 5035，背包 `木材x4`
+  - `craft_item {item:"篱笆"}` → `Crafted 1x Wood Fence`，木材 4 → 2，背包 `木围栏x1`
+- 这是第一条**购买 → 消耗 → 产出**完全真实的制作链
