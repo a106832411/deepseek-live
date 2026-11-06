@@ -82,31 +82,48 @@ def mine_phase(max_mined=20):
     return mined
 
 
-def ship_and_sleep():
-    """装船 -> 等到 18:00 -> 走床边睡觉（游戏原生睡觉流程）。"""
-    send({"actionType": "player_warp", "location": "Farm", "x": 64, "y": 15}, 1.5)
-    send({"actionType": "player_ship_all"}, 0.8)
-    b = rd()
-    log("  已装船，背包: " + " | ".join(f"{x['name']}x{x['stack']}" for x in (b["player"].get("inventory") or []) if x))
-    send({"actionType": "player_warp", "location": "FarmHouse", "x": 9, "y": 11}, 1.2)
-    # 等到 18:00（游戏时间 1800）
-    for _ in range(80):
+def sell_now():
+    before = money()
+    send({"actionType": "player_sell_instant"}, 1.0)
+    after = money()
+    if after and before:
+        log(f"  直接卖出，金币 {before} -> {after}")
+    return after
+
+
+def sleep_until_next_day():
+    """等到 18:00 后睡床；如果没跨天就关菜单再试。"""
+    for _ in range(240):
         b = rd()
         if b and b.get("time", 0) >= 1800:
             break
-        send({"actionType": "set_focus_pause", "disabled": True}, 0.15)
-        send({"actionType": "reset_state"}, 0.15)
+        send({"actionType": "set_focus_pause", "disabled": True}, 0.12)
+        send({"actionType": "reset_state"}, 0.12)
         time.sleep(3)
     b = rd()
     log(f"  准备睡觉 day={b.get('day')} time={b.get('time')}")
-    send({"actionType": "player_sleep"}, 2.5)
-    time.sleep(14)
-    send({"actionType": "player_sleep"}, 2.5)
-    time.sleep(16)
+    for attempt in range(4):
+        send({"actionType": "player_sleep"}, 2.0)
+        d0 = (rd() or {}).get("day")
+        for _ in range(20):
+            time.sleep(3)
+            b = rd()
+            if b and b.get("day") != d0:
+                log(f"  跨天成功 day={b.get('day')} time={b.get('time')} money={b.get('player', {}).get('money')}")
+                send({"actionType": "close_menu"}, 0.4)
+                return b
+        send({"actionType": "close_menu"}, 0.4)
     b = rd()
-    log(f"  醒来 day={b.get('day')} time={b.get('time')} money={b.get('player', {}).get('money')}")
-    send({"actionType": "close_menu"}, 0.5)
+    log(f"  ⚠ 睡觉失败 day={b.get('day')} time={b.get('time')}")
     return b
+
+
+def ship_and_sleep():
+    send({"actionType": "player_warp", "location": "Farm", "x": 64, "y": 15}, 1.2)
+    send({"actionType": "player_ship_all"}, 0.7)
+    sell_now()
+    send({"actionType": "player_warp", "location": "FarmHouse", "x": 9, "y": 11}, 1.0)
+    return sleep_until_next_day()
 
 
 def main(days=2):
@@ -114,7 +131,7 @@ def main(days=2):
         live()
         b = rd()
         log(f"=== 第{d+1}天 day={b.get('day')} time={b.get('time')} money={b.get('player', {}).get('money')}")
-        mine_phase(20)
+        mine_phase(45)
         ship_and_sleep()
         b = rd()
         log(f"=== 第{d+1}天结束 day={b.get('day')} money={b.get('player', {}).get('money')}")
