@@ -367,3 +367,10 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
   - `shop_buy {shop:"Carpenter", item:"木材", count:4}` → 金币 5075 → 5035，背包 `木材x4`
   - `craft_item {item:"篱笆"}` → `Crafted 1x Wood Fence`，木材 4 → 2，背包 `木围栏x1`
 - 这是第一条**购买 → 消耗 → 产出**完全真实的制作链
+
+### 挖矿（本轮打通）
+
+- 新增 `player_mine_at {x,y}`：自动站到石头旁 1 格、面朝、挥镐（真实工具动画）
+- 桥接新增 `player.skills`（农耕/挖矿/钓鱼/觅食/战斗等级）
+- 实测：`Mined at (3,7)…` 连续挖掉 8+ 个石头，背包 `石头x6 → x17`，还掉了 `晶球x1`
+- 限制：挖矿等级仍 0（熔炉配方没解锁，`Recipe not found: 熔炉`），熔炉链需要先升级挖矿/其他解锁途径
