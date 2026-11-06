@@ -336,3 +336,9 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - **好感 +20，首次对话真实生效**
 - 发现：NPC 问答式对话会暂停游戏时间（dialogue=True），自动跳过逻辑需要能点掉「选项对话」
 - 工具升级：Blacksmith 货架在手持工具时仍是矿石，升级走 Clint 对话选项（待补）
+
+### 对话卡死修复（本轮完成）
+
+- 根因：DialogueBox 的方法名是 `receiveLeftClick`（小写 r），之前用 `ReceiveLeftClick` 反射找不到方法，所以自动跳过对话从没真正生效
+- 修复：反射按不区分大小写找 3 参数 `receiveLeftClick`；问答对话时点第一个选项按钮（`responseCC` 的 bounds 中心）
+- 实测：`talk_to_npc Clint, friendship=20` 后自动关对话，游戏时间 620 → 640 正常前进
