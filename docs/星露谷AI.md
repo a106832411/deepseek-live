@@ -383,3 +383,9 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
   - `skills.mining = 1`（**挖矿升到 1 级**）
   - 背包累计：石头x155、晶球x7、铜矿石x8、煤炭x1
 - 熔炉配方仍未解锁（`Recipe not found: 熔炉`），可能要到挖矿 2 级或克林邮件触发
+
+### 动物/觅食（本轮探索，未完成）
+
+- 找到动物购买菜单类型 `PurchaseAnimalsMenu`，但构造函数参数复杂（反射拿不到简单签名），直接创建不可靠
+- 觅食：遍历 Forest / Beach / Mountain / Town 的周围格子，`Interactable` 数量都是 0（当前季节/时段没有刷出觅食物），无法验证拾取
+- 结论：动物购买需要做「商店标签页/UI 点击」级自动化；觅食等有刷新时再测
