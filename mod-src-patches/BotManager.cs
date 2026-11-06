@@ -154,7 +154,6 @@ namespace StardewMCPBridge
 
         public void TickNudge()
         {
-            if (this.autoNoPause)
             {
                 try
                 {
@@ -631,6 +630,19 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "set_tile":
+                    {
+                        try
+                        {
+                            int sx2 = root.GetProperty("x").GetInt32();
+                            int sy2 = root.GetProperty("y").GetInt32();
+                            Game1.player.Position = new Microsoft.Xna.Framework.Vector2(sx2 * 64f, sy2 * 64f);
+                            this.monitor.Log($"set_tile ({sx2},{sy2})", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("set_tile err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "nudge":
                     {
                         try
@@ -674,6 +686,24 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "enter_exit":
+                    {
+                        try
+                        {
+                            string et = root.TryGetProperty("target", out var etEl) ? etEl.GetString() : "";
+                            var eloc = Game1.player.currentLocation;
+                            StardewValley.Warp chosen = null;
+                            foreach (var w in eloc.warps)
+                                if (w.TargetName != null && w.TargetName.IndexOf(et, StringComparison.OrdinalIgnoreCase) >= 0) { chosen = w; break; }
+                            if (chosen == null) { this.monitor.Log($"enter_exit: no warp to {et}", LogLevel.Warn); break; }
+                            // 走到出口后再触发换图（等价于踩上 warp 格）
+                            Game1.warpFarmer(chosen.TargetName, chosen.TargetX, chosen.TargetY, false);
+                            this.monitor.Log($"enter_exit {eloc.Name} -> {chosen.TargetName} ({chosen.TargetX},{chosen.TargetY})", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("enter_exit err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "walk_to_target":
                     {
                         try
@@ -703,10 +733,8 @@ namespace StardewMCPBridge
                             int pathX = wx2, pathY = wy2;
                             this.pendingNudgeX = 0; this.pendingNudgeY = 0;
                             // 只有真正在地图外的出口（负坐标）才用边界外推；房间门口格（y==mapH 之类）保持原样寻路
-                            if (wx2 < 0) { pathX = 0; this.pendingNudgeX = -1; }
-                            if (wy2 < 0) { pathY = 0; this.pendingNudgeY = -1; }
-                            this.pendingTargetX = pathX;
-                            this.pendingTargetY = pathY;
+                            if (wx2 < 0) { pathX = 0; }
+                            if (wy2 < 0) { pathY = 0; }
                             Game1.player.controller = new PathFindController(Game1.player, wloc,
                                 new Microsoft.Xna.Framework.Point(pathX, pathY), 1000);
                             this.monitor.Log($"Walking to exit {wt} at ({wx2},{wy2}) from {wloc.Name}", LogLevel.Info);

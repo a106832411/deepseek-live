@@ -230,6 +230,10 @@ namespace StardewMCPBridge
                     },
                     companions = this.botManager.GetBotStatus(),
                     surroundings = SurroundingsScanner.Scan(Game1.player.currentLocation, Game1.player.Tile, 9),
+                    exits = Game1.player.currentLocation?.warps.Select(w => new {
+                        x = w.X, y = w.Y, target = w.TargetName,
+                        tx = w.TargetX, ty = w.TargetY
+                    }).ToList(),
                     npcs = Game1.currentLocation?.characters.Select(c => new {
                         name = c.Name,
                         position = new { x = c.Position.X, y = c.Position.Y }
