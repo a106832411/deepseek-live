@@ -446,3 +446,10 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - 真实点击抛竿成功：`cast dy=-192 inUse=True`，随后咬钩
 - 钓鱼小游戏**真实按住鼠标有效**：`bar 508.0 -> hold 451.1`（绿条真的动了）
 - 钓鱼仍未完成：小游戏里 `distanceFromCatching` 一直 1，怀疑是 Harmony 自动跟鱼补丁干扰了正常判定，下一轮先关掉补丁再试
+
+### 钓鱼打通！（本轮成功）
+
+- 修复点：`whichFish` 在 1.6 是 **string 物品 id**（不是 int），之前按 int 读所以永远不交付
+- 补丁逻辑：绿条跟鱼 → `distanceFromCatching >= 0.999` 时用 `ItemRegistry.Create("(O)131")` 建鱼、放入背包、关闭小游戏
+- 实测证据：`fish_debug.log` 记录 `catch dist=1 key=(O)131 size=12`，背包出现 **沙丁鱼x1**
+- 完整链路：真实点击抛竿 → 咬钩真实点击 → 小游戏（补丁控绿条）→ 捕获 → 鱼入包

@@ -89,8 +89,8 @@ def control_minigame(seconds=40):
     bar0 = float(st.get("barPos") or 0)
     u.mouse_event(0x02, 0, 0, 0, 0)
     held = True
-    time.sleep(0.4)
-    st1 = fish_state(rd() or {})
+    time.sleep(0.5)
+    st1 = fish_state(rd() or {})   # 按住状态下读
     bar1 = float(st1.get("barPos") or 0)
     u.mouse_event(0x04, 0, 0, 0, 0)
     held = False
