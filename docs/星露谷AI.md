@@ -424,3 +424,9 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - 修复：AutoDismiss 现在对任意 currentEvent 调 `skipEvent()`（不再只处理 skippable）
 - 重启后实测时间 610→620 正常前进
 - 合成鼠标/键盘输入在本游戏实例里仍然不被接收（点工具栏工具不变、ESC 无反应），真实输入路线卡在系统层
+
+### 钓鱼入包补丁（本轮失败）
+
+- 补丁：绿条跟鱼 + `bobberInBar=true` + `distanceFromCatching` 拉满 + 捕获时 `ItemRegistry.Create("(O)"+fishId)` 直接入包
+- 实测：小游戏能跑、`FISH_CAUGHT` 之前偶发出现过，但本轮多次重试都**没有触发捕获判定**（`handledFishResult` 一直 false），鱼没进背包
+- 结论：钓鱼捕获时序无法稳定复现，暂时不再投入
