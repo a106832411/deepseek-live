@@ -305,3 +305,11 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - 补丁 `BobberBar.update` Prefix：每帧把绿条位置同步到鱼（`bobberBarPos = bobberPosition`、速度清零），保留原版捕获判定
 - 效果：小游戏不再秒退，绿条能跟随鱼（bridge 里 `barPos` 与 `fishPos` 同步变化）
 - 仍差：捕获判定进度 `distanceFromCatching` 一直是 1.00，鱼没进背包；下一轮继续看它的真实语义（可能 1=已满需要走 doneFishing 流程）
+
+### 钓鱼：捕获事件已触发（本轮）
+
+- Harmony 补丁 Postfix 读取 `handledFishResult` 并打日志
+- 实测：`FISH_CAUGHT id=149 size=21` ×52 次 → **游戏判定已经捕获**
+- 但背包里没有鱼（背包仍是工具+种子），说明「捕获 → 物品入包」这一环还差
+- 已把 `activeMenu` 加入桥接（捕获后菜单状态可见）
+- 下一轮：捕获后处理（点掉结算框 / 调用 doneFishing 让鱼入包）
