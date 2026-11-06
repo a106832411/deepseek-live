@@ -596,6 +596,39 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "walk_to_target":
+                    {
+                        try
+                        {
+                            string wt = root.TryGetProperty("target", out var wtEl) ? wtEl.GetString() : "";
+                            var wloc = Game1.player.currentLocation;
+                            int wx2 = -1, wy2 = -1;
+                            foreach (var w in wloc.warps)
+                            {
+                                if (w.TargetName != null && w.TargetName.IndexOf(wt, StringComparison.OrdinalIgnoreCase) >= 0)
+                                { wx2 = w.X; wy2 = w.Y; break; }
+                            }
+                            if (wx2 < 0)
+                            {
+                                int ew2 = wloc.Map.Layers[0].LayerWidth, eh2 = wloc.Map.Layers[0].LayerHeight;
+                                for (int yy = 0; yy < eh2 && wx2 < 0; yy++)
+                                    for (int xx = 0; xx < ew2; xx++)
+                                    {
+                                        var act = wloc.doesTileHaveProperty(xx, yy, "Action", "Buildings");
+                                        if (string.IsNullOrEmpty(act)) continue;
+                                        if (act.ToLower().Contains("warp") && act.IndexOf(wt, StringComparison.OrdinalIgnoreCase) >= 0)
+                                        { wx2 = xx; wy2 = yy; break; }
+                                    }
+                            }
+                            if (wx2 < 0) { this.monitor.Log($"walk_to_target: no exit to {wt} in {wloc.Name}", LogLevel.Warn); break; }
+                            Game1.player.controller = new PathFindController(Game1.player, wloc,
+                                new Microsoft.Xna.Framework.Point(wx2, wy2), 1000);
+                            this.monitor.Log($"Walking to exit {wt} at ({wx2},{wy2}) from {wloc.Name}", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("walk_to_target err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "player_warp":
                     if (root.TryGetProperty("location", out var pwloc) && root.TryGetProperty("x", out var pwx) && root.TryGetProperty("y", out var pwy))
                     {

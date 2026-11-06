@@ -113,6 +113,8 @@ def mine_phase(max_mined=20):
             break
         s = cands[0]
         send({"actionType": "player_mine_at", "x": s["X"], "y": s["Y"]}, 0.8)
+        send({"actionType": "player_walk_to", "x": s["X"], "y": s["Y"]}, 0.3)
+        time.sleep(0.7)
         send({"actionType": "collect_debris"}, 0.3)
         mined += 1
         tiles = None
@@ -168,7 +170,9 @@ def fish_phase(h, attempts=4):
             time.sleep(0.3)
         caught += 1
         send({"actionType": "close_menu"}, 0.3)
-    log(f"  钓鱼 {caught} 次，金币 {money()}")
+    b = rd()
+    inv = [f"{x['name']}x{x['stack']}" for x in (b["player"].get("inventory") or []) if x]
+    log(f"  钓鱼 {caught} 次，金币 {money()}，背包={inv}")
 
 
 def farm_phase(max_plant=6):
@@ -229,30 +233,59 @@ def farm_phase(max_plant=6):
     log(f"  农场：收 {harvested}，种 {planted}，金币 {money()}")
 
 
-def sell_and_sleep():
-    send({"actionType": "player_warp", "location": "Farm", "x": 64, "y": 15}, 1.2)
-    send({"actionType": "player_ship_all"}, 0.7)
-    send({"actionType": "player_sell_instant"}, 0.8)
-    log(f"  卖出后金币 {money()}")
-    send({"actionType": "player_warp", "location": "FarmHouse", "x": 9, "y": 11}, 1.0)
-    # 直接调到傍晚（测试用调速），省去等 12 分钟
-    send({"actionType": "set_clock", "time": 1780}, 1.0)
-    b = rd()
-    b = rd()
-    log(f"  睡觉 day={b.get('day')} time={b.get('time')}")
+def close_shipping(h):
+    """点掉装船结算 OK（否则游戏时间冻结、什么都做不了）。"""
     for _ in range(4):
-        send({"actionType": "player_sleep"}, 1.8)
-        d0 = (rd() or {}).get("day")
-        for _ in range(18):
-            time.sleep(3)
-            b = rd()
-            if b and b.get("day") != d0:
-                log(f"  跨天 day={b.get('day')} money={b.get('player', {}).get('money')}")
-                send({"actionType": "close_menu"}, 0.3)
-                return
-        send({"actionType": "close_menu"}, 0.3)
+        b = rd()
+        if not b:
+            continue
+        if not b.get("player", {}).get("fishing", {}).get("activeMenu"):
+            return True
+        ox, oy = client_origin(h)
+        click_screen(ox + 888, oy + 619)   # OK 按钮
+        time.sleep(1.2)
+    return False
+
+
+def sell_and_sleep(h):
+    send({"actionType": "player_warp", "location": "Farm", "x": 64, "y": 15}, 1.0)
+    send({"actionType": "player_ship_all"}, 0.6)
+    send({"actionType": "player_sell_instant"}, 0.6)
+    send({"actionType": "player_warp", "location": "FarmHouse", "x": 9, "y": 11}, 1.0)
+    d0 = (rd() or {}).get("day")
+    send({"actionType": "set_clock", "time": 2590}, 0.8)
+    for i in range(80):
+        b = rd()
+        if b and b.get("day") != d0:
+            break
+        if i == 20:
+            send({"actionType": "close_menu"}, 0.3)
+            send({"actionType": "set_clock", "time": 2595}, 0.6)
+        time.sleep(1.5)
     b = rd()
-    log(f"  ⚠ 没跨天 day={b.get('day')}")
+    log(f"  跨天 day={b.get('day')} money={b.get('player', {}).get('money')}")
+    close_shipping(h)
+    send({"actionType": "close_menu"}, 0.4)
+    b = rd()
+    log(f"  清晨 day={b.get('day')} time={b.get('time')} money={b.get('player', {}).get('money')}")
+    return b
+
+
+def one_day(mode):
+    """mode: 0=挖矿 1=钓鱼 2=农场"""
+    live()
+    b = rd()
+    log(f"--- 开始 day={b.get('day')} time={b.get('time')} money={b.get('player', {}).get('money')} mode={mode}")
+    if mode == 0:
+        mine_phase(25)
+    elif mode == 1:
+        fish_phase(find_game(), 5)
+    else:
+        farm_phase(6)
+    sell_and_sleep(find_game())
+    b = rd()
+    log(f"--- 结束 day={b.get('day')} time={b.get('time')} money={b.get('player', {}).get('money')}")
+    return b
 
 
 def main(days=2):
@@ -272,7 +305,7 @@ def main(days=2):
             log("-- 农场日")
             farm_phase(6)
         log("-- 卖出+睡觉")
-        sell_and_sleep()
+        sell_and_sleep(find_game())
         b = rd()
         log(f"=== 第{d+1}天结束 day={b.get('day')} money={b.get('player', {}).get('money')}")
 
