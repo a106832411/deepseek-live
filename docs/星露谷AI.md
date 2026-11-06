@@ -349,3 +349,13 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - 流程：举着斧头 → 走到 Blacksmith → `talk_to_npc Clint` → 自动点对话选项
 - 实测：`toolUpgrading=True`（**工具已被 Clint 收走升级**），游戏时间恢复正常前进（650→710）
 - 下一步：睡一觉第二天验证斧头变成铜斧
+
+### 工具升级（本轮复核）
+
+- 桥接新增 `player.tools`（名字+升级等级）
+- 复核结果：`toolUpgrading=True` 但 `days=0` 且所有工具仍 `Lv0` 在背包 → 这个 True 是 NetRef 默认非空造成的**误判**，升级实际没触发（缺 5 个铜锭 + 2000g，Clint 不会给升级）
+- 正确做法：先买铜矿石→造熔炉→炼铜锭，攒够材料再找 Clint
+
+### 睡觉（本轮验证）
+
+- day 26 → day 27 成功跨天，游戏时间 600 早晨刷新（此前后续对话卡住的原因已修）
