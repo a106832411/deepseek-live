@@ -229,3 +229,14 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 | 烹饪/制作 | ❌ |
 | 动物/加工 | ❌ |
 | 节日/天气/工具升级 | ❌ |
+
+### 制作/烹饪（本轮）
+
+- 新增 `craft_item {item:"火把"}`：从玩家已解锁配方里找配方 → 检查材料（`doesFarmerHaveIngredientsInInventory`）→ `createItem` 产出 + `consumeIngredients` 扣材料
+- 中英别名：火把→Torch、木箱→Chest、稻草人→Scarecrow、洒水器→Sprinkler、熔炉→Furnace、木桶→Keg、蜂箱→Bee House、蛋黄酱机→Mayonnaise Machine…
+- 实测：`Missing ingredients for Torch`（配方找到、材料检查正常）
+- 采集链也验证了：农场里走路到树旁、挥斧砍树 14 下、拾取地面掉落（得苔藓）
+
+### 烹饪（待做）
+
+- 需要农舍升级出厨房，用 `CraftingRecipe(isCooking=true)` 走同一套；当前存档无厨房，等升级后再验证
