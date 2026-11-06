@@ -258,3 +258,18 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 | 钓鱼收杆 | ⚠️ 卡在小游戏入口 |
 | NPC 好感 | ⚠️ 需 NPC 醒着 |
 | 动物/加工/工具升级 | ❌ |
+
+### 钓鱼：真实点击（本轮重大进展）
+
+- 新增 `stand_by_water`：自动站到水边、面朝水、手持鱼竿
+- 新增桥接字段 `player.fishing`：`rod / inUse / nibbling / minigame` 实时状态
+- 新增 `extras/python/fishing_test.py`：**真实鼠标点击**抛竿 + 咬钩时真实点击钩鱼
+- 实测：
+  - `click 0,180 -> inUse=True`（真实点击成功抛竿）
+  - `咬钩！点击钩鱼`（真实点击成功钩鱼）
+  - `钓鱼小游戏已打开`（BobberBar 弹出）
+- 卡点：小游戏 1 秒内自己关闭，鱼没进背包；正在排查（自动改 distance/bobberInBar 与游戏自带判定冲突，疑似被游戏判成脱钩）
+
+### 下一轮
+
+- 钓鱼小游戏：改成「读取鱼/浮标位置 + 模拟按住鼠标」的原版操作，而不是改字段
