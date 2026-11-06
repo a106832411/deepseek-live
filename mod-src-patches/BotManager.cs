@@ -447,7 +447,7 @@ namespace StardewMCPBridge
                         var ploc = Game1.player.currentLocation;
                         try
                         {
-                            Game1.player.controller = new PathFindController(Game1.player, ploc, new Microsoft.Xna.Framework.Point(pmx.GetInt32(), pmy.GetInt32()), 2);
+                            Game1.player.controller = new PathFindController(Game1.player, ploc, new Microsoft.Xna.Framework.Point(pmx.GetInt32(), pmy.GetInt32()), 1000);
                             this.monitor.Log($"Player pathing to ({pmx.GetInt32()},{pmy.GetInt32()})", LogLevel.Info);
                         }
                         catch (Exception ex)
@@ -768,7 +768,7 @@ namespace StardewMCPBridge
                         if (dist > 1)
                         {
                             Game1.player.controller = new PathFindController(Game1.player, house,
-                                new Microsoft.Xna.Framework.Point(bed.X, bed.Y), 2);
+                                new Microsoft.Xna.Framework.Point(bed.X, bed.Y), 1000);
                             this.monitor.Log($"Walking to bed ({bed.X},{bed.Y}), dist={dist}", LogLevel.Info);
                             break;
                         }

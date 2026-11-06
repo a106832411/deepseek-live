@@ -481,3 +481,10 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - 工具升级完成：熔炉烧 5 铜锭（消耗 25 铜矿 + 5 煤）→ `upgrade_tool pickaxe` 扣 2000g + 5 铜锭 → **十字镐 Lv0 → Lv1**
 - 存档验证：正常睡床跨天（day 6→7），重启重载后仍是 `day 7 6:20 money 2615 十字镐 Lv1`，确认已持久化
 - 注意：游戏会因「事件/弹窗/失焦」暂停时间，长时间自动操作前要 `set_focus_pause disabled` + 定期 `reset_state`
+
+### 每日自动干活循环（本轮搭建）
+
+- 新增 `extras/python/daily_loop3.py`：每天 进矿挖 20 个目标 → 回家装船（shipping bin）→ 睡床跨天 → 次日金币结算
+- 修复关键 bug：`player_sleep_bed` 里 PathFindController 的 limit 又是 2（只能走 2 格），改成 1000 后能真正走到床边睡觉
+- 实测：day7 装船后睡床 → day8 06:00 金币 2615 → **3137（+522）**
+- 用法：`python -c "import sys; sys.path.insert(0, r'...\extras\python'); import daily_loop3; daily_loop3.main(3)"`（数字=天数）
