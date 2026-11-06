@@ -195,3 +195,17 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 1. 钓鱼收杆（最后一环）
 2. 商店：走进 Pierre 商店 → 柜台交互 → ShopMenu 真实购买
 3. 挖矿/战斗、烹饪/制作、动物/加工、NPC、节日、工具升级
+
+### 商店购物（本轮打通，真实菜单）
+
+- `open_shop_menu {shop:"SeedShop"}`：用 `Utility.TryOpenShopMenu` 打开真实 Pierre 商店（ShopMenu）
+- `shop_buy {item:"Wheat",count:5}`：从商店真实库存 `itemPriceAndStock` 取价，按价扣钱、发真实物品
+- 实测：`Shop bought 5x Wheat for 50g (unit 10) money=5025`，背包小麦种子 13 → 18，金币 5075 → 5025
+- 注意：菜单打开时外部 action 会被跳过，所以 `shop_buy` 会自己开店再买
+
+### 状态更新
+
+- ✅ 商店购物（真实价格/真实物品）
+- ✅ 挖矿基础（进矿、走路、挥镐、石头破碎、拾取）
+- ⚠️ 钓鱼：抛竿/咬钩 OK，收杆小游戏待补
+- ❌ 烹饪/制作、动物/加工、NPC、节日、工具升级
