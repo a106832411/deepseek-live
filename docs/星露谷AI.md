@@ -73,3 +73,34 @@ python extras/python/stardew_agent.py --loop --rounds 10
 - 给主角色加控制（改写一个简单的 SMAPI mod：移动/使用工具/睡觉）
 - 加作物日历（spring/summer/fall 作物利润表），让模型不用瞎猜
 - 加"每日总结"语音（复用鲸live 的 TTS，把 AI 的农活进展念出来）
+
+## 完整游戏流程（已打通）
+
+Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
+
+| 动作 | 作用 |
+|---|---|
+| `player_warp` | 传送玩家（Farm/FarmHouse 等） |
+| `player_till_all` | 锄头开垦周围 15x15 空地 |
+| `player_buy_seed` | 按名字买种子（自动扣钱、进背包） |
+| `player_plant` | 把背包种子里种到所有空耕地 |
+| `player_water_all` | 给所有作物浇水 |
+| `player_harvest_all` | 收所有成熟作物（按卖价直接结算金币） |
+| `player_sell_all` | 背包可卖物品放进出货箱 |
+| `player_eat` | 体力低时吃东西 |
+| `player_sleep` / `player_force_new_day` | 睡觉 / 强制跨天 |
+
+配套脚本 `extras/python/stardew_worker2.py` 每天循环执行：
+**传送农场 → 没种子就买 → 耕地 → 播种 → 浇水 → 收获 → 卖货 → 睡觉跨天**，全程规则驱动、**0 token**。
+
+### 实测（夏季第 14 天起，5 个游戏天）
+
+```
+第 14 天：钱 300  → 收 25 个成熟作物 +625
+第 15 天：钱 925  → +600
+第 16 天：钱 1525 → +600
+第 17 天：钱 2125 → +600
+第 18 天：钱 2725 → 第 5 天收完 3300
+```
+
+5 个游戏天净赚 **+3000 金**，全程没有人工操作，LLM 调用 **0 次**（免费）。
