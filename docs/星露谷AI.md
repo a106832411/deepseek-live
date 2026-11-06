@@ -473,3 +473,11 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
   - 等待后 `machine_collect` → 背包得到 **铜锭**
   - 循环 5 次：**铜锭x5**、铜矿石x10、金币 4535
 - 已 `player_save` 存档，防止重启丢失
+
+### 一条龙修复（本轮成果）
+
+- 新增动作：`reset_state`（清事件/菜单/暂停，恢复时间流动）、`list_doors`（列门）、`enter_location`（走门 Action 属性进建筑）、`upgrade_tool`（按材料+金币升级工具）
+- 进建筑问题解决：Town 铁匠铺门在 **94,81**（LockedDoorWarp 5 19 Blacksmith 900 1600），必须 9:00-16:00 才能进；`enter_location Blacksmith` 成功进入
+- 工具升级完成：熔炉烧 5 铜锭（消耗 25 铜矿 + 5 煤）→ `upgrade_tool pickaxe` 扣 2000g + 5 铜锭 → **十字镐 Lv0 → Lv1**
+- 存档验证：正常睡床跨天（day 6→7），重启重载后仍是 `day 7 6:20 money 2615 十字镐 Lv1`，确认已持久化
+- 注意：游戏会因「事件/弹窗/失焦」暂停时间，长时间自动操作前要 `set_focus_pause disabled` + 定期 `reset_state`

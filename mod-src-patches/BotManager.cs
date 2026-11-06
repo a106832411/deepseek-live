@@ -459,6 +459,129 @@ namespace StardewMCPBridge
                     }
                     break;
 
+                case "upgrade_tool":
+                    {
+                        try
+                        {
+                            string tv = root.TryGetProperty("tool", out var tvEl) ? tvEl.GetString() : "pickaxe";
+                            var theTool = Game1.player.Items.OfType<StardewValley.Tool>().FirstOrDefault(t =>
+                            {
+                                var n = t.GetType().Name.ToLower();
+                                return tv switch
+                                {
+                                    "pickaxe" => n.Contains("pickaxe"),
+                                    "axe" => n.Contains("axe"),
+                                    "hoe" => n.Contains("hoe"),
+                                    "wateringcan" or "watering_can" => n.Contains("wateringcan"),
+                                    _ => n.Contains(tv.ToLower())
+                                };
+                            });
+                            if (theTool == null) { this.monitor.Log("upgrade_tool: no tool", LogLevel.Warn); break; }
+                            int lvl = theTool.UpgradeLevel;
+                            if (lvl >= 4) { this.monitor.Log("upgrade_tool: already max", LogLevel.Warn); break; }
+                            int bars = 5;
+                            var barItem = Game1.player.Items.FirstOrDefault(i => i != null && i.QualifiedItemId == "(O)334");
+                            int haveBars = 0;
+                            foreach (var it in Game1.player.Items)
+                                if (it != null && it.QualifiedItemId == "(O)334") haveBars += it.Stack;
+                            if (haveBars < bars || Game1.player.Money < 2000)
+                            {
+                                this.monitor.Log($"upgrade_tool: not enough materials bars={haveBars} money={Game1.player.Money}", LogLevel.Warn);
+                                break;
+                            }
+                            Game1.player.Money -= 2000;
+                            int need = bars;
+                            for (int i = 0; i < Game1.player.Items.Count && need > 0; i++)
+                            {
+                                var it = Game1.player.Items[i];
+                                if (it == null || it.QualifiedItemId != "(O)334") continue;
+                                int take = Math.Min(need, it.Stack);
+                                it.Stack -= take;
+                                need -= take;
+                                if (it.Stack <= 0) Game1.player.Items[i] = null;
+                            }
+                            theTool.UpgradeLevel = lvl + 1;
+                            this.monitor.Log($"upgrade_tool: {theTool.GetType().Name} {lvl} -> {theTool.UpgradeLevel}", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("upgrade_tool err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "reset_state":
+                    {
+                        try
+                        {
+                            Game1.eventUp = false;
+                            Game1.fadeToBlack = false;
+                            Game1.fadeIn = false;
+                            Game1.paused = false;
+                            Game1.dialogueUp = false;
+                            Game1.activeClickableMenu = null;
+                            if (Game1.currentLocation != null) Game1.currentLocation.currentEvent = null;
+                            if (Game1.player != null) { Game1.player.controller = null; Game1.player.Halt(); Game1.player.UsingTool = false; }
+                            this.monitor.Log("reset_state done", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("reset_state err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "list_doors":
+                    {
+                        try
+                        {
+                            var dl = Game1.player.currentLocation;
+                            int w = dl.Map.Layers[0].LayerWidth, h = dl.Map.Layers[0].LayerHeight;
+                            var parts = new System.Collections.Generic.List<string>();
+                            for (int dy = 0; dy < h; dy++)
+                                for (int dx = 0; dx < w; dx++)
+                                {
+                                    var act = dl.doesTileHaveProperty(dx, dy, "Action", "Buildings");
+                                    if (!string.IsNullOrEmpty(act) && act.ToLower().Contains("warp"))
+                                        parts.Add($"{dx},{dy}={act}");
+                                }
+                            this.monitor.Log($"DOORS {dl.Name}: " + string.Join(" | ", parts), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("list_doors err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "enter_location":
+                    {
+                        try
+                        {
+                            string doorTarget = root.TryGetProperty("name", out var tg) ? tg.GetString() : "";
+                            var el = Game1.player.currentLocation;
+                            int ew = el.Map.Layers[0].LayerWidth, eh = el.Map.Layers[0].LayerHeight;
+                            int foundX = -1, foundY = -1;
+                            string foundAct = null;
+                            for (int yy = 0; yy < eh && foundX < 0; yy++)
+                                for (int xx = 0; xx < ew; xx++)
+                                {
+                                    var act = el.doesTileHaveProperty(xx, yy, "Action", "Buildings");
+                                    if (string.IsNullOrEmpty(act)) continue;
+                                    if (act.IndexOf(doorTarget, StringComparison.OrdinalIgnoreCase) >= 0 && act.ToLower().Contains("warp"))
+                                    { foundX = xx; foundY = yy; foundAct = act; break; }
+                                }
+                            if (foundX < 0)
+                            {
+                                // 退而求其次：直接找该 location 实例并 warp
+                                var locInst = Game1.getLocationFromName(doorTarget);
+                                if (locInst != null)
+                                {
+                                    Game1.warpFarmer(locInst.Name, 8, 10, false);
+                                    this.monitor.Log($"enter_location: no door, direct warp to {doorTarget}", LogLevel.Info);
+                                }
+                                else this.monitor.Log($"enter_location: door/location not found for {doorTarget}", LogLevel.Warn);
+                                break;
+                            }
+                            Game1.player.Position = new Microsoft.Xna.Framework.Vector2(foundX * 64f, foundY * 64f);
+                            el.checkAction(new xTile.Dimensions.Location(foundX, foundY), Game1.viewport, Game1.player);
+                            this.monitor.Log($"enter_location: stepped on door ({foundX},{foundY}) act={foundAct}", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("enter_location err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "player_warp":
                     if (root.TryGetProperty("location", out var pwloc) && root.TryGetProperty("x", out var pwx) && root.TryGetProperty("y", out var pwy))
                     {
