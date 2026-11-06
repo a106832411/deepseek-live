@@ -342,3 +342,10 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 - 根因：DialogueBox 的方法名是 `receiveLeftClick`（小写 r），之前用 `ReceiveLeftClick` 反射找不到方法，所以自动跳过对话从没真正生效
 - 修复：反射按不区分大小写找 3 参数 `receiveLeftClick`；问答对话时点第一个选项按钮（`responseCC` 的 bounds 中心）
 - 实测：`talk_to_npc Clint, friendship=20` 后自动关对话，游戏时间 620 → 640 正常前进
+
+### 工具升级（本轮打通流程）
+
+- 桥接新增 `toolUpgrading / toolUpgradeDays`
+- 流程：举着斧头 → 走到 Blacksmith → `talk_to_npc Clint` → 自动点对话选项
+- 实测：`toolUpgrading=True`（**工具已被 Clint 收走升级**），游戏时间恢复正常前进（650→710）
+- 下一步：睡一觉第二天验证斧头变成铜斧
