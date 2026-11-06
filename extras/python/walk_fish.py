@@ -12,12 +12,15 @@ SEQ = 0
 
 ROUTES = {
     "FarmHouse": ["Farm"],
-    "Farm": ["BusStop", "Mountain"],
-    "BusStop": ["Town"],
-    "Town": ["Beach", "Mountain", "BusStop"],
-    "Mountain": ["Town", "Farm"],
+    "Farm": ["BusStop", "Backwoods", "Forest"],
+    "BusStop": ["Town", "Farm"],
+    "Backwoods": ["Farm", "Mountain"],
+    "Town": ["Beach", "Mountain", "BusStop", "Blacksmith", "SeedShop"],
+    "Mountain": ["Town", "Backwoods", "Farm"],
     "Beach": ["Town"],
+    "Forest": ["Farm", "Town"],
     "Blacksmith": ["Town"],
+    "SeedShop": ["Town"],
 }
 
 

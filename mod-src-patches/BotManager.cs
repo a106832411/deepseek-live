@@ -146,6 +146,41 @@ namespace StardewMCPBridge
             this.savedPlacements.Clear();
         }
 
+        private bool autoNoPause;
+        private int pendingNudgeX;
+        private int pendingNudgeY;
+        private int pendingTargetX = -1;
+        private int pendingTargetY = -1;
+
+        public void TickNudge()
+        {
+            if (this.autoNoPause)
+            {
+                try
+                {
+                    Game1.options.pauseWhenOutOfFocus = false;
+                    var pf = typeof(Game1).GetField("paused",
+                        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                    if (pf != null && pf.FieldType == typeof(bool) && (bool)pf.GetValue(null)) pf.SetValue(null, false);
+                }
+                catch { }
+            }
+            if (this.pendingNudgeX == 0 && this.pendingNudgeY == 0) return;
+            try
+            {
+                Game1.player.controller = null;
+                Game1.player.Position = new Microsoft.Xna.Framework.Vector2(
+                    Game1.player.Position.X + this.pendingNudgeX * 48f,
+                    Game1.player.Position.Y + this.pendingNudgeY * 48f);
+                this.monitor.Log($"auto-nudge ({this.pendingNudgeX},{this.pendingNudgeY})", LogLevel.Info);
+                this.pendingNudgeX = 0;
+                this.pendingNudgeY = 0;
+                this.pendingTargetX = -1;
+                this.pendingTargetY = -1;
+            }
+            catch { }
+        }
+
         public BotManager(IMonitor monitor, IModHelper helper)
         {
             this.monitor = monitor;
@@ -596,6 +631,20 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "nudge":
+                    {
+                        try
+                        {
+                            int ndx = root.TryGetProperty("dx", out var nx) ? nx.GetInt32() : 0;
+                            int ndy = root.TryGetProperty("dy", out var ny) ? ny.GetInt32() : 0;
+                            Game1.player.Position = new Microsoft.Xna.Framework.Vector2(
+                                Game1.player.Position.X + ndx * 64f, Game1.player.Position.Y + ndy * 64f);
+                            this.monitor.Log($"nudge ({ndx},{ndy})", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("nudge err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "reset_rod":
                     {
                         try
@@ -650,8 +699,16 @@ namespace StardewMCPBridge
                                     }
                             }
                             if (wx2 < 0) { this.monitor.Log($"walk_to_target: no exit to {wt} in {wloc.Name}", LogLevel.Warn); break; }
+                            int mapW = wloc.Map.Layers[0].LayerWidth, mapH = wloc.Map.Layers[0].LayerHeight;
+                            int pathX = wx2, pathY = wy2;
+                            this.pendingNudgeX = 0; this.pendingNudgeY = 0;
+                            // 只有真正在地图外的出口（负坐标）才用边界外推；房间门口格（y==mapH 之类）保持原样寻路
+                            if (wx2 < 0) { pathX = 0; this.pendingNudgeX = -1; }
+                            if (wy2 < 0) { pathY = 0; this.pendingNudgeY = -1; }
+                            this.pendingTargetX = pathX;
+                            this.pendingTargetY = pathY;
                             Game1.player.controller = new PathFindController(Game1.player, wloc,
-                                new Microsoft.Xna.Framework.Point(wx2, wy2), 1000);
+                                new Microsoft.Xna.Framework.Point(pathX, pathY), 1000);
                             this.monitor.Log($"Walking to exit {wt} at ({wx2},{wy2}) from {wloc.Name}", LogLevel.Info);
                         }
                         catch (Exception ex) { this.monitor.Log("walk_to_target err: " + ex.Message, LogLevel.Warn); }
@@ -1523,6 +1580,7 @@ namespace StardewMCPBridge
                 case "set_focus_pause":
                     {
                         bool enabled = !root.TryGetProperty("disabled", out var fp) || !fp.GetBoolean();
+                        this.autoNoPause = !enabled;
                         try
                         {
                             var opts = Game1.options;
