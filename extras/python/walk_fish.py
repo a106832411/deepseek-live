@@ -98,10 +98,10 @@ def hop(target, timeout=50):
     """走到本图的出口（真实走路），直到进入 target 地图。"""
     for attempt in range(4):
         live()
-        send({"actionType": "walk_to_target", "target": target}, 0.6)
+        send({"actionType": "walk_to_target", "target": target}, 0.4)
         t0 = time.time()
         while time.time() - t0 < timeout:
-            time.sleep(1.5)
+            time.sleep(0.4)
             b = rd()
             if b and b.get("location") == target:
                 return True
