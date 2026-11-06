@@ -106,8 +106,14 @@ def farm_day():
         time.sleep(1.0)
         log(f"播种 {tx},{ty}")
 
-    # 3) 真实浇水
-    for (tx, ty) in spots:
+    # 3) 真实浇水（下雨天跳过）
+    weather = (bridge() or {}).get("weather") or ""
+    if weather == "rain":
+        log("今天下雨，跳过浇水")
+        spots_water = []
+    else:
+        spots_water = spots
+    for (tx, ty) in spots_water:
         walk_to(tx, ty, timeout=6)
         send({"actionType": "player_use_tool", "tool": "wateringcan", "x": tx, "y": ty})
         time.sleep(0.8)

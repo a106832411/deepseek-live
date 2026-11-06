@@ -240,3 +240,21 @@ Mod 新增动作（`app/main` 之外的 SMAPI mod `StardewMCPBridge`）：
 ### 烹饪（待做）
 
 - 需要农舍升级出厨房，用 `CraftingRecipe(isCooking=true)` 走同一套；当前存档无厨房，等升级后再验证
+
+### 节日/天气（本轮）
+
+- 新增 `festival_info`：输出 `isFestival` / `whereIsTodaysFest` / 当前天气
+- 实测：`Festival check: isFestival=False, today=none, weather=rain`
+- worker4 已加「下雨跳过浇水」逻辑
+- 钓鱼：尝试手动 tick 玩家鱼竿（`rod.tickUpdate`）+ 咬钩钩鱼，仍未能进入小游戏；继续排查
+
+### 进度表（本轮）
+
+| 玩法 | 状态 |
+|---|---|
+| 走路/工具/种草/睡觉/商店/制作/挖矿 | ✅ 基础可用 |
+| 节日/天气检测 | ✅ 检测可用 |
+| 下雨自动不浇水 | ✅ worker 已加 |
+| 钓鱼收杆 | ⚠️ 卡在小游戏入口 |
+| NPC 好感 | ⚠️ 需 NPC 醒着 |
+| 动物/加工/工具升级 | ❌ |
