@@ -24,6 +24,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -43,6 +44,8 @@ LLM_KEY = env("STARDEW_LLM_KEY", "ollama")
 COMPANION = env("STARDEW_COMPANION", "Companion1")
 
 BRIDGE_FILE = os.path.join(BRIDGE, "bridge_data.json")
+TOKEN_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stardew_tokens.jsonl")
+_tokens = {"calls": 0, "prompt": 0, "completion": 0, "total": 0}
 ACTION_DIR = os.path.join(BRIDGE, "actions")
 
 _seq = 0
@@ -95,6 +98,20 @@ def llm_chat(messages, temperature=0.3, max_tokens=600):
     )
     with urllib.request.urlopen(req, timeout=180) as r:
         data = json.loads(r.read().decode("utf-8"))
+    usage = data.get("usage") or {}
+    pt = int(usage.get("prompt_tokens") or 0)
+    ct = int(usage.get("completion_tokens") or 0)
+    tt = int(usage.get("total_tokens") or (pt + ct))
+    _tokens["calls"] += 1
+    _tokens["prompt"] += pt
+    _tokens["completion"] += ct
+    _tokens["total"] += tt
+    try:
+        with open(TOKEN_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": time.time(), "model": LLM_MODEL, "prompt": pt,
+                                "completion": ct, "total": tt}, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
     return data["choices"][0]["message"]["content"]
 
 
@@ -148,7 +165,7 @@ SYSTEM_PROMPT = """你是星露谷物语的 AI 农场管家。你要根据游戏
 只输出 JSON，不要解释，格式：
 {"goal": "一句话目标", "actions": [ {"type": "...", ...} ]}
 
-可用动作（最多 12 条）：
+可用动作（最多 3 条，坐标只从 interesting_tiles 里挑）：
 - {"type":"warp","location":"Farm","x":64,"y":15}         传送到农场
 - {"type":"move_to","x":12,"y":8}                          走到指定格子
 - {"type":"use_tool","tool":"hoe|wateringcan|axe|pickaxe","x":12,"y":8}  使用工具
@@ -162,22 +179,59 @@ SYSTEM_PROMPT = """你是星露谷物语的 AI 农场管家。你要根据游戏
 """
 
 
+def _extract_json(text):
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    frag = text[start : end + 1]
+    try:
+        return json.loads(frag)
+    except Exception:
+        fixed = frag.replace("“", '"').replace("”", '"').replace("’", "'")
+        fixed = re.sub(r",\s*([}\]])", r"\1", fixed)
+        try:
+            return json.loads(fixed)
+        except Exception:
+            pass
+    # 兜底：模型输出被截断时，逐个提取完整的 action 对象
+    actions = []
+    for m in re.finditer(r"\{[^{}]*\}", text):
+        try:
+            obj = json.loads(m.group(0))
+        except Exception:
+            continue
+        if isinstance(obj, dict) and obj.get("type"):
+            actions.append(obj)
+    if actions:
+        return {"goal": "", "actions": actions}
+    return None
+
+
 def make_plan(state, goal=None):
     user = (
         "当前状态：\n"
         + json.dumps(state, ensure_ascii=False)
-        + f"\n\n今天的目标：{goal or '把附近能干的农活干完，别浪费体力'}\n请输出 JSON。"
+        + f"\n\n今天的目标：{goal or '把附近能干的农活干完，别浪费体力'}\n请只输出 JSON（不要代码块、不要解释）。"
     )
-    text = llm_chat(
-        [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}]
-    )
-    start = text.find("{")
-    end = text.rfind("}")
-    if start < 0 or end <= start:
-        raise ValueError("模型没有返回 JSON：" + text[:300])
-    plan = json.loads(text[start : end + 1])
-    plan.setdefault("actions", [])
-    return plan
+    last_err = None
+    for attempt in range(3):
+        text = llm_chat(
+            [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}],
+            temperature=0.2 if attempt else 0.3,
+            max_tokens=1400,
+        )
+        plan = _extract_json(text)
+        if isinstance(plan, dict) and isinstance(plan.get("actions"), list):
+            plan.setdefault("goal", goal or "")
+            return plan
+        last_err = text[:200]
+        time.sleep(0.5)
+    raise ValueError("模型连续 3 次没有返回合法 JSON：" + str(last_err))
 
 
 def normalize_action(a):
@@ -197,7 +251,7 @@ def normalize_action(a):
 
 
 def execute(plan, dry=False):
-    actions = plan.get("actions") or []
+    actions = (plan.get("actions") or [])[:8]  # 每轮最多执行 8 步，避免模型输出过长
     log(f"计划：{plan.get('goal')}（{len(actions)} 步）")
     done = 0
     for i, raw in enumerate(actions, 1):
@@ -278,6 +332,7 @@ def main():
             if args.dry:
                 print(json.dumps(result, ensure_ascii=False, indent=2))
                 break
+            log(f"  累计 token：调用{_tokens['calls']}次 输入{_tokens['prompt']} 输出{_tokens['completion']} 合计{_tokens['total']}")
             if not args.loop:
                 break
             time.sleep(args.interval)
