@@ -75,7 +75,10 @@ def relaunch_game():
         log("兜底：已有游戏窗口，不重启")
         return gameio.load_game()
     log("兜底：重启游戏")
-    subprocess.Popen([exe], cwd=game)
+    import subprocess as _sp
+    subprocess.Popen([exe], cwd=game,
+                     stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                     creationflags=getattr(_sp, "DETACHED_PROCESS", 0))
     h = None
     for _ in range(50):
         time.sleep(3)
