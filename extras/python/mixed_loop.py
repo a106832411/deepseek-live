@@ -184,7 +184,11 @@ def farm_phase(max_plant=6):
         send({"actionType": "player_warp", "location": "Farm", "x": 64, "y": 15}, 1.5)
     b = rd()
     if b.get("location") != "Farm":
-        log(f"  ⚠ 没到农场（{b.get('location')}）")
+        log(f"  ⚠ 没到农场（{b.get('location')}），不种地")
+        return
+    season = str(b.get("season") or "")
+    if season == "winter":
+        log("  冬天户外不长作物，跳过种地")
         return
     tiles = (b.get("surroundings") or {}).get("Tiles") or []
     harvested = 0
@@ -198,39 +202,102 @@ def farm_phase(max_plant=6):
                     break
 
     planted = 0
+    tilled = 0
     tried = set()
-    for _ in range(max_plant * 6):
+    for _ in range(max_plant * 8):
         if planted >= max_plant:
             break
         b = rd()
         tiles = (b.get("surroundings") or {}).get("Tiles") or []
         me = tile_of(b)
-        cand = None
+        # 1) 已有耕地（hoeDirt 且没作物）优先直接播种
+        # 2) 没有耕地才翻「纯土地」（terrain 为空），绝不翻草地/树/灌木
+        soil = []
+        bare = []
         for s in tiles:
-            if not s.get("Passable") or s.get("IsWater") or s.get("ObjectName"):
-                continue
             key = (s["X"], s["Y"])
             if key in tried:
                 continue
-            if abs(s["X"] - me[0]) + abs(s["Y"] - me[1]) > 6:
+            if not s.get("Passable") or s.get("IsWater") or s.get("ObjectName") or s.get("CropName"):
                 continue
-            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                st = next((t for t in tiles if t["X"] == s["X"] + dx and t["Y"] == s["Y"] + dy and t.get("Passable")), None)
-                if st:
-                    cand = (s, st)
-                    break
-            if cand:
-                break
+            d = abs(s["X"] - me[0]) + abs(s["Y"] - me[1])
+            if d > 5:
+                continue
+            terrain = s.get("Terrain")
+            if terrain == "hoeDirt":
+                soil.append((d, s))
+            elif terrain is None:
+                bare.append((d, s))
+        soil.sort(key=lambda x: x[0])
+        bare.sort(key=lambda x: x[0])
+        cand = None
+        need_till = False
+        if soil:
+            cand = soil[0][1]
+        elif bare:
+            cand = bare[0][1]
+            need_till = True
         if not cand:
             break
-        s, st = cand
-        tried.add((s["X"], s["Y"]))
+        key = (cand["X"], cand["Y"])
+        tried.add(key)
+        # 找相邻可站格
+        st = None
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            st = next((t for t in tiles if t["X"] == cand["X"] + dx and t["Y"] == cand["Y"] + dy and t.get("Passable")), None)
+            if st:
+                break
+        if not st:
+            continue
         if not walk_until(st["X"], st["Y"], 6):
             continue
-        send({"actionType": "player_use_tool", "tool": "hoe", "x": s["X"], "y": s["Y"]}, 0.7)
-        send({"actionType": "player_use_seed_at", "x": s["X"], "y": s["Y"], "seed": "Wheat"}, 0.8)
-        planted += 1
-    log(f"  农场：收 {harvested}，种 {planted}，金币 {money()}")
+        send({"actionType": "player_face_tile", "x": cand["X"], "y": cand["Y"]}, 0.3)
+        if need_till:
+            for _try in range(3):
+                send({"actionType": "select_item", "name": "锄头"}, 0.3)
+                send({"actionType": "player_face_tile", "x": cand["X"], "y": cand["Y"]}, 0.25)
+                try:
+                    import nav2
+                    nav2.click_tile(cand["X"], cand["Y"], 0.12)
+                except Exception:
+                    send({"actionType": "player_use_tool", "tool": "hoe", "x": cand["X"], "y": cand["Y"]}, 0.8)
+                time.sleep(0.7)
+                bb0 = rd()
+                now0 = next((t for t in (bb0.get("surroundings") or {}).get("Tiles") or []
+                             if t["X"] == cand["X"] and t["Y"] == cand["Y"]), None)
+                if now0 and now0.get("Terrain") == "hoeDirt":
+                    break
+            bb = rd()
+            now = next((t for t in (bb.get("surroundings") or {}).get("Tiles") or []
+                        if t["X"] == cand["X"] and t["Y"] == cand["Y"]), None)
+            if not now or now.get("Terrain") != "hoeDirt":
+                log(f"  翻土没成功 {cand['X']},{cand['Y']}（地形={now.get('Terrain') if now else '?'}），跳过")
+                continue
+            tilled += 1
+            log(f"  翻土 {cand['X']},{cand['Y']}")
+        for _try in range(3):
+            send({"actionType": "select_item", "name": "小麦种子"}, 0.3)
+            send({"actionType": "player_face_tile", "x": cand["X"], "y": cand["Y"]}, 0.25)
+            try:
+                import nav2
+                nav2.click_tile(cand["X"], cand["Y"], 0.12)
+            except Exception:
+                send({"actionType": "player_use_seed_at", "x": cand["X"], "y": cand["Y"], "seed": "小麦"}, 0.9)
+            time.sleep(0.8)
+            bbt = rd()
+            nowt = next((t for t in (bbt.get("surroundings") or {}).get("Tiles") or []
+                         if t["X"] == cand["X"] and t["Y"] == cand["Y"]), None)
+            if nowt and nowt.get("CropName"):
+                break
+        bb = rd()
+        now = next((t for t in (bb.get("surroundings") or {}).get("Tiles") or []
+                    if t["X"] == cand["X"] and t["Y"] == cand["Y"]), None)
+        if now and now.get("CropName"):
+            planted += 1
+            log(f"  播种成功 {cand['X']},{cand['Y']}")
+        else:
+            log(f"  播种没成功 {cand['X']},{cand['Y']}，跳过")
+    log(f"  农场：收 {harvested}，翻土 {tilled}，种 {planted}，金币 {money()}")
 
 
 def close_shipping(h):

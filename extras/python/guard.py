@@ -195,16 +195,40 @@ def ship_and_sleep_if_late():
         return False
 
 
+def plan_today(b):
+    """按季节/天气/运气给今天选活（参考星露谷冬季攻略：冬天不下地，挖矿/钓鱼为主）。"""
+    season = str(b.get("season") or "")
+    weather = str(b.get("weather") or "sunny")
+    raining = weather in ("rain", "storm")
+    luck = b.get("luck")
+    t = b.get("time", 600)
+    try:
+        luck = float(luck)
+    except Exception:
+        luck = 0.0
+    if season == "winter":
+        # 冬天：上午挖矿，下午钓鱼；下雪天也照常
+        if t < 1200:
+            return "mine", "冬天上午：挖矿攒矿石"
+        return "fish", "冬天下午：钓鱼换钱"
+    if t < 1100:
+        if raining:
+            return "mine", "下雨天：下矿"
+        return "farm", "上午：农场浇水/收菜"
+    if luck > 0.05:
+        return "mine", "运气不错：挖矿"
+    return "fish", "下午：钓鱼"
+
+
 def work_step():
-    """一次干活轮次：按天数轮换 挖矿/钓鱼/农场，晚了就装船睡觉。"""
-    b = fallback.ensure_ready()
+    """一次干活轮次：按季节/天气/运气挑活，晚了就装船睡觉。"""
+    fallback.ensure_ready()
     b = nav2.rd() or {}
-    day = b.get("day", 0)
-    mode = day % 3
-    log(f"  自动干活：day={day} time={b.get('time')} money={_money()} mode={'挖矿' if mode == 0 else ('钓鱼' if mode == 1 else '农场')}")
-    if mode == 0:
+    mode, why = plan_today(b)
+    log(f"  自动干活：day={b.get('day')} {b.get('season')} {b.get('time')} money={_money()} → {why}")
+    if mode == "mine":
         mine_batch(8)
-    elif mode == 1:
+    elif mode == "fish":
         fish_batch(2)
     else:
         farm_batch()

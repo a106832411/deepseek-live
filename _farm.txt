@@ -1,0 +1,65 @@
+def farm_phase(max_plant=6):
+    """收成熟作物；把空地锄成耕地再播种（真实走位 + 工具/种子）。"""
+    for _ in range(6):
+        b = rd()
+        if b and b.get("location") == "Farm":
+            break
+        send({"actionType": "player_warp", "location": "Farm", "x": 64, "y": 15}, 1.5)
+    b = rd()
+    if b.get("location") != "Farm":
+        log(f"  ⚠ 没到农场（{b.get('location')}）")
+        return
+    tiles = (b.get("surroundings") or {}).get("Tiles") or []
+    harvested = 0
+    for s in tiles:
+        if s.get("CropReady"):
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                st = next((t for t in tiles if t["X"] == s["X"] + dx and t["Y"] == s["Y"] + dy and t.get("Passable")), None)
+                if st and walk_until(st["X"], st["Y"], 5):
+                    send({"actionType": "player_interact_at", "x": s["X"], "y": s["Y"]}, 0.6)
+                    harvested += 1
+                    break
+
+    planted = 0
+    tried = set()
+    for _ in range(max_plant * 6):
+        if planted >= max_plant:
+            break
+        b = rd()
+        tiles = (b.get("surroundings") or {}).get("Tiles") or []
+        me = tile_of(b)
+        cand = None
+        for s in tiles:
+            if not s.get("Passable") or s.get("IsWater") or s.get("ObjectName"):
+                continue
+            key = (s["X"], s["Y"])
+            if key in tried:
+                continue
+            if abs(s["X"] - me[0]) + abs(s["Y"] - me[1]) > 6:
+                continue
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                st = next((t for t in tiles if t["X"] == s["X"] + dx and t["Y"] == s["Y"] + dy and t.get("Passable")), None)
+                if st:
+                    cand = (s, st)
+                    break
+            if cand:
+                break
+        if not cand:
+            break
+        s, st = cand
+        tried.add((s["X"], s["Y"]))
+        if not walk_until(st["X"], st["Y"], 6):
+            continue
+        send({"actionType": "player_use_tool", "tool": "hoe", "x": s["X"], "y": s["Y"]}, 0.7)
+        send({"actionType": "player_use_seed_at", "x": s["X"], "y": s["Y"], "seed": "Wheat"}, 0.8)
+        planted += 1
+    log(f"  农场：收 {harvested}，种 {planted}，金币 {money()}")
+
+
+def close_shipping(h):
+    """点掉装船结算 OK（否则游戏时间冻结、什么都做不了）。"""
+    for _ in range(4):
+        b = rd()
+        if not b:
+            continue
+        if not b.get("player", {}).get("fishing", {})
