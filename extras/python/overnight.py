@@ -41,21 +41,51 @@ def inventory_count(part):
     return sum(int(i.get("stack", 1)) for i in (rd().get("player", {}).get("inventory") or []) if i and part in str(i.get("name")))
 
 
+def go_to_bed():
+    """在农舍里：走到床边再交互上床。"""
+    b = rd()
+    if b.get("location") != "FarmHouse":
+        return False
+    tiles = (b.get("surroundings") or {}).get("Tiles") or []
+    bed = next((t for t in tiles if "床" in str(t.get("ObjectName")) or "Bed" in str(t.get("ObjectName"))), None)
+    if not bed:
+        return False
+    me = nav2.tile(rd())
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        st = next((t for t in tiles if t["X"] == bed["X"] + dx and t["Y"] == bed["Y"] + dy and t.get("Passable")), None)
+        if st and nav2.walk_until(st["X"], st["Y"], 12):
+            nav2.send({"actionType": "player_interact_at", "x": bed["X"], "y": bed["Y"]}, 2.0)
+            time.sleep(3)
+            return True
+    return False
+
+
 def go_sleep():
     log("  晚上了，回家睡觉")
+    day0 = rd().get("day")
     b = rd()
     if b.get("location") != "FarmHouse":
         if not fallback.goto_or_warp("FarmHouse"):
             log("  走不回去，兜底传送回家（仅夜间紧急）")
             nav2.send({"actionType": "player_warp", "location": "FarmHouse", "x": 9, "y": 9}, 2.0)
             time.sleep(2)
-    nav2.send({"actionType": "player_sleep_bed"}, 2.0)
-    for _ in range(30):
-        time.sleep(2)
-        b = rd()
-        if b.get("time", 0) < 1200:
-            break
-    log(f"  醒来：day={rd().get('day')} time={rd().get('time')} money={money()}")
+    # 睡觉：先正常上床，没跨天再换动作
+    for attempt in range(3):
+        go_to_bed()
+        nav2.send({"actionType": "player_sleep_bed"}, 2.0)
+        for _ in range(20):
+            time.sleep(2)
+            b = rd()
+            if b.get("day") != day0:
+                log(f"  醒来：day={b.get('day')} time={b.get('time')} money={money()}")
+                return
+        log(f"  第 {attempt+1} 次睡觉没跨天，换方式")
+        nav2.send({"actionType": "player_sleep"}, 2.0)
+        time.sleep(8)
+        if rd().get("day") != day0:
+            log(f"  醒来(备用)：day={rd().get('day')} time={rd().get('time')}")
+            return
+    log("  实在睡不着，继续（走不动就等晕倒）")
 
 
 def main():
@@ -68,9 +98,9 @@ def main():
         cycles += 1
         try:
             fallback.keep_awake()
-            if not fallback.ensure_ready():
-                log("  游戏没就绪，等 60 秒再试")
-                time.sleep(60)
+            if not fallback.ensure_ready(tries=5):
+                log("  游戏没就绪，等 30 秒再试")
+                time.sleep(30)
                 continue
             b = rd()
             loc, t, day, m = b.get("location"), b.get("time", 0), b.get("day"), money()
@@ -97,7 +127,7 @@ def main():
             last = cur
 
             # 晚上回家睡觉
-            if t >= 2350:
+            if t >= 2130:
                 go_sleep()
                 continue
 
