@@ -102,6 +102,11 @@ namespace StardewMCPBridge
             bool cropReady = false;
             int waterState = -1; // -1 = no dirt
 
+            string objectName = null;
+            string objectType = null;
+            bool breakable = false;
+            bool interactable = false;
+
             if (location.terrainFeatures.TryGetValue(tile, out var feature))
             {
                 if (feature is HoeDirt dirt)
@@ -121,9 +126,12 @@ namespace StardewMCPBridge
                         cropReady = dirt.readyForHarvest();
                     }
                 }
-                else if (feature is Tree)
+                else if (feature is Tree tree)
                 {
                     terrainType = "tree";
+                    objectType = "tree";
+                    objectName = tree.stump.Value ? "树桩" : "树";
+                    breakable = true;
                 }
                 else if (feature is Grass)
                 {
@@ -135,10 +143,25 @@ namespace StardewMCPBridge
                 }
             }
 
-            string objectName = null;
-            string objectType = null;
-            bool breakable = false;
-            bool interactable = false;
+            // 资源团：大石头/大木桩/大圆木（不是普通 object，单独存在 resourceClumps）
+            try
+            {
+                foreach (var rc in location.resourceClumps)
+                {
+                    int rx = (int)rc.Tile.X, ry = (int)rc.Tile.Y;
+                    int rw = rc.width.Value, rh = rc.height.Value;
+                    if (x >= rx && x < rx + rw && y >= ry && y < ry + rh)
+                    {
+                        int idx = rc.parentSheetIndex.Value;
+                        objectName = "资源团";
+                        objectType = (idx == 600 || idx == 602) ? "clump_axe" : "clump_pick";
+                        breakable = true;
+                        passable = false;
+                        break;
+                    }
+                }
+            }
+            catch { }
 
             if (location.objects.TryGetValue(tile, out var obj))
             {
@@ -177,23 +200,31 @@ namespace StardewMCPBridge
         private static string GetObjectType(SObject obj)
         {
             if (obj is Chest) return "chest";
-            if (obj.Name != null)
-            {
-                if (obj.Name.Contains("Stone")) return "stone";
-                if (obj.Name.Contains("Weed")) return "weed";
-                if (obj.Name.Contains("Twig")) return "twig";
-                if (obj.Name.Contains("Ladder") || obj.Name.Contains("Shaft")) return "ladder";
-            }
+            string nm = obj.Name ?? "";
+            string tp = obj.Type ?? "";
+            if (nm.Contains("Weed")) return "weed";
+            if (nm.Contains("Twig")) return "twig";
+            if (nm.Contains("Ladder") || nm.Contains("Shaft")) return "ladder";
+            if (tp == "Ore" || nm.Contains("Node") || nm.Contains("Ore")) return "ore";
+            if (tp == "Minerals") return "mineral";
+            if (tp == "Stone" || nm.Contains("Stone") || nm.Contains("Rock") || nm.Contains("Geode")) return "stone";
             if (obj.bigCraftable.Value) return "machine";
             return "object";
         }
 
         private static bool IsBreakable(SObject obj)
         {
-            if (obj.Name == null) return false;
-            return obj.Name.Contains("Stone") || obj.Name.Contains("Weed") || obj.Name.Contains("Twig")
-                || obj.ParentSheetIndex == 294 || obj.ParentSheetIndex == 295
-                || obj.ParentSheetIndex == 343 || obj.ParentSheetIndex == 450;
+            string nm = obj.Name ?? "";
+            string tp = obj.Type ?? "";
+            if (nm.Length == 0) return false;
+            if (tp == "Stone" || tp == "Ore" || tp == "Litter" || tp == "Minerals" || tp == "Twig" || tp == "Weed") return true;
+            if (nm.Contains("Stone") || nm.Contains("Weed") || nm.Contains("Twig")
+                || nm.Contains("Node") || nm.Contains("Ore") || nm.Contains("Rock") || nm.Contains("Geode")
+                || nm.Contains("Crystal") || nm.Contains("Quartz") || nm.Contains("Frozen Tear") || nm.Contains("Fire Quartz"))
+                return true;
+            // 常见可敲物件：石头 294/295/343/450、晶球 44/45/46/47、矿物节点等
+            int idx = obj.ParentSheetIndex;
+            return idx == 294 || idx == 295 || idx == 343 || idx == 450 || idx == 44 || idx == 45 || idx == 46 || idx == 47;
         }
 
         private static bool IsInteractable(SObject obj)

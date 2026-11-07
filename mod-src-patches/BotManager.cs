@@ -812,6 +812,52 @@ namespace StardewMCPBridge
                         Game1.player.faceDirection(pfd.GetInt32());
                     break;
 
+                case "dump_objects":
+                    {
+                        try
+                        {
+                            var dl2 = Game1.player.currentLocation;
+                            var parts = new System.Collections.Generic.List<string>();
+                            int n = 0;
+                            foreach (var kv in dl2.Objects.Pairs)
+                            {
+                                if (n++ > 40) break;
+                                var o = kv.Value;
+                                if (o == null) continue;
+                                parts.Add($"{kv.Key.X},{kv.Key.Y}: name={o.Name} display={o.DisplayName} type={o.Type} idx={o.ParentSheetIndex} cat={o.Category} big={o.bigCraftable.Value}");
+                            }
+                            foreach (var rc in dl2.resourceClumps)
+                                parts.Add($"CLUMP {rc.Tile.X},{rc.Tile.Y} idx={rc.parentSheetIndex.Value} w={rc.width.Value} h={rc.height.Value}");
+                            this.monitor.Log($"OBJECTS {dl2.Name}: " + string.Join(" | ", parts), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_objects err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "select_item":
+                    {
+                        try
+                        {
+                            string nm = root.TryGetProperty("name", out var nmEl) ? nmEl.GetString() : "";
+                            int idx2 = -1;
+                            for (int i = 0; i < Game1.player.Items.Count; i++)
+                            {
+                                var it = Game1.player.Items[i];
+                                if (it == null) continue;
+                                if (it.DisplayName.IndexOf(nm, StringComparison.OrdinalIgnoreCase) >= 0 || it.Name.IndexOf(nm, StringComparison.OrdinalIgnoreCase) >= 0)
+                                { idx2 = i; break; }
+                            }
+                            if (idx2 >= 0)
+                            {
+                                Game1.player.CurrentToolIndex = idx2;
+                                this.monitor.Log($"select_item {nm} -> idx {idx2}", LogLevel.Info);
+                            }
+                            else this.monitor.Log($"select_item: not found {nm}", LogLevel.Warn);
+                        }
+                        catch (Exception ex) { this.monitor.Log("select_item err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "player_use_tool":
                     if (root.TryGetProperty("tool", out var put) && root.TryGetProperty("x", out var pux) && root.TryGetProperty("y", out var puy))
                     {

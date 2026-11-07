@@ -213,8 +213,13 @@ def hop(target, timeout=30):
 
 def _tool_for(obj_type=None, terrain=None):
     ot = (obj_type or "").lower()
-    if terrain == "tree" or ot in ("tree", "stump", "log", "twig", "weed"):
+    if ot == "clump_axe":
         return "axe"
+    if ot == "clump_pick":
+        return "pickaxe"
+    if terrain == "tree" or ot in ("tree", "stump", "log", "twig", "weed", "bush"):
+        return "axe"
+    # 矿石/石头/晶球都��镐
     return "pickaxe"
 
 
