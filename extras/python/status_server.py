@@ -38,6 +38,12 @@ def stardew_status():
             "ok": True, "age": age, "guardFresh": guard_fresh, "guardLines": guard_lines,
             "location": b.get("location"), "day": b.get("day"), "time": b.get("time"),
             "money": p.get("money"), "tile": p.get("tile"), "tool": p.get("currentTool"),
+            "stamina": p.get("stamina"), "health": p.get("health"),
+            "fishing": {
+                "inUse": (p.get("fishing") or {}).get("inUse"),
+                "nibbling": (p.get("fishing") or {}).get("nibbling"),
+                "minigame": (p.get("fishing") or {}).get("minigame"),
+            },
             "menu": ((p.get("fishing") or {}).get("activeMenu")),
         }
     except Exception as e:

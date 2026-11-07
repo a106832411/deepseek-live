@@ -2,74 +2,110 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>鲸live · 星露谷 AI</title>
+<title>鲸live · 星露谷</title>
 <style>
   :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: transparent; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: transparent; overflow: hidden; }
   body {
-    font-family: "Microsoft YaHei", system-ui, sans-serif;
-    color: #ece7d8;
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    color: #f3ecd8;
     display: flex; align-items: flex-start; justify-content: flex-start;
   }
   .panel {
-    background: rgba(14, 13, 16, .82);
-    border: 1px solid rgba(216, 178, 90, .55);
-    border-radius: 14px;
-    padding: 14px 18px;
-    min-width: 420px;
-    box-shadow: 0 8px 28px rgba(0,0,0,.5);
-    backdrop-filter: blur(6px);
+    min-width: 430px;
+    padding: 16px 20px 18px;
+    border-radius: 18px;
+    background: linear-gradient(160deg, rgba(22,20,16,.92), rgba(10,10,10,.88));
+    border: 1px solid rgba(216,178,90,.65);
+    box-shadow: 0 10px 30px rgba(0,0,0,.55);
   }
-  .title { color: #d8b25a; font-weight: 700; font-size: 15px; letter-spacing: .5px; margin-bottom: 8px; }
-  .status { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
-  .ok { color: #6fcf7f; } .bad { color: #e06666; }
-  .info { font-size: 13px; line-height: 1.7; color: #cfc9b8; white-space: pre-line; }
-  .task { color: #d8b25a; font-size: 13px; margin-top: 8px; line-height: 1.5; }
-  .logs { color: #8a857a; font-size: 11.5px; margin-top: 8px; line-height: 1.55; white-space: pre-line; }
+  .head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #6fcf7f; box-shadow: 0 0 10px #6fcf7f; }
+  .dot.off { background: #e06666; box-shadow: 0 0 10px #e06666; }
+  .title { color: #d8b25a; font-weight: 800; font-size: 17px; letter-spacing: 1px; }
+  .doing { font-size: 24px; font-weight: 800; margin: 6px 0 2px; }
+  .doing .big { color: #ffd977; }
+  .sub { font-size: 16px; color: #ddd4bd; margin-top: 4px; }
+  .sub b { color: #ffd977; font-weight: 700; }
+  .bar { margin-top: 12px; height: 10px; border-radius: 6px; background: rgba(255,255,255,.12); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: linear-gradient(90deg, #d8b25a, #f6e2a8); border-radius: 6px; transition: width .6s; }
+  .lab { font-size: 12.5px; color: #a89f8b; margin-top: 6px; }
+  .foot { margin-top: 10px; font-size: 13px; color: #9a9282; }
+  .offline { font-size: 20px; font-weight: 800; color: #e06666; }
 </style>
 </head>
 <body>
   <div class="panel">
-    <div class="title">鲸live · 星露谷 AI</div>
-    <div class="status" id="status">连接中…</div>
-    <div class="info" id="info"></div>
-    <div class="task" id="task"></div>
-    <div class="logs" id="logs"></div>
+    <div class="head"><span class="dot" id="dot"></span><span class="title">星露谷 · AI 自己玩</span></div>
+    <div class="doing" id="doing">正在进入游戏…</div>
+    <div class="sub" id="sub"></div>
+    <div class="bar"><i id="bar" style="width:0%"></i></div>
+    <div class="lab" id="lab"></div>
+    <div class="foot" id="foot"></div>
   </div>
 <script>
 const $ = (id) => document.getElementById(id);
-function hhmm(t) {
+const SCENE = {
+  FarmHouse: '农舍', Farm: '农场', Beach: '海边', Town: '镇上', Mountain: '山上',
+  BusStop: '巴士站', Backwoods: '后山', Forest: '森林', Blacksmith: '铁匠铺',
+  SeedShop: '种子店', AnimalShop: '牧场', Saloon: '酒吧', Mine: '矿洞入口',
+  FarmCave: '农场山洞', Railroad: '铁路'
+};
+function sceneName(loc) {
+  if (!loc) return '未知地方';
+  if (loc.startsWith('UndergroundMine')) return '矿洞里';
+  return SCENE[loc] || loc;
+}
+function timeText(t) {
   const hh = Math.floor(t / 100) % 24, mm = t % 100;
-  return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+  const period = hh < 6 ? '凌晨' : hh < 11 ? '上午' : hh < 14 ? '中午' : hh < 18 ? '下午' : hh < 22 ? '晚上' : '深夜';
+  return `${period} ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+}
+function doingText(d) {
+  if (!d.ok) return '';
+  const loc = d.location || '';
+  const f = (d.fishing) || {};
+  if (d.menu === 'BobberBar' || f.minigame) return ['正在钓鱼', '🎣 和鱼较劲中'];
+  if (f.inUse) return ['正在钓鱼', '🎣 在等鱼上钩'];
+  if (d.menu) return ['正在看菜单', '📖 收拾东西'];
+  if (loc.startsWith('UndergroundMine')) return ['正在挖矿', '⛏ 敲石头、找矿石'];
+  if (loc === 'Beach') return ['在海边钓鱼', '🌊 海边风景不错'];
+  if (loc === 'Farm' || loc === 'FarmHouse') {
+    if (d.tool === '十字镐') return ['在农场挖石头', '⛏ 清理农场'];
+    if (d.tool === '斧头') return ['在农场砍树', '🪓 砍柴攒木材'];
+    if (d.tool === '锄头') return ['在农场翻地', '🌱 准备种地'];
+    if (d.tool === '喷壶') return ['在给作物浇水', '💧 浇水'];
+    return ['在农场干活', '🌾 种地/收菜'];
+  }
+  if (loc === 'Town' || loc === 'BusStop' || loc === 'Mountain' || loc === 'Backwoods')
+    return ['正在赶路', '🚶 走去下一个地方'];
+  return ['自己玩着呢', '🎮 星露谷'];
 }
 async function tick() {
   try {
     const r = await fetch('/api/stardew', { cache: 'no-store' });
     const d = await r.json();
     if (!d.ok) {
-      $('status').textContent = '● 游戏未连接';
-      $('status').className = 'status bad';
-      $('info').textContent = '等待游戏启动…';
+      $('dot').className = 'dot off';
+      $('doing').innerHTML = '<span class="offline">游戏还没开</span>';
+      $('sub').textContent = '';
       return;
     }
     const fresh = d.age < 30;
-    $('status').textContent = fresh ? '● 运行中' : '● 数据不更新';
-    $('status').className = 'status ' + (fresh ? 'ok' : 'bad');
-    $('info').textContent =
-      `位置 ${d.location}  (${d.tile ? d.tile.x : '?'},${d.tile ? d.tile.y : '?'})\n` +
-      `第 ${d.day} 天  ${hhmm(d.time || 0)}   金币 ${d.money}\n` +
-      `守护进程 ${d.guardFresh ? '在跑' : '未确认'} · 数据 ${Math.round(d.age)}s 前`;
-    const lines = d.guardLines || [];
-    let task = '';
-    for (let i = lines.length - 1; i >= 0; i--) {
-      if (/自动干活|挖矿|钓鱼|农场|跨天/.test(lines[i])) { task = lines[i]; break; }
+    $('dot').className = 'dot' + (fresh ? '' : ' off');
+    const [doing, act] = doingText(d);
+    $('doing').innerHTML = `<span class="big">${doing}</span>　<small>${act}</small>`;
+    $('sub').innerHTML = `${sceneName(d.location)} · 第 <b>${d.day}</b> 天 · ${timeText(d.time)} · 金币 <b>${(d.money || 0).toLocaleString()}</b>`;
+    const st = d.stamina != null ? d.stamina : null;
+    if (st != null) {
+      const pct = Math.max(0, Math.min(100, Math.round(st / 2.7)));
+      $('bar').style.width = pct + '%';
+      $('lab').textContent = `体力 ${pct}%`;
     }
-    $('task').textContent = '现在：' + (task || '空闲/待命');
-    $('logs').textContent = lines.join('\n');
   } catch (e) {
-    $('status').textContent = '● 服务未连接';
-    $('status').className = 'status bad';
+    $('dot').className = 'dot off';
+    $('doing').innerHTML = '<span class="offline">连接不上</span>';
   }
 }
 tick();

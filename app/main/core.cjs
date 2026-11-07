@@ -755,6 +755,11 @@ async function route(req, res) {
         money: b.player && b.player.money,
         tile: b.player && b.player.tile,
         tool: b.player && b.player.currentTool,
+        stamina: b.player && b.player.stamina,
+        health: b.player && b.player.health,
+        fishing: b.player && b.player.fishing ? {
+          inUse: b.player.fishing.inUse, nibbling: b.player.fishing.nibbling, minigame: b.player.fishing.minigame
+        } : null,
         menu: b.player && b.player.fishing && b.player.fishing.activeMenu
       });
     } catch (e) {
