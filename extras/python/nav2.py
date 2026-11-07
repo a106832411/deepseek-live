@@ -7,6 +7,13 @@ BRIDGE_FILE = os.path.join(BRIDGE, "bridge_data.json")
 ACTION_DIR = os.path.join(BRIDGE, "actions")
 SEQ = 0
 
+SAFE = {
+    "FarmHouse": (9, 9), "Farm": (64, 15), "BusStop": (11, 23),
+    "Town": (30, 50), "Mountain": (30, 20), "Backwoods": (30, 20),
+    "Mine": (18, 14), "UndergroundMine1": (10, 10), "Beach": (30, 30),
+    "Forest": (60, 20), "Blacksmith": (8, 10), "SeedShop": (6, 20),
+}
+
 ROUTES = {
     "FarmHouse": ["Farm"],
     "Farm": ["BusStop", "Backwoods", "Forest"],
@@ -47,6 +54,21 @@ def send(a, wait=0.35):
         json.dump(a, f, ensure_ascii=False)
     os.replace(tmp, os.path.join(ACTION_DIR, name))
     time.sleep(wait)
+
+
+def safe_check():
+    """位置跑飞（走出地图/负数坐标）时，用 set_tile 放回该地图的安全格。"""
+    b = rd()
+    if not b:
+        return b
+    t = tile(b)
+    if abs(t[0]) > 150 or abs(t[1]) > 150:
+        loc = b.get("location")
+        sx, sy = SAFE.get(loc, (20, 20))
+        log(f"  ⚠ 位置异常 {t} @{loc}，放回 ({sx},{sy})")
+        send({"actionType": "set_tile", "x": sx, "y": sy}, 0.8)
+        b = rd()
+    return b
 
 
 def live():
@@ -110,50 +132,36 @@ def find_exit(b, target):
     return None
 
 
-def hop(target, timeout=120):
-    """走到当前地图通往 target 的出口；边界出口走近后用 1 格外推触发换图。"""
+def hop(target, timeout=60):
+    """走到本图通往 target 的出口，走到后再触发过图（不穿墙、不越界）。"""
     for attempt in range(3):
         live()
-        b = rd()
+        b = safe_check()
         cur_loc = b.get("location")
         if cur_loc == target:
             return True
-        # 先用 mod 的 walk_to_target（对地图内的门口 warp 好用）
+        # 1) 真实走路到出口（地图内）
         send({"actionType": "walk_to_target", "target": target}, 0.4)
         t0 = time.time()
-        while time.time() - t0 < 60:
-            time.sleep(0.4)
-            b2 = rd()
-            if b2 and b2.get("location") == target:
-                return True
-        b = rd()
-        if b.get("location") == target:
-            return True
-        e = find_exit(b, target)
-        if not e:
-            log(f"  {cur_loc} 没有通往 {target} 的出口")
-            return False
-        # 1) 先真实走路到出口（地图内会走过去；边界出口会走到边上）
-        send({"actionType": "walk_to_target", "target": target}, 0.4)
-        t0 = time.time()
-        while time.time() - t0 < 45:
+        while time.time() - t0 < timeout:
             time.sleep(0.4)
             b = rd()
             if b and b.get("location") == target:
                 return True
-        # 2) 走到出口/边上后，再触发过图（等角色走到位，避免凭空换图）
-        b = rd()
-        if b and b.get("location") != cur_loc:
-            return b.get("location") == target
-        time.sleep(2.5)
-        send({"actionType": "enter_exit", "target": target}, 1.0)
+        b = safe_check()
+        if b and b.get("location") == target:
+            return True
+        # 2) 人已走到出口附近，再触发过图（等价于踩上 warp 格）
+        time.sleep(1.5)
+        send({"actionType": "enter_exit", "target": target}, 0.8)
         t0 = time.time()
-        while time.time() - t0 < 10:
+        while time.time() - t0 < 12:
             time.sleep(0.5)
             b = rd()
             if b and b.get("location") == target:
                 return True
-        log(f"  过图失败（loc={(rd() or {}).get('location')}）")
+        b = safe_check()
+        log(f"  过图失败（loc={b.get('location')} tile={tile(b)}），重试 {attempt+1}/3")
     return False
 
 
@@ -185,6 +193,7 @@ def goto(target):
     for h in path:
         if not hop(h):
             return False
+        safe_check()
     return True
 
 
