@@ -734,6 +734,33 @@ async function route(req, res) {
   if (method === 'GET' && p === '/subtitle') return serveFile(res, 'subtitle.html');
   if (method === 'GET' && p === '/console') return serveFile(res, 'console.html');
   if (method === 'GET' && p === '/live2d') return serveFile(res, 'live2d.html');
+  if (method === 'GET' && p === '/stardew') return serveFile(res, 'stardew.html');
+  if (p === '/api/stardew') {
+    try {
+      const bridge = 'E:\\steam\\steamapps\\common\\Stardew Valley\\Mods\\StardewMCPBridge\\bridge_data.json';
+      const guardLog = path.join(ROOT, 'extras', 'python', 'logs', 'guard.log');
+      const st = fs.statSync(bridge);
+      const b = JSON.parse(fs.readFileSync(bridge, 'utf8'));
+      const age = (Date.now() - st.mtimeMs) / 1000;
+      let guardLines = [];
+      let guardFresh = false;
+      try {
+        const gs = fs.statSync(guardLog);
+        guardFresh = (Date.now() - gs.mtimeMs) < 7 * 60 * 1000;
+        guardLines = fs.readFileSync(guardLog, 'utf8').trim().split('\n').slice(-5).map(l => l.replace(/^\[[^\]]+\]\s*/, ''));
+      } catch (e) {}
+      return json(res, {
+        ok: true, age, guardFresh, guardLines,
+        location: b.location, day: b.day, time: b.time,
+        money: b.player && b.player.money,
+        tile: b.player && b.player.tile,
+        tool: b.player && b.player.currentTool,
+        menu: b.player && b.player.fishing && b.player.fishing.activeMenu
+      });
+    } catch (e) {
+      return json(res, { ok: false, error: String(e) });
+    }
+  }
   if (method === 'GET' && p.startsWith('/live2d/')) return serveStatic(res, p.slice(1));
 
   if (p === '/api/health') {

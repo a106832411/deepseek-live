@@ -146,6 +146,19 @@ def goto(target):
     return True
 
 
+def _focus_click(h, x, y):
+    try:
+        if u.GetForegroundWindow() != h:
+            u.ShowWindow(h, 9)
+            u.keybd_event(0x12, 0, 0, 0)
+            u.SetForegroundWindow(h)
+            u.keybd_event(0x12, 0, 2, 0)
+            time.sleep(0.25)
+    except Exception:
+        pass
+    click_screen(x, y)
+
+
 def walk_until(tx, ty, timeout=10):
     send({"actionType": "player_walk_to", "x": tx, "y": ty}, 0.3)
     t0 = time.time()
@@ -212,7 +225,7 @@ def fish_here(h, attempts=3):
             wy = py + uy * 160
             cast = False
             for scale in (96, 128, 160, 192, 224):
-                click_screen(px + ux * scale, py + uy * scale)
+                _focus_click(h, px + ux * scale, py + uy * scale)
                 time.sleep(0.85)
                 stf = (rd().get("player") or {}).get("fishing") or {}
                 if stf.get("inUse") or stf.get("minigame"):
@@ -228,16 +241,26 @@ def fish_here(h, attempts=3):
             continue
         deadline = time.time() + 30
         hooked = False
+        last_change = time.time()
         while time.time() < deadline:
             stf = (rd().get("player") or {}).get("fishing") or {}
             if stf.get("minigame"):
                 break
             if stf.get("nibbling") and not hooked:
-                click_screen(wx, wy)
+                _focus_click(h, wx, wy)
                 hooked = True
+                last_change = time.time()
                 time.sleep(0.6)
             if hooked and stf.get("minigame"):
                 break
+            # 鱼竿卡住（inUse 但长时间没咬钩/没小游戏）
+            if stf.get("inUse") and not stf.get("nibbling") and time.time() - last_change > 10:
+                log("  鱼竿疑似卡住，重置")
+                send({"actionType": "close_menu"}, 0.3)
+                send({"actionType": "reset_rod"}, 0.4)
+                break
+            if not stf.get("inUse"):
+                last_change = time.time()
             time.sleep(0.12)
         # 钩鱼后等小游戏真正弹出来（最多 8 秒）
         deadline = time.time() + 8
@@ -249,6 +272,7 @@ def fish_here(h, attempts=3):
         stf = (rd().get("player") or {}).get("fishing") or {}
         if not stf.get("minigame"):
             log("  咬钩后小游戏没开，重置鱼竿重试")
+            send({"actionType": "close_menu"}, 0.3)
             send({"actionType": "reset_rod"}, 0.4)
             continue
         send({"actionType": "close_menu"}, 0.4)

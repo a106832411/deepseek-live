@@ -59,6 +59,7 @@
     <button data-tab="live2d">皮套</button>
     <button data-tab="overlay">叠加层</button>
     <button data-tab="songs">歌单</button>
+    <button data-tab="stardew">星露谷</button>
   </nav>
 </header>
 <main>
@@ -155,6 +156,13 @@
         <button onclick="refreshSongs()">刷新</button>
         <span class="muted">「点歌 歌名」自动搜索入队；也可以直接 POST /api/songs/request</span>
       </div>
+    </div>
+  </section>
+  <!-- 星露谷 -->
+  <section class="tab" id="tab-stardew">
+    <div class="card">
+      <h2>星露谷 AI 实时状态（同时可用作 OBS 浏览器源：/stardew）</h2>
+      <iframe src="/stardew" style="width:100%;height:820px;border:1px solid #22314d;border-radius:12px;background:#0c1526"></iframe>
     </div>
   </section>
 </main>
