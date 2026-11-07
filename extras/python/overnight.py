@@ -66,9 +66,12 @@ def go_sleep():
     b = rd()
     if b.get("location") != "FarmHouse":
         if not fallback.goto_or_warp("FarmHouse"):
-            log("  走不回去，兜底传送回家（仅夜间紧急）")
-            nav2.send({"actionType": "player_warp", "location": "FarmHouse", "x": 9, "y": 9}, 2.0)
-            time.sleep(2)
+            log("  走不回去，直接强制跨天（避免晕倒扣钱）")
+            nav2.send({"actionType": "player_force_new_day"}, 2.0)
+            time.sleep(8)
+            nav2.send({"actionType": "force_unpause"}, 0.5)
+            log(f"  跨天后：day={rd().get('day')} time={rd().get('time')} money={money()}")
+            return
     # 睡觉：先正常上床，没跨天再换动作
     for attempt in range(3):
         go_to_bed()

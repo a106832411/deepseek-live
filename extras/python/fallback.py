@@ -200,7 +200,17 @@ def goto_or_warp(target, walk_timeout=None):
             nav2.break_obstacles(sx, sy)
         except Exception:
             pass
-    log(f"兜底：走到 {target} 失败，本轮跳过（不传送）")
+    # 两次都走不到：夜间/矿洞返回等场景允许应急传送（会记录）
+    try:
+        sx, sy = SAFE.get(target, (20, 20))
+        log(f"兜底：走到 {target} 失败，应急传送到 ({sx},{sy})")
+        nav2.send({"actionType": "player_warp", "location": target, "x": sx, "y": sy}, 2.0)
+        time.sleep(2)
+        if (nav2.rd() or {}).get("location") == target:
+            return "emergency_warp"
+    except Exception as ex:
+        log(f"应急传送失败：{ex}")
+    log(f"兜底：走到 {target} 失败，本轮跳过")
     return None
 
 

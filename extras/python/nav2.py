@@ -300,8 +300,8 @@ def hop(target, timeout=30):
             if b.get("location") == target:
                 return True
             t = tile(b)
-            if abs(t[0] - gx) + abs(t[1] - gy) <= 1 and not fired:
-                send({"actionType": "enter_exit", "target": target}, 0.6)
+            if abs(t[0] - gx) + abs(t[1] - gy) <= 3 and not fired:
+                send({"actionType": "enter_exit", "target": target}, 0.8)
                 fired = True
             if fired and b.get("location") == target:
                 return True
@@ -309,6 +309,14 @@ def hop(target, timeout=30):
         if b.get("location") == target:
             return True
         time.sleep(1.0)
+        # 走到出口附近就强制触发（边界出口可能踩不上去）
+        bb2 = rd() or {}
+        tt2 = tile(bb2)
+        if abs(tt2[0] - gx) + abs(tt2[1] - gy) <= 4:
+            send({"actionType": "enter_exit", "target": target}, 1.0)
+            time.sleep(2)
+            if (rd() or {}).get("location") == target:
+                return True
         avoid_npc()          # 先试着绕开挡路的宠物/NPC
         broke = break_obstacles(gx, gy, 18)
         log(f"  过图失败（loc={b.get('location')} tile={tile(b)}），清了 {broke} 个障碍，重试 {attempt+1}/3")
@@ -580,8 +588,8 @@ def hop(target, timeout=30):
             if b.get("location") == target:
                 return True
             t = tile(b)
-            if abs(t[0] - gx) + abs(t[1] - gy) <= 1 and not fired:
-                send({"actionType": "enter_exit", "target": target}, 0.6)
+            if abs(t[0] - gx) + abs(t[1] - gy) <= 3 and not fired:
+                send({"actionType": "enter_exit", "target": target}, 0.8)
                 fired = True
             if fired and b.get("location") == target:
                 return True
@@ -589,6 +597,14 @@ def hop(target, timeout=30):
         if b.get("location") == target:
             return True
         time.sleep(1.0)
+        # 走到出口附近就强制触发（边界出口可能踩不上去）
+        bb2 = rd() or {}
+        tt2 = tile(bb2)
+        if abs(tt2[0] - gx) + abs(tt2[1] - gy) <= 4:
+            send({"actionType": "enter_exit", "target": target}, 1.0)
+            time.sleep(2)
+            if (rd() or {}).get("location") == target:
+                return True
         avoid_npc()          # 先试着绕开挡路的宠物/NPC
         broke = break_obstacles(gx, gy, 18)
         log(f"  过图失败（loc={b.get('location')} tile={tile(b)}），清了 {broke} 个障碍，重试 {attempt+1}/3")
