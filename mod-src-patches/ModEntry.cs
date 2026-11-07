@@ -173,6 +173,32 @@ namespace StardewMCPBridge
             return n;
         }
 
+        private static System.Collections.Generic.List<object> CollectExits(GameLocation loc)
+        {
+            var list = new System.Collections.Generic.List<object>();
+            if (loc == null) return list;
+            // 普通 warp
+            foreach (var w in loc.warps)
+                list.Add(new { x = w.X, y = w.Y, target = w.TargetName, tx = w.TargetX, ty = w.TargetY });
+            // Action 型 warp（农舍门、矿洞入口等建筑门）
+            try
+            {
+                int wid = loc.Map.Layers[0].LayerWidth, hei = loc.Map.Layers[0].LayerHeight;
+                for (int y = 0; y < hei; y++)
+                    for (int x = 0; x < wid; x++)
+                    {
+                        string act = loc.doesTileHaveProperty(x, y, "Action", "Buildings");
+                        if (string.IsNullOrEmpty(act)) continue;
+                        if (act.IndexOf("Warp", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                        var parts = act.Split(' ');
+                        if (parts.Length >= 4)
+                            list.Add(new { x, y, target = parts[3], tx = 0, ty = 0 });
+                    }
+            }
+            catch { }
+            return list;
+        }
+
         private void SyncGameState()
         {
             try
@@ -231,10 +257,7 @@ namespace StardewMCPBridge
                     },
                     companions = this.botManager.GetBotStatus(),
                     surroundings = SurroundingsScanner.Scan(Game1.player.currentLocation, Game1.player.Tile, 9),
-                    exits = Game1.player.currentLocation?.warps.Select(w => new {
-                        x = w.X, y = w.Y, target = w.TargetName,
-                        tx = w.TargetX, ty = w.TargetY
-                    }).ToList(),
+                    exits = CollectExits(Game1.player.currentLocation),
                     npcs = Game1.currentLocation?.characters.Select(c => new {
                         name = c.Name,
                         position = new { x = c.Position.X, y = c.Position.Y }

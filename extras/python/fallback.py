@@ -128,20 +128,22 @@ def _win():
 
 
 def goto_or_warp(target, walk_timeout=None):
-    """先走路；走路失败就用传送兜底（会记日志）。"""
-    try:
-        if nav2.goto(target):
-            return "walk"
-    except Exception as ex:
-        log(f"走路异常：{ex}")
-    log(f"兜底：走路到 {target} 失败，改用传送")
-    sx, sy = SAFE.get(target, (20, 20))
-    nav2.send({"actionType": "player_warp", "location": target, "x": sx, "y": sy}, 2.0)
-    time.sleep(2)
-    b = nav2.rd() or {}
-    ok = b.get("location") == target
-    log(f"兜底传送结果：{ok} loc={b.get('location')}")
-    return "warp" if ok else None
+    """只走路，不再传送（穿墙被用户禁掉了）。走不过去就清障重试，再不行就跳过。"""
+    for attempt in range(2):
+        try:
+            if nav2.goto(target):
+                return "walk"
+        except Exception as ex:
+            log(f"走路异常：{ex}")
+        try:
+            b = nav2.rd() or {}
+            nav2.unstick()
+            sx, sy = SAFE.get(target, (20, 20))
+            nav2.break_obstacles(sx, sy)
+        except Exception:
+            pass
+    log(f"兜底：走到 {target} 失败，本轮跳过（不传送）")
+    return None
 
 
 def panic_recover():

@@ -177,11 +177,7 @@ def fish_phase(h, attempts=4):
 
 def farm_phase(max_plant=6):
     """收成熟作物；把空地锄成耕地再播种（真实走位 + 工具/种子）。"""
-    for _ in range(6):
-        b = rd()
-        if b and b.get("location") == "Farm":
-            break
-        send({"actionType": "player_warp", "location": "Farm", "x": 64, "y": 15}, 1.5)
+    # 不传送：由调用方保证已经走到农场；这里只在农场才干活
     b = rd()
     if b.get("location") != "Farm":
         log(f"  ⚠ 没到农场（{b.get('location')}），不种地")

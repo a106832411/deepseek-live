@@ -16,7 +16,7 @@ SAFE = {
 
 ROUTES = {
     "FarmHouse": ["Farm"],
-    "Farm": ["BusStop", "Backwoods", "Forest"],
+    "Farm": ["BusStop", "Backwoods", "Forest", "FarmHouse"],
     "BusStop": ["Town", "Farm"],
     "Backwoods": ["Farm", "Mountain"],
     "Town": ["Beach", "Mountain", "BusStop", "Blacksmith", "SeedShop"],
@@ -218,6 +218,14 @@ def hop(target, timeout=30):
         cur_loc = b.get("location")
         if cur_loc == target:
             return True
+        # 农舍门口不在 warps 列表里：走到门口再触发进屋
+        if cur_loc == "Farm" and target == "FarmHouse":
+            walk_until(64, 15, 25)
+            send({"actionType": "enter_house"}, 1.2)
+            b2 = rd() or {}
+            if b2.get("location") == "FarmHouse":
+                return True
+            continue
         e = find_exit(b, target)
         if not e:
             log(f"  {cur_loc} 没有通往 {target} 的出口")
@@ -319,24 +327,30 @@ def break_obstacles(tx, ty, max_break=25):
         cands.sort(key=lambda c: (c[0], c[1]))
         d, sd, s, st = cands[0]
         if not walk_until(st["X"], st["Y"], 8):
+            unstick()
             continue
         tool = _tool_for(s.get("ObjectType"), s.get("Terrain"))
-        hit_count = 10 if (s.get("Terrain") in ("tree", "bush") or str(s.get("ObjectType") or "").lower() in ("tree", "stump", "log", "twig")) else 5
+        is_tree = (s.get("Terrain") in ("tree", "bush")
+                   or str(s.get("ObjectType") or "").lower() in ("tree", "stump", "log", "twig", "clump_axe"))
+        max_clicks = 14 if is_tree else 7
         send({"actionType": "player_select_tool", "tool": tool}, 0.3)
         send({"actionType": "player_face_tile", "x": s["X"], "y": s["Y"]}, 0.3)
-        # 用真实鼠标点击目标格：会有挥工具动画，也能正常砍倒树
-        for rnd in range(4):
-            for _ in range(hit_count):
-                click_tile(s["X"], s["Y"], 0.12)
-                time.sleep(0.42)
-            send({"actionType": "collect_debris"}, 0.4)
+        # 真实点击：每敲一下都确认是否已经没了，没了就立刻停手
+        gone = False
+        for _ in range(max_clicks):
+            click_tile(s["X"], s["Y"], 0.12)
+            time.sleep(0.45)
             bb = rd()
-            still = any(t["X"] == s["X"] and t["Y"] == s["Y"] and (t.get("Breakable") or t.get("Terrain") in ("tree", "bush"))
+            still = any(t["X"] == s["X"] and t["Y"] == s["Y"]
+                        and (t.get("Breakable") or t.get("Terrain") in ("tree", "bush"))
                         for t in (bb.get("surroundings") or {}).get("Tiles") or [])
             if not still:
+                gone = True
                 break
-        broken += 1
-        log(f"  清障碍 {s['X']},{s['Y']} ({s.get('ObjectType') or s.get('Terrain')})")
+        send({"actionType": "collect_debris"}, 0.4)
+        if gone:
+            broken += 1
+            log(f"  已清 {s['X']},{s['Y']} ({s.get('ObjectType') or s.get('Terrain')})，立刻换下一个")
     return broken
 
 

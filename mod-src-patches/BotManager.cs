@@ -742,6 +742,23 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "enter_house":
+                    {
+                        try
+                        {
+                            var hloc = Game1.player.currentLocation;
+                            if (hloc.Name == "FarmHouse") { this.monitor.Log("already in house", LogLevel.Info); break; }
+                            // 只允许在农舍门口（约 63..66, 14..16）进屋
+                            var ht = Game1.player.Tile;
+                            bool atDoor = (hloc.Name == "Farm" && ht.X >= 62 && ht.X <= 67 && ht.Y >= 13 && ht.Y <= 17);
+                            if (!atDoor) { this.monitor.Log($"enter_house: 不在门口 ({ht.X},{ht.Y})", LogLevel.Warn); break; }
+                            Game1.warpFarmer("FarmHouse", 9, 11, false);
+                            this.monitor.Log("enter_house -> FarmHouse", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("enter_house err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "enter_exit":
                     {
                         try
@@ -751,7 +768,34 @@ namespace StardewMCPBridge
                             StardewValley.Warp chosen = null;
                             foreach (var w in eloc.warps)
                                 if (w.TargetName != null && w.TargetName.IndexOf(et, StringComparison.OrdinalIgnoreCase) >= 0) { chosen = w; break; }
-                            if (chosen == null) { this.monitor.Log($"enter_exit: no warp to {et}", LogLevel.Warn); break; }
+                            if (chosen == null)
+                            {
+                                // 建筑门是 Action 型 warp（农舍门等），不是 warps 列表
+                                int awx = -1, awy = -1; string awTarget = null;
+                                int W2 = eloc.Map.Layers[0].LayerWidth, H2 = eloc.Map.Layers[0].LayerHeight;
+                                for (int yy2 = 0; yy2 < H2 && awTarget == null; yy2++)
+                                    for (int xx2 = 0; xx2 < W2; xx2++)
+                                    {
+                                        string act2 = eloc.doesTileHaveProperty(xx2, yy2, "Action", "Buildings");
+                                        if (string.IsNullOrEmpty(act2) || act2.IndexOf("Warp", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                        var pts2 = act2.Split(' ');
+                                        if (pts2.Length >= 4 && pts2[3].IndexOf(et, StringComparison.OrdinalIgnoreCase) >= 0)
+                                        {
+                                            int.TryParse(pts2[1], out awx);
+                                            int.TryParse(pts2[2], out awy);
+                                            awTarget = pts2[3];
+                                            break;
+                                        }
+                                    }
+                                if (awTarget != null)
+                                {
+                                    Game1.warpFarmer(awTarget, awx, awy, false);
+                                    this.monitor.Log($"enter_exit(door) {eloc.Name} -> {awTarget} ({awx},{awy})", LogLevel.Info);
+                                    break;
+                                }
+                                this.monitor.Log($"enter_exit: no warp to {et}", LogLevel.Warn);
+                                break;
+                            }
                             // 走到出口后再触发换图（等价于踩上 warp 格）
                             Game1.warpFarmer(chosen.TargetName, chosen.TargetX, chosen.TargetY, false);
                             this.monitor.Log($"enter_exit {eloc.Name} -> {chosen.TargetName} ({chosen.TargetX},{chosen.TargetY})", LogLevel.Info);
@@ -997,9 +1041,16 @@ namespace StardewMCPBridge
                         var walkLoc = Game1.player.currentLocation;
                         try
                         {
+                            int gx3 = wtx.GetInt32(), gy3 = wty.GetInt32();
+                            int mw = walkLoc.Map.Layers[0].LayerWidth, mh = walkLoc.Map.Layers[0].LayerHeight;
+                            if (gx3 < 0 || gy3 < 0 || gx3 >= mw || gy3 >= mh)
+                            {
+                                this.monitor.Log($"walk target ({gx3},{gy3}) 超出地图 {mw}x{mh}，忽略", LogLevel.Warn);
+                                break;
+                            }
                             Game1.player.controller = new PathFindController(Game1.player, walkLoc,
-                                new Microsoft.Xna.Framework.Point(wtx.GetInt32(), wty.GetInt32()), 1000);
-                            this.monitor.Log($"Walking to ({wtx.GetInt32()},{wty.GetInt32()})", LogLevel.Info);
+                                new Microsoft.Xna.Framework.Point(gx3, gy3), 1000);
+                            this.monitor.Log($"Walking to ({gx3},{gy3})", LogLevel.Info);
                         }
                         catch (Exception ex) { this.monitor.Log("walk failed: " + ex.Message, LogLevel.Warn); }
                     }
