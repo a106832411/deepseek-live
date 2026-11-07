@@ -104,8 +104,14 @@ namespace StardewMCPBridge
                 var ev = Game1.currentLocation?.currentEvent;
                 if (ev != null)
                 {
-                    try { ev.skipEvent(); } catch { }
-                    this.monitor.Log("Auto-skip event", LogLevel.Debug);
+                    string locName = Game1.currentLocation?.Name ?? "";
+                    bool mineEvent = locName.StartsWith("Mine", StringComparison.OrdinalIgnoreCase)
+                        || locName.StartsWith("UndergroundMine", StringComparison.OrdinalIgnoreCase);
+                    if (!mineEvent)
+                    {
+                        try { ev.skipEvent(); } catch { }
+                        this.monitor.Log("Auto-skip event", LogLevel.Debug);
+                    }
                 }
             }
             catch { }
@@ -562,6 +568,13 @@ namespace StardewMCPBridge
                             Game1.eventUp = false;
                             Game1.fadeToBlack = false;
                             Game1.fadeIn = false;
+                            try
+                            {
+                                var fa = typeof(Game1).GetField("fadeToBlackAlpha",
+                                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                                if (fa != null) fa.SetValue(null, 0f);
+                            }
+                            catch { }
                             Game1.paused = false;
                             Game1.dialogueUp = false;
                             Game1.activeClickableMenu = null;
@@ -627,6 +640,28 @@ namespace StardewMCPBridge
                             this.monitor.Log($"enter_location: stepped on door ({foundX},{foundY}) act={foundAct}", LogLevel.Info);
                         }
                         catch (Exception ex) { this.monitor.Log("enter_location err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "tile_props":
+                    {
+                        try
+                        {
+                            int px2 = root.GetProperty("x").GetInt32();
+                            int py2 = root.GetProperty("y").GetInt32();
+                            var tl = Game1.player.currentLocation;
+                            var parts = new System.Collections.Generic.List<string>();
+                            // 直接查属性（多种 data 层）
+                            foreach (var dataLayer in new[] { "Back", "Buildings", "Front", "AlwaysFront" })
+                            {
+                                var act = tl.doesTileHaveProperty(px2, py2, "Action", dataLayer);
+                                if (!string.IsNullOrEmpty(act)) parts.Add($"prop[{dataLayer}]=" + act);
+                                var tch = tl.doesTileHaveProperty(px2, py2, "TouchAction", dataLayer);
+                                if (!string.IsNullOrEmpty(tch)) parts.Add($"touch[{dataLayer}]=" + tch);
+                            }
+                            this.monitor.Log($"TILEPROPS {tl.Name} {px2},{py2}: " + string.Join(" | ", parts), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("tile_props err: " + ex.Message, LogLevel.Warn); }
                         break;
                     }
 

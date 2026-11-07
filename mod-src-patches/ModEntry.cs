@@ -242,10 +242,21 @@ namespace StardewMCPBridge
                 };
 
                 string json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
-                // Atomic write: temp file then rename, so MCP never reads partial JSON
+                // Atomic write with retries (reader/AV may lock the file)
                 string tmpPath = this.bridgePath + ".tmp";
-                File.WriteAllText(tmpPath, json);
-                File.Move(tmpPath, this.bridgePath, true);
+                for (int attempt = 0; attempt < 4; attempt++)
+                {
+                    try
+                    {
+                        File.WriteAllText(tmpPath, json);
+                        File.Move(tmpPath, this.bridgePath, true);
+                        break;
+                    }
+                    catch (IOException)
+                    {
+                        System.Threading.Thread.Sleep(40 * (attempt + 1));
+                    }
+                }
             }
             catch (Exception ex)
             {

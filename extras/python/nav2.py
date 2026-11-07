@@ -71,6 +71,28 @@ def safe_check():
     return b
 
 
+def click_tile(tx, ty, hold=0.1):
+    """真实鼠标点击某个格子（用真实点击触发工具挥动动画）。"""
+    import gameio, ctypes
+    u = gameio.u
+    b = rd()
+    if not b:
+        return
+    vp = (b.get("player") or {}).get("viewport") or {}
+    h, r = gameio.game_window()
+    if not h:
+        return
+    gameio.focus(h)
+    x = r.left + tx * 64 + 32 - int(vp.get("x") or 0)
+    y = r.top + ty * 64 + 32 - int(vp.get("y") or 0)
+    u.SetCursorPos(int(x), int(y))
+    time.sleep(0.06)
+    u.mouse_event(0x02, 0, 0, 0, 0)
+    time.sleep(hold)
+    u.mouse_event(0x04, 0, 0, 0, 0)
+    time.sleep(0.05)
+
+
 def live():
     send({"actionType": "set_focus_pause", "disabled": True}, 0.12)
     send({"actionType": "reset_state"}, 0.12)
@@ -181,7 +203,8 @@ def hop(target, timeout=30):
         b = safe_check()
         if b.get("location") == target:
             return True
-        time.sleep(2.0)   # 等宠物/NPC 挪开
+        time.sleep(1.0)
+        avoid_npc()          # 先试着绕开挡路的宠物/NPC
         broke = break_obstacles(gx, gy, 18)
         log(f"  过图失败（loc={b.get('location')} tile={tile(b)}），清了 {broke} 个障碍，重试 {attempt+1}/3")
     return False
@@ -193,6 +216,32 @@ def _tool_for(obj_type=None, terrain=None):
     if terrain == "tree" or ot in ("tree", "stump", "log", "twig", "weed"):
         return "axe"
     return "pickaxe"
+
+
+def avoid_npc(tries=6):
+    """被宠物/NPC挡住时，往旁边挪两步再继续（不要去挤它）。"""
+    for _ in range(tries):
+        b = safe_check()
+        if not b:
+            return False
+        cur = tile(b)
+        npcs = [(int(n.get("X", -99)), int(n.get("Y", -99))) for n in (b.get("surroundings") or {}).get("Npcs") or []]
+        near = [n for n in npcs if abs(n[0] - cur[0]) + abs(n[1] - cur[1]) <= 2]
+        if not near:
+            return False
+        moved = False
+        for dx, dy in ((0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, -1)):
+            for step in (2, 3):
+                tx, ty = cur[0] + dx * step, cur[1] + dy * step
+                if walk_until(tx, ty, 4):
+                    moved = True
+                    break
+            if moved:
+                break
+        if not moved:
+            time.sleep(1.5)
+        log(f"  绕开宠物（在 {near[0]} 附近）")
+    return True
 
 
 def break_obstacles(tx, ty, max_break=25):
@@ -227,11 +276,20 @@ def break_obstacles(tx, ty, max_break=25):
         if not walk_until(st["X"], st["Y"], 8):
             continue
         tool = _tool_for(s.get("ObjectType"), s.get("Terrain"))
+        hit_count = 10 if (s.get("Terrain") in ("tree", "bush") or str(s.get("ObjectType") or "").lower() in ("tree", "stump", "log", "twig")) else 5
         send({"actionType": "player_select_tool", "tool": tool}, 0.3)
         send({"actionType": "player_face_tile", "x": s["X"], "y": s["Y"]}, 0.3)
-        for _ in range(4):
-            send({"actionType": "player_use_tool", "tool": tool, "x": s["X"], "y": s["Y"]}, 0.55)
-        send({"actionType": "collect_debris"}, 0.4)
+        # 用真实鼠标点击目标格：会有挥工具动画，也能正常砍倒树
+        for rnd in range(4):
+            for _ in range(hit_count):
+                click_tile(s["X"], s["Y"], 0.12)
+                time.sleep(0.42)
+            send({"actionType": "collect_debris"}, 0.4)
+            bb = rd()
+            still = any(t["X"] == s["X"] and t["Y"] == s["Y"] and (t.get("Breakable") or t.get("Terrain") in ("tree", "bush"))
+                        for t in (bb.get("surroundings") or {}).get("Tiles") or [])
+            if not still:
+                break
         broken += 1
         log(f"  清障碍 {s['X']},{s['Y']} ({s.get('ObjectType') or s.get('Terrain')})")
     return broken

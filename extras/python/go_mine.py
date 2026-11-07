@@ -71,42 +71,28 @@ def go_mine(level=1):
         if not nav2.goto("Mountain"):
             log("到不了山上")
             return False
-    # 找矿洞入口（tile Action 含 Mine）
-    ent = find_action_tiles("Mine", "Mountain")
-    log(f"矿洞入口候选: {ent[:5]}")
-    if not ent:
-        log("山上没找到 Mine 入口 Action")
-        return False
-    ex, ey, act = ent[0]
-    # 走到入口旁边（尽量站到能交互的相邻格）
+    # 矿洞入口在 Mountain 的 warp (54,4) 附近；走到旁边（不要踩上去），再交互进矿
     b = rd()
-    cur = tile_of(b)
-    if cur != (ex, ey):
-        if not walk_to(ex, ey, 25):
-            # 换相邻格试试
-            for dx, dy in ((0, 1), (1, 0), (-1, 0), (0, -1), (0, 2)):
-                if walk_to(ex + dx, ey + dy, 10):
-                    break
+    log(f"山上位置 {tile(b)}，走向矿洞入口附近")
+    if not walk_to(51, 7, 30):
+        for dx, dy in ((52, 8), (50, 7), (52, 6), (50, 8)):
+            if walk_to(dx, dy, 12):
+                break
     b = rd()
-    log(f"到入口附近 {tile_of(b)}，动作={act}")
-    send({"actionType": "player_face_tile", "x": ex, "y": ey}, 0.3)
-    send({"actionType": "player_interact_at", "x": ex, "y": ey}, 1.5)
-    time.sleep(2)
+    log(f"到入口附近 {tile(b)}，调用游戏进矿")
+    send({"actionType": "enter_mine", "level": 1}, 2.0)
+    time.sleep(5)
     b = rd()
     loc = b.get("location")
-    log(f"交互后 loc={loc} tile={tile_of(b)}")
-    if loc and "Mine" in str(loc):
-        return True
-    # 再试一次交互
-    send({"actionType": "player_interact_at", "x": ex, "y": ey}, 1.5)
-    time.sleep(2)
-    b = rd()
-    log(f"再交互 loc={b.get('location')}")
-    return "Mine" in str(b.get("location"))
+    log(f"进矿后 loc={loc} tile={tile(b)} pos={b.get('player', {}).get('position')}")
+    return "Mine" in str(loc)
 
 
 if __name__ == "__main__":
-    gameio.load_game()
+    import os
+    fresh = (time.time() - os.path.getmtime(nav2.BRIDGE_FILE)) < 8 if os.path.exists(nav2.BRIDGE_FILE) else False
+    if not fresh:
+        gameio.load_game()
     ok = go_mine()
     b = rd()
     log(f"结果 {ok} loc={b.get('location')} tile={tile_of(b)}")
