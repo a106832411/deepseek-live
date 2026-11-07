@@ -195,6 +195,18 @@ def ship_and_sleep_if_late():
         return False
 
 
+FESTIVALS = {
+    ("spring", 13): ("彩蛋节", "Town"),
+    ("spring", 24): ("花舞节", "Forest"),
+    ("summer", 11): ("夏威夷宴会", "Beach"),
+    ("summer", 28): ("月光水母", "Beach"),
+    ("fall", 16): ("星露谷集市", "Town"),
+    ("fall", 27): ("幽灵节", "Town"),
+    ("winter", 8): ("冰雪节", "Forest"),
+    ("winter", 25): ("冬星节", "Town"),
+}
+
+
 def plan_today(b):
     """按季节/天气/运气给今天选活（参考星露谷冬季攻略：冬天不下地，挖矿/钓鱼为主）。"""
     season = str(b.get("season") or "")
@@ -206,6 +218,11 @@ def plan_today(b):
         luck = float(luck)
     except Exception:
         luck = 0.0
+    # 节日优先
+    day_of_month = b.get("day", 0)
+    fest = FESTIVALS.get((season, day_of_month))
+    if fest:
+        return "festival", f"今天是{fest[0]}，去{fest[1]}过节"
     if season == "winter":
         # 冬天：上午挖矿，下午钓鱼；下雪天也照常
         if t < 1200:
@@ -226,7 +243,20 @@ def work_step():
     b = nav2.rd() or {}
     mode, why = plan_today(b)
     log(f"  自动干活：day={b.get('day')} {b.get('season')} {b.get('time')} money={_money()} → {why}")
-    if mode == "mine":
+    if mode == "festival":
+        fest = FESTIVALS.get((b.get("season"), b.get("day")))
+        if fest:
+            log(f"  去{fest[1]}参加{fest[0]}")
+            fallback.goto_or_warp(fest[1])
+            time.sleep(60)   # 到场停留，让节日开始
+            b2 = nav2.rd() or {}
+            if b2.get("location") != "FarmHouse" and b2.get("time", 0) < 1800:
+                # 节日后继续干活
+                if b2.get("time", 0) < 1200:
+                    mine_batch(6)
+                else:
+                    fish_batch(2)
+    elif mode == "mine":
         mine_batch(8)
     elif mode == "fish":
         fish_batch(2)
