@@ -45,7 +45,7 @@ ROUTES = {
     "BusStop": ["Town", "Farm"],
     "Backwoods": ["Farm", "Mountain"],
     "Town": ["Beach", "Mountain", "BusStop", "Blacksmith", "SeedShop"],
-    "Mountain": ["Town", "Backwoods", "Farm", "Mine"],
+    "Mountain": ["Town", "Backwoods", "Mine"],
     "Beach": ["Town"],
     "Forest": ["Farm", "Town"],
     "Mine": ["Mountain", "UndergroundMine1"],
@@ -496,7 +496,11 @@ ALTERNATES = {
     ("FarmHouse", "Mountain"): [["Farm", "BusStop", "Town", "Mountain"]],
     ("Farm", "Town"): [["BusStop", "Town"], ["Forest", "Town"]],
     ("Forest", "Mountain"): [["Town", "Mountain"]],
-    ("Mountain", "Farm"): [["Town", "BusStop", "Farm"]],
+    ("Mountain", "Farm"): [["Backwoods", "Farm"], ["Town", "BusStop", "Farm"]],
+    ("Town", "Farm"): [["Mountain", "Backwoods", "Farm"], ["BusStop", "Farm"]],
+    ("Town", "BusStop"): [["Farm", "BusStop"]],
+    ("BusStop", "FarmHouse"): [["Farm", "FarmHouse"]],
+    ("Mountain", "FarmHouse"): [["Backwoods", "Farm", "FarmHouse"]],
 }
 
 
@@ -771,7 +775,11 @@ ALTERNATES = {
     ("Farm", "Mountain"): [["BusStop", "Town", "Mountain"], ["Forest", "Town", "Mountain"]],
     ("Farm", "Town"): [["BusStop", "Town"], ["Forest", "Town"]],
     ("Forest", "Mountain"): [["Town", "Mountain"]],
-    ("Mountain", "Farm"): [["Town", "BusStop", "Farm"]],
+    ("Mountain", "Farm"): [["Backwoods", "Farm"], ["Town", "BusStop", "Farm"]],
+    ("Town", "Farm"): [["Mountain", "Backwoods", "Farm"], ["BusStop", "Farm"]],
+    ("Town", "BusStop"): [["Farm", "BusStop"]],
+    ("BusStop", "FarmHouse"): [["Farm", "FarmHouse"]],
+    ("Mountain", "FarmHouse"): [["Backwoods", "Farm", "FarmHouse"]],
 }
 
 

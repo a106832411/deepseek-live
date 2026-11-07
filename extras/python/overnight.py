@@ -85,7 +85,13 @@ def go_sleep():
         if rd().get("day") != day0:
             log(f"  醒来(备用)：day={rd().get('day')} time={rd().get('time')}")
             return
-    log("  实在睡不着，继续（走不动就等晕倒）")
+    # 兜底：强制跨天（等价于睡觉，避免 2 点晕倒扣钱）
+    log("  床睡不了，用强制跨天兜底")
+    nav2.send({"actionType": "player_force_new_day"}, 2.0)
+    time.sleep(8)
+    b = rd()
+    log(f"  兜底后：day={b.get('day')} time={b.get('time')} money={money()}")
+    nav2.send({"actionType": "force_unpause"}, 0.5)
 
 
 def main():
@@ -131,24 +137,45 @@ def main():
                 go_sleep()
                 continue
 
-            # 稳定模式：农场清障/砍树/敲石头（矿洞路线还不稳，先不跑）
-            log("  计划：农场清障（砍树/敲石头/割草）")
-            nav2.set_timeout(300)
-            try:
-                fallback.goto_or_warp("Farm")
-                anchors = [(64, 15), (40, 10), (75, 20), (55, 40), (70, 45), (30, 30)]
-                for ax, ay in anchors:
+            # 白天先试矿洞，挖不到再清农场
+            tnow = rd().get("time", 0)
+            did_work = False
+            if 600 <= tnow <= 2000:
+                log("  计划：白天先去矿洞")
+                nav2.set_timeout(420)
+                try:
+                    if "Mine" in str(rd().get("location")):
+                        nav2.send({"actionType": "leave_mine"}, 2.0)
+                        time.sleep(2)
+                    ok = nav2.goto_via(["BusStop", "Town", "Mountain"])
+                    if ok and mine_real.enter_mine_walk():
+                        n = mine_real.mine_rocks(6)
+                        log(f"  挖到 {n} 块")
+                        did_work = n > 0
+                        nav2.send({"actionType": "leave_mine"}, 2.0)
+                        time.sleep(2)
+                except TimeoutError:
+                    log("  去矿洞超时")
+                finally:
+                    nav2.clear_timeout()
+            if not did_work:
+                log("  农场清障")
+                nav2.set_timeout(300)
+                try:
                     if rd().get("location") != "Farm":
                         fallback.goto_or_warp("Farm")
-                    nav2.break_obstacles(ax, ay, 6)
-                    nav2.cut_grass(3)
-                    b2 = rd()
-                    if b2.get("time", 0) >= 2350:
-                        break
-            except TimeoutError:
-                log("  农场本轮超时")
-            finally:
-                nav2.clear_timeout()
+                    anchors = [(64, 15), (40, 10), (75, 20), (55, 40), (70, 45), (30, 30), (20, 60), (60, 60)]
+                    for ax, ay in anchors:
+                        if rd().get("location") != "Farm":
+                            fallback.goto_or_warp("Farm")
+                        nav2.break_obstacles(ax, ay, 6)
+                        nav2.cut_grass(2)
+                        if rd().get("time", 0) >= 2130:
+                            break
+                except TimeoutError:
+                    log("  农场本轮超时")
+                finally:
+                    nav2.clear_timeout()
 
             # 每轮结束清理状态，避免卡住
             nav2.send({"actionType": "force_unpause"}, 0.4)
@@ -165,7 +192,7 @@ def main():
             except Exception:
                 pass
             time.sleep(5)
-        time.sleep(3)
+        time.sleep(5)
     log("=== 挂机结束 ===")
 
 
