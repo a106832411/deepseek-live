@@ -59,6 +59,34 @@ def ensure_ready(auto_load=True, tries=3):
     return False
 
 
+def keep_awake():
+    """阻止 Windows 睡眠/息屏，免得挂机时游戏被休眠掉。"""
+    try:
+        import ctypes
+        ES_CONTINUOUS = 0x80000000
+        ES_SYSTEM_REQUIRED = 0x00000001
+        ES_DISPLAY_REQUIRED = 0x00000002
+        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
+    except Exception:
+        pass
+
+
+def save_crash_logs():
+    """崩溃时把 SMAPI 日志留一份，方便查原因。"""
+    try:
+        import shutil
+        src = os.path.join(os.environ.get("APPDATA", ""), "StardewValley", "ErrorLogs", "SMAPI-latest.txt")
+        if not os.path.exists(src):
+            return None
+        outdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+        os.makedirs(outdir, exist_ok=True)
+        dst = os.path.join(outdir, "crash_" + time.strftime("%Y%m%d_%H%M%S") + ".txt")
+        shutil.copy2(src, dst)
+        return dst
+    except Exception:
+        return None
+
+
 def relaunch_game():
     """游戏窗口没了 → 重启 SMAPI 并加载存档（兜底）。
 

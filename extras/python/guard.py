@@ -13,6 +13,7 @@ import gameio
 import nav2
 
 LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "guard.log")
+_RESTARTS = []
 LOCK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "guard.pid")
 
 
@@ -49,7 +50,17 @@ def check_once():
     """一次健康检查 + 自动修复。返回 True 表示当前游戏可用。"""
     h, _ = gameio.game_window()
     if not h:
-        log("健康检查：没有游戏窗口 → 自动重启并加载")
+        log("健康检查：没有游戏窗口（崩溃/被关）→ 先留崩溃日志再重启")
+        crash = fallback.save_crash_logs()
+        if crash:
+            log(f"  崩溃日志已保存: {os.path.basename(crash)}")
+        # 崩溃循环保护：10 分钟内重启超过 3 次，暂停 5 分钟
+        now = time.time()
+        _RESTARTS[:] = [t for t in _RESTARTS if now - t < 600]
+        if len(_RESTARTS) >= 3:
+            log("  10 分钟内已重启 3 次，疑似崩溃循环，暂停 5 分钟再试")
+            time.sleep(300)
+        _RESTARTS.append(now)
         ok = fallback.relaunch_game()
         log(f"重启结果: {ok}")
         return ok
@@ -288,6 +299,7 @@ def main():
         return
     while True:
         try:
+            fallback.keep_awake()
             ok = check_once()
             log(f"健康检查: {'正常' if ok else '异常（已尝试修复）'} | " +
                 f"loc={(nav2.rd() or {}).get('location')} " +
