@@ -17,12 +17,13 @@
   "tts": {
     "api_url": "http://127.0.0.1:9881",
     "ref_audio": "替换成参考音频的绝对路径.wav",
-    "top_k": 20,
-    "speed": 0.95,
-    "temperature": 1,
+    "top_k": 30,
+    "speed": 1,
+    "temperature": 1.3,
     "sample_steps": 32,
     "auto_play": true,
-    "prompt_text": "这个声音说的那句话"
+    "prompt_text": "这里填参考音频里说的那句话（必须逐字一致）",
+    "repetition_penalty": 1.1
   },
   "events": {
     "gift": {

@@ -12,6 +12,9 @@
                   unvoiced 帧保持 0（辅音/气声保留），带 40ms 滑音、5.5Hz 轻颤音、
                   微音高抖动，目标音高整体落在句中位音高 ±5 半音内，每句响度归一。
                   旋律：原创五声音阶 folk1（seed 决定走向）/ 公版《小星星》/《生日快乐》。
+                  自然度参数（2026-11 改版）：--blend 目标旋律权重（<1 时与原始自然 f0
+                  加权融合，保留语气起伏）、--quantize-ms 0 关闭硬量化、--vibrato <1 弱化
+                  颤音、--tail-stretch/--tail-fall 句尾轻拖长/下滑。
 
 用法示例：
   python extras/python/sing_tts.py \
@@ -56,6 +59,11 @@ PLACEHOLDER_SEC = 1.00         # 单句失败时的静音占位
 
 DEFAULT_TTS_URL = "http://127.0.0.1:9881"
 DEFAULT_REF_AUDIO = "D:/文档/deepseek-harness/default-workspace/whaletalk/voice_ref/ref_小奶音_7s.wav"
+# 参考音对应的真实文本（Whisper+FunASR 一致）。传错/占位符会让 GPT-SoVITS 输出又短又平。
+DEFAULT_PROMPT_TEXT = "梁山在上，今天大白饭也要变得美味呀。"
+DEFAULT_TOP_K = 25            # 2026-11 调参：更自然（旧值 20）
+DEFAULT_TEMPERATURE = 1.15    # 旧值 1.0
+DEFAULT_REP_PENALTY = 1.15    # 旧值 1.35
 
 WORLD_FRAME_MS = 5.0           # WORLD 帧移（ms）
 VIBRATO_HZ = 5.5               # 颤音频率（Hz，契约）
@@ -391,6 +399,94 @@ def _read_process(y):
     return fade_edges(y, 4.0, 12.0)
 
 
+def _calc_note_bounds(y, f0, tpos, n_note, args):
+    """把一句的 voiced 帧按音符均分，边界往能量谷底吸附，可选节拍轻量化。返回秒边界数组。"""
+    hop = WORLD_FRAME_MS / 1000.0
+    dur = len(y) / float(SR)
+    n_note = max(1, int(n_note))
+    frame_len = int(round(SR * hop))
+    need = len(f0) * frame_len
+    yp = np.pad(y, (0, need - len(y))) if need > len(y) else y[:need]
+    frame_rms = np.sqrt(np.mean(yp.reshape(len(f0), frame_len) ** 2, axis=1))
+    vf = np.flatnonzero(f0 > 0)
+    M = len(vf)
+    if M == 0:
+        return np.array([0.0, dur], dtype=np.float64)
+    bounds = [0.0]
+    for k in range(1, n_note):
+        fi = int(round(k * M / n_note))
+        fi = min(M - 1, max(0, fi))
+        bounds.append(float(tpos[vf[fi]]))
+    bounds.append(dur)
+
+    for k in range(1, n_note):
+        b = bounds[k]
+        lo = max(1, int((b - 0.08) / hop))
+        hi = min(len(frame_rms), int((b + 0.08) / hop) + 1)
+        if hi > lo:
+            j = lo + int(np.argmin(frame_rms[lo:hi]))
+            if j < len(tpos):
+                bounds[k] = float(tpos[j])
+
+    # 轻量化到节拍网格（bpm 用在这里；只在 ≤quantize_ms 的偏差内吸附；0 = 关闭）
+    beat = 60.0 / float(args.bpm) if args.bpm and args.bpm > 0 else 0.65
+    tol = float(args.quantize_ms) / 1000.0
+    if tol > 0:
+        for k in range(1, n_note):
+            b = bounds[k]
+            g = round(b / beat) * beat
+            if abs(g - b) <= tol and g > bounds[k - 1] + 0.05 and g < bounds[-1] - 0.05:
+                bounds[k] = g
+    # 单调 + 每段至少 30ms
+    for k in range(1, n_note):
+        bounds[k] = max(bounds[k], bounds[k - 1] + 0.03)
+        bounds[k] = min(bounds[k], bounds[-1] - 0.03 * (n_note - k))
+        bounds[k] = max(bounds[k], 0.0)
+    bounds = np.array(bounds, dtype=np.float64)
+    bounds[0] = 0.0
+    bounds[-1] = max(dur, bounds[-2] + 0.03)
+    return bounds
+
+
+def _apply_tail(f0_new, sp, ap, bounds, args):
+    """句尾轻拖音：对最后一段做 WORLD 帧域时间拉伸 + 末尾轻微下滑。返回 (f0, sp, ap, bounds)。"""
+    stretch = float(getattr(args, "tail_stretch", 1.0) or 1.0)
+    fall = float(getattr(args, "tail_fall", 0.0) or 0.0)
+    if stretch <= 1.0001 and abs(fall) < 0.01:
+        return f0_new, sp, ap, bounds
+    hop = WORLD_FRAME_MS / 1000.0
+    a = int(round(float(bounds[-2]) / hop))
+    a = max(0, min(a, len(f0_new) - 3))
+    b = len(f0_new)
+    n_old = b - a
+    if n_old < 3:
+        return f0_new, sp, ap, bounds
+    if stretch > 1.0001:
+        n_new = max(n_old + 2, int(round(n_old * stretch)))
+        idx = np.linspace(a, b - 1, n_new)
+        src = np.arange(a, b, dtype=np.float64)
+        f0_tail = np.interp(idx, src, f0_new[a:b])
+        sp_tail = np.empty((n_new, sp.shape[1]), dtype=sp.dtype)
+        ap_tail = np.empty((n_new, ap.shape[1]), dtype=ap.dtype)
+        for j in range(sp.shape[1]):
+            sp_tail[:, j] = np.interp(idx, src, sp[a:b, j])
+            ap_tail[:, j] = np.interp(idx, src, ap[a:b, j])
+        f0_new = np.concatenate([f0_new[:a], f0_tail])
+        sp = np.vstack([sp[:a], sp_tail])
+        ap = np.vstack([ap[:a], ap_tail])
+        bounds = np.array(bounds, dtype=np.float64)
+        bounds[-1] = len(f0_new) * hop
+    if abs(fall) >= 0.01:
+        v = np.flatnonzero(f0_new > 0)
+        if len(v) >= 3:
+            end = int(v[-1])
+            n = max(3, int(round(0.22 / hop)))
+            start = max(0, end - n + 1)
+            ramp = np.linspace(0.0, 1.0, end - start + 1)
+            f0_new[start:end + 1] = f0_new[start:end + 1] * (2.0 ** (-fall * ramp / 12.0))
+    return f0_new, sp, ap, bounds
+
+
 def _sing_line(y, notes_midi, global_midi, args, seed):
     """WORLD 清唱化一句：只替换 voiced 帧 f0，音高按 notes_midi 走旋律。失败抛异常。"""
     import pyworld as pw
@@ -414,49 +510,7 @@ def _sing_line(y, notes_midi, global_midi, args, seed):
     if len(vf) < 8:
         return None, None
     n_note = max(1, len(notes_midi))
-    dur = len(y) / float(SR)
-    frame_len = int(round(SR * hop))
-    need = len(f0) * frame_len
-    if need > len(y):
-        yp = np.pad(y, (0, need - len(y)))
-    else:
-        yp = y[:need]
-    frame_rms = np.sqrt(np.mean(yp.reshape(len(f0), frame_len) ** 2, axis=1))
-
-    # --- 音节边界：先按 voiced 帧数均分，再往附近能量谷底吸附
-    M = len(vf)
-    bounds = [0.0]
-    for k in range(1, n_note):
-        fi = int(round(k * M / n_note))
-        fi = min(M - 1, max(0, fi))
-        bounds.append(float(tpos[vf[fi]]))
-    bounds.append(dur)
-
-    for k in range(1, n_note):
-        b = bounds[k]
-        lo = max(1, int((b - 0.08) / hop))
-        hi = min(len(frame_rms), int((b + 0.08) / hop) + 1)
-        if hi > lo:
-            j = lo + int(np.argmin(frame_rms[lo:hi]))
-            if j < len(tpos):
-                bounds[k] = float(tpos[j])
-
-    # --- 轻量化到节拍网格（bpm 用在这里；只在 ≤quantize_ms 的偏差内吸附）
-    beat = 60.0 / float(args.bpm) if args.bpm and args.bpm > 0 else 0.65
-    tol = float(args.quantize_ms) / 1000.0
-    for k in range(1, n_note):
-        b = bounds[k]
-        g = round(b / beat) * beat
-        if abs(g - b) <= tol and g > bounds[k - 1] + 0.05 and g < bounds[-1] - 0.05:
-            bounds[k] = g
-    # 单调 + 每段至少 30ms
-    for k in range(1, n_note):
-        bounds[k] = max(bounds[k], bounds[k - 1] + 0.03)
-        bounds[k] = min(bounds[k], bounds[-1] - 0.03 * (n_note - k))
-        bounds[k] = max(bounds[k], 0.0)
-    bounds = np.array(bounds, dtype=np.float64)
-    bounds[0] = 0.0
-    bounds[-1] = max(dur, bounds[-2] + 0.03)
+    bounds = _calc_note_bounds(y, f0, tpos, n_note, args)
 
     # --- 每帧目标音高（MIDI 半音单位）
     internal = bounds[1:-1]
@@ -464,16 +518,35 @@ def _sing_line(y, notes_midi, global_midi, args, seed):
     note_id = np.clip(note_id, 0, n_note - 1)
 
     tgt = np.asarray(notes_midi, dtype=np.float64)[note_id]
-    # 保留一点点原句自然音高起伏（18%、±0.4 半音封顶），减少机器人感
     vf_note = note_id[vf]
     orig_vf_midi = 69.0 + 12.0 * np.log2(np.maximum(f0[vf], 1e-9) / 440.0)
-    resid = np.zeros(len(vf), dtype=np.float64)
-    for k in range(n_note):
-        sel = vf_note == k
-        if np.any(sel):
-            local = orig_vf_midi[sel] - float(np.median(orig_vf_midi[sel]))
-            resid[sel] = np.clip(local, -0.4, 0.4) * 0.18
-    target_vf = tgt[vf] + resid
+    blend = float(getattr(args, "blend", 1.0))
+    blend_mode = getattr(args, "blend_mode", "global")
+    if blend >= 0.999:
+        # 旧行为：目标旋律 + 18% 原句局部起伏（±0.4 半音封顶）
+        resid = np.zeros(len(vf), dtype=np.float64)
+        for k in range(n_note):
+            sel = vf_note == k
+            if np.any(sel):
+                local = orig_vf_midi[sel] - float(np.median(orig_vf_midi[sel]))
+                resid[sel] = np.clip(local, -0.4, 0.4) * 0.18
+        target_vf = tgt[vf] + resid
+    elif blend_mode == "note":
+        # 音符锚定融合：音级严格走旋律，只把原句"音符内"的自然起伏按 (1-blend) 混进来
+        blend = max(0.0, min(1.0, blend))
+        resid = np.zeros(len(vf), dtype=np.float64)
+        for k in range(n_note):
+            sel = vf_note == k
+            if np.any(sel):
+                local = orig_vf_midi[sel] - float(np.median(orig_vf_midi[sel]))
+                resid[sel] = local
+        target_vf = tgt[vf] + (1.0 - blend) * np.clip(resid, -1.5, 1.5)
+    else:
+        # 全轮廓融合：目标旋律与原始自然 f0 加权（先把原始轮廓按句中位对齐到旋律中位）
+        blend = max(0.0, min(1.0, blend))
+        orig_med = float(np.median(orig_vf_midi))
+        tgt_med = float(np.median(tgt[vf]))
+        target_vf = blend * tgt[vf] + (1.0 - blend) * (orig_vf_midi - orig_med + tgt_med)
 
     # 每个音符轻微随机音准（±4 音分）
     note_jitter = np.array([rng.uniform(-0.04, 0.04) for _ in range(n_note)])
@@ -522,11 +595,57 @@ def _sing_line(y, notes_midi, global_midi, args, seed):
 
     f0_new = np.zeros_like(f0)
     f0_new[vf] = _midi_to_hz(smooth)
+    # 句尾轻拖音（帧域拉伸 + 末尾下滑）
+    f0_new, sp, ap, bounds = _apply_tail(f0_new, sp, ap, bounds, args)
     y2 = pw.synthesize(f0_new, sp, ap, SR, frame_period=WORLD_FRAME_MS)
     y2 = np.asarray(y2, dtype=np.float64)
     if len(y2) == 0 or float(np.max(np.abs(y2))) <= 1e-6:
         return None, None
     return y2, [float(b) for b in bounds]
+
+
+def _sing_line_librosa(y, notes_midi, global_midi, args, seed):
+    """D 方案对照：不用 WORLD 重合成，按音节分段用 librosa 变调再交叉淡化拼接。"""
+    import librosa
+    import pyworld as pw
+
+    hop = WORLD_FRAME_MS / 1000.0
+    f0, tpos = pw.harvest(y, SR, f0_floor=float(args.f0_floor),
+                          f0_ceil=float(args.f0_ceil), frame_period=WORLD_FRAME_MS)
+    tpos = np.asarray(tpos, dtype=np.float64)
+    n_note = max(1, len(notes_midi))
+    bounds = _calc_note_bounds(y, f0, tpos, n_note, args)
+
+    segs = []
+    for k in range(n_note):
+        s = int(round(float(bounds[k]) * SR))
+        e = int(round(float(bounds[k + 1]) * SR))
+        s = max(0, min(s, len(y) - 2))
+        e = max(s + 2, min(e, len(y)))
+        sel = (tpos >= bounds[k]) & (tpos < bounds[k + 1])
+        vals = f0[sel]
+        vals = vals[vals > 0]
+        orig_m = (69.0 + 12.0 * math.log2(float(np.median(vals)) / 440.0)) if len(vals) >= 3 else global_midi
+        shift = float(notes_midi[k]) - orig_m
+        shift = max(-7.0, min(7.0, shift))
+        seg = np.ascontiguousarray(np.asarray(y[s:e], dtype=np.float32))
+        if abs(shift) >= 0.05 and len(seg) > 64:
+            seg = librosa.effects.pitch_shift(seg, sr=SR, n_steps=shift).astype(np.float64)
+        else:
+            seg = seg.astype(np.float64)
+        segs.append(seg)
+
+    fade = max(8, int(round(0.025 * SR)))
+    out = segs[0].copy()
+    for seg in segs[1:]:
+        nf = min(fade, len(out), len(seg))
+        if nf > 2:
+            w = np.linspace(0.0, 1.0, nf)
+            out[-nf:] = out[-nf:] * (1.0 - w) + seg[:nf] * w
+            out = np.concatenate([out, seg[nf:]])
+        else:
+            out = np.concatenate([out, seg])
+    return out, [float(b) for b in bounds]
 
 
 def _melody_pipeline(raws, lines, args):
@@ -594,7 +713,10 @@ def _melody_pipeline(raws, lines, args):
         try:
             if args.debug_fail_world:
                 raise RuntimeError("debug: world disabled")
-            y2, note_bounds = _sing_line(y, targets, global_midi, args, seed_i)
+            if getattr(args, "engine", "world") == "librosa":
+                y2, note_bounds = _sing_line_librosa(y, targets, global_midi, args, seed_i)
+            else:
+                y2, note_bounds = _sing_line(y, targets, global_midi, args, seed_i)
             if y2 is None:
                 raise RuntimeError("WORLD 处理后无有效音频")
         except Exception as e:
@@ -609,6 +731,12 @@ def _melody_pipeline(raws, lines, args):
                 "midi": [round(float(t), 2) for t in targets],
                 "pitch_median_hz": round(float(global_hz), 2),
                 "syllables": count_syllables(lines[i]),
+                "blend": float(getattr(args, "blend", 1.0)),
+                "blend_mode": getattr(args, "blend_mode", "global"),
+                "vibrato": float(args.vibrato),
+                "engine": getattr(args, "engine", "world"),
+                "tail_stretch": float(getattr(args, "tail_stretch", 1.0)),
+                "tail_fall": float(getattr(args, "tail_fall", 0.0)),
             }
             if note_bounds:
                 debug_notes[i]["bounds"] = [round(float(b), 3) for b in note_bounds]
@@ -634,8 +762,8 @@ def build_parser():
     p.add_argument("--timing-out", required=True, help="输出 timing json 路径")
     p.add_argument("--tts-url", default=DEFAULT_TTS_URL, help="TTS 代理地址（默认 %(default)s）")
     p.add_argument("--ref-audio", default=DEFAULT_REF_AUDIO, help="参考音路径（默认内置小奶音）")
-    p.add_argument("--prompt-text", nargs="?", const="", default="",
-                   help="参考音对应文本（默认空；也可只写 --prompt-text 不带值）")
+    p.add_argument("--prompt-text", nargs="?", const="", default=DEFAULT_PROMPT_TEXT,
+                   help="参考音对应文本（默认=实测转写；也可只写 --prompt-text 不带值=空）")
     p.add_argument("--speed", type=float, default=0.95, help="TTS 语速（默认 0.95）")
     p.add_argument("--mode", choices=["melody", "read"], default="melody",
                    help="melody=带旋律清唱（默认）/ read=纯念唱")
@@ -646,12 +774,19 @@ def build_parser():
     p.add_argument("--gap-ms", type=int, default=320, help="句间间隔毫秒（默认 320）")
     p.add_argument("--seed", type=int, default=123, help="随机种子（挑旋律走向/微抖动，默认 123）")
     # 进阶参数（后端一般不用传）
+    p.add_argument("--blend", type=float, default=1.0, help=argparse.SUPPRESS)
+    p.add_argument("--natural", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--blend-mode", choices=["global", "note"], default="global",
+                   help=argparse.SUPPRESS)
+    p.add_argument("--engine", choices=["world", "librosa"], default="world", help=argparse.SUPPRESS)
+    p.add_argument("--tail-stretch", type=float, default=1.0, help=argparse.SUPPRESS)
+    p.add_argument("--tail-fall", type=float, default=0.0, help=argparse.SUPPRESS)
     p.add_argument("--text-lang", default="zh", help=argparse.SUPPRESS)
     p.add_argument("--prompt-lang", default="zh", help=argparse.SUPPRESS)
-    p.add_argument("--top-k", type=int, default=20, help=argparse.SUPPRESS)
+    p.add_argument("--top-k", type=int, default=DEFAULT_TOP_K, help=argparse.SUPPRESS)
     p.add_argument("--sample-steps", type=int, default=32, help=argparse.SUPPRESS)
-    p.add_argument("--temperature", type=float, default=1.0, help=argparse.SUPPRESS)
-    p.add_argument("--repetition-penalty", type=float, default=1.35, help=argparse.SUPPRESS)
+    p.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE, help=argparse.SUPPRESS)
+    p.add_argument("--repetition-penalty", type=float, default=DEFAULT_REP_PENALTY, help=argparse.SUPPRESS)
     p.add_argument("--timeout", type=float, default=180.0, help=argparse.SUPPRESS)
     p.add_argument("--f0-floor", type=float, default=80.0, help=argparse.SUPPRESS)
     p.add_argument("--f0-ceil", type=float, default=700.0, help=argparse.SUPPRESS)
@@ -683,6 +818,14 @@ def main(argv=None):
         return int(e.code or 0)
 
     # 参数兜底
+    if args.natural:
+        # 一键"自然清唱"预设（= audit 的 C3）：音符锚定融合、关硬量化、弱颤音、句尾轻拖音
+        args.blend = 0.55
+        args.blend_mode = "note"
+        args.vibrato = 0.3
+        args.quantize_ms = 0.0
+        args.tail_stretch = 1.25
+        args.tail_fall = 0.35
     if not (args.speed > 0):
         return _fail(args.timing_out, "--speed 必须 > 0", started)
     if not (args.bpm > 0):
@@ -788,6 +931,11 @@ def main(argv=None):
         "bpm": args.bpm,
         "gap_ms": args.gap_ms,
         "seed": args.seed,
+        "blend": args.blend,
+        "blend_mode": getattr(args, "blend_mode", "global"),
+        "vibrato": args.vibrato,
+        "quantize_ms": args.quantize_ms,
+        "engine": getattr(args, "engine", "world"),
         "elapsed": round(time.time() - started, 2),
         "lines": timing_lines,
     }

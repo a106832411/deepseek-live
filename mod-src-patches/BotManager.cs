@@ -570,16 +570,20 @@ namespace StardewMCPBridge
                     {
                         try
                         {
-                            Game1.eventUp = false;
-                            Game1.fadeToBlack = false;
-                            Game1.fadeIn = false;
-                            try
+                            // 凌晨 2 点晕倒时不要清掉黑屏/事件，否则会永远卡在 2:00
+                            if (Game1.timeOfDay < 2500)
                             {
-                                var fa = typeof(Game1).GetField("fadeToBlackAlpha",
-                                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-                                if (fa != null) fa.SetValue(null, 0f);
+                                Game1.eventUp = false;
+                                Game1.fadeToBlack = false;
+                                Game1.fadeIn = false;
+                                try
+                                {
+                                    var fa = typeof(Game1).GetField("fadeToBlackAlpha",
+                                        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                                    if (fa != null) fa.SetValue(null, 0f);
+                                }
+                                catch { }
                             }
-                            catch { }
                             Game1.paused = false;
                             Game1.dialogueUp = false;
                             Game1.activeClickableMenu = null;
@@ -774,6 +778,59 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "leave_mine":
+                    {
+                        try
+                        {
+                            if (Game1.currentLocation != null && Game1.currentLocation.Name.StartsWith("UndergroundMine"))
+                            {
+                                Game1.warpFarmer("Mountain", 30, 20, false);
+                                this.monitor.Log("leave_mine -> Mountain", LogLevel.Info);
+                            }
+                            else this.monitor.Log("leave_mine: 不在矿里", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("leave_mine err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "dump_pause":
+                    {
+                        try
+                        {
+                            var parts = new System.Collections.Generic.List<string>();
+                            var t = typeof(Game1);
+                            foreach (var f in t.GetFields(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+                            {
+                                if (f.Name.ToLower().Contains("pause") || f.Name.ToLower().Contains("freeze"))
+                                {
+                                    try { parts.Add($"F {f.Name}={f.GetValue(null)}"); } catch { }
+                                }
+                            }
+                            foreach (var pr in t.GetProperties(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+                            {
+                                if (pr.Name.ToLower().Contains("pause") || pr.Name.ToLower().Contains("freeze"))
+                                {
+                                    try { parts.Add($"P {pr.Name}={pr.GetValue(null)}"); } catch { }
+                                }
+                            }
+                            this.monitor.Log("PAUSEINFO " + string.Join(" ; ", parts), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_pause err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "force_pass_out":
+                    {
+                        try
+                        {
+                            var m = typeof(StardewValley.Farmer).GetMethod("startToPassOut", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                            if (m != null) { m.Invoke(Game1.player, null); this.monitor.Log("force_pass_out: startToPassOut", LogLevel.Info); }
+                            else this.monitor.Log("force_pass_out: 方法不存在", LogLevel.Warn);
+                        }
+                        catch (Exception ex) { this.monitor.Log("force_pass_out err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "force_unpause":
                     {
                         try
@@ -787,15 +844,16 @@ namespace StardewMCPBridge
                                 if (sf != null) sf.SetValue(null, false);
                             }
                             catch { }
-                            var tpi = typeof(Game1).GetProperty("paused",
-                                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-                            if (tpi != null && tpi.CanWrite)
+                            var bf = System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            foreach (var fn in new[] { "paused", "isTimePaused", "freezeControls", "viewportFreeze", "eventUp" })
                             {
-                                tpi.SetValue(null, false);
-                                this.monitor.Log("force_unpause: paused=false", LogLevel.Info);
+                                var fi = typeof(Game1).GetField(fn, bf);
+                                if (fi != null && fi.FieldType == typeof(bool))
+                                {
+                                    try { fi.SetValue(null, false); } catch { }
+                                }
                             }
-                            else this.monitor.Log("force_unpause: paused 属性不可写", LogLevel.Warn);
-                            try { Game1.gameMode = 3; } catch { }
+                            this.monitor.Log("force_unpause: 已清暂停标记", LogLevel.Info);
                         }
                         catch (Exception ex) { this.monitor.Log("force_unpause err: " + ex.Message, LogLevel.Warn); }
                         break;

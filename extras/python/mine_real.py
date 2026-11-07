@@ -44,8 +44,11 @@ def enter_mine_walk():
         return True
     if b.get("location") != "Mountain":
         if not nav2.goto("Mountain"):
-            log("  ⚠ 到不了山上，进不了矿")
-            return False
+            log("  直走不通，改走：镇上绕路")
+            if not nav2.goto_via(["BusStop", "Town", "Mountain"]):
+                if not nav2.goto_via(["Forest", "Town", "Mountain"]):
+                    log("  ⚠ 到不了山上，进不了矿")
+                    return False
     # 矿洞入口在山上 (54,4) 附近的洞口
     b = nav2.rd() or {}
     t = nav2.tile(b)
@@ -57,6 +60,51 @@ def enter_mine_walk():
     ok = "Mine" in str(b.get("location"))
     log(f"  进矿: {ok} ({b.get('location')})")
     return ok
+
+
+def find_ladder():
+    b = nav2.rd() or {}
+    tiles = _tiles(b)
+    for t in tiles:
+        otype = str(t.get("ObjectType") or "").lower()
+        oname = str(t.get("ObjectName") or "")
+        if otype == "ladder" or "梯子" in oname or "Ladder" in oname or "Shaft" in oname or "竖井" in oname:
+            return t
+    return None
+
+
+def go_down():
+    """找梯子下一层（真实走过去 + 交互）。"""
+    b = nav2.rd() or {}
+    lad = find_ladder()
+    if not lad:
+        return False
+    st = _stand(b, lad["X"], lad["Y"])
+    if not st:
+        return False
+    if not nav2.walk_until(st["X"], st["Y"], 12):
+        nav2.unstick()
+        return False
+    nav2.send({"actionType": "player_interact_at", "x": lad["X"], "y": lad["Y"]}, 1.2)
+    time.sleep(1.5)
+    b2 = nav2.rd() or {}
+    moved = str(b2.get("location")) != str(b.get("location"))
+    log(f"  下一层: {moved} ({b.get('location')} -> {b2.get('location')})")
+    return moved
+
+
+def _explore_step():
+    """本层随便走几步，开图找梯子。"""
+    b = nav2.rd() or {}
+    me = nav2.tile(b)
+    tiles = _tiles(b)
+    cands = [t for t in tiles if t.get("Passable") and not t.get("IsWater")
+             and abs(t["X"] - me[0]) + abs(t["Y"] - me[1]) >= 4]
+    cands.sort(key=lambda t: -(abs(t["X"] - me[0]) + abs(t["Y"] - me[1])))
+    for t in cands[:3]:
+        if nav2.walk_until(t["X"], t["Y"], 10):
+            return True
+    return False
 
 
 def mine_rocks(max_rocks=5):
@@ -82,7 +130,21 @@ def mine_rocks(max_rocks=5):
                 continue
             targets.append(t)
         if not targets:
-            log("  附近没石头了")
+            log("  本层没可挖的石头了（或只剩升级才能挖的巨石），找下一层入口")
+            if go_down():
+                continue
+            # 在附近走一圈找入口
+            found = False
+            for _try in range(6):
+                b3 = nav2.rd() or {}
+                tiles3 = _tiles(b3)
+                if any(t.get("ObjectType") == "ladder" for t in tiles3):
+                    found = True
+                    break
+                _explore_step()
+            if found and go_down():
+                continue
+            log("  本层找不到下一层入口，先离开")
             break
         me = nav2.tile(b)
         targets.sort(key=lambda t: abs(t["X"] - me[0]) + abs(t["Y"] - me[1]))

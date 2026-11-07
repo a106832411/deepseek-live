@@ -143,6 +143,25 @@ namespace StardewMCPBridge
                 }
             }
 
+            // 梯子 / 竖井：矿洞里靠 Action 属性，不是普通物体
+            try
+            {
+                string act0 = null;
+                foreach (var lay in new[] { "Back", "Buildings", "Front", "AlwaysFront" })
+                {
+                    var a = location.doesTileHaveProperty(x, y, "Action", lay);
+                    if (!string.IsNullOrEmpty(a) && (a.IndexOf("Ladder", StringComparison.OrdinalIgnoreCase) >= 0 || a.IndexOf("Shaft", StringComparison.OrdinalIgnoreCase) >= 0))
+                    { act0 = a; break; }
+                }
+                if (!string.IsNullOrEmpty(act0))
+                {
+                    objectName = "梯子";
+                    objectType = "ladder";
+                    interactable = true;
+                }
+            }
+            catch { }
+
             // 资源团：大石头/大木桩/大圆木（不是普通 object，单独存在 resourceClumps）
             try
             {

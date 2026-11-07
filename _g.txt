@@ -1,0 +1,23 @@
+def goto(target):
+    b = rd()
+    start = b.get("location")
+    if start == target:
+        return True
+    path = route_to(start, target)
+    if not path:
+        log(f"  ⚠ 无路线 {start} -> {target}")
+        return False
+    log(f"  路线: {start} -> {' -> '.join(path)}")
+    for h in path:
+        if not hop(h):
+            return False
+        safe_check()
+    return True
+
+
+if __name__ == "__main__":
+    live()
+    log("起点 " + str((rd() or {}).get("location")))
+    ok = goto("Mountain")
+    b = rd()
+    log(f"goto Mountain = {ok}, 现在 {b.get('location')} {tile(b)}")

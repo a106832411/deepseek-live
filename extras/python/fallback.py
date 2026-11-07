@@ -37,6 +37,18 @@ def ensure_ready(auto_load=True, tries=3):
                 continue
             return False
         nav2.live()
+        nav2.send({"actionType": "force_unpause"}, 0.5)
+        # 踩在出口格上容易卡在过图状态：主动触发一次过图
+        try:
+            bb = nav2.rd() or {}
+            tt = nav2.tile(bb)
+            for e in (bb.get("exits") or []):
+                if abs(int(e.get("x", -99)) - tt[0]) + abs(int(e.get("y", -99)) - tt[1]) <= 1:
+                    nav2.send({"actionType": "enter_exit", "target": e.get("target")}, 1.2)
+                    time.sleep(2)
+                    break
+        except Exception:
+            pass
         b = nav2.rd()
         if not b:
             time.sleep(2)
@@ -48,12 +60,23 @@ def ensure_ready(auto_load=True, tries=3):
             log(f"兜底：位置异常 {t}@{loc}，放回 {sx},{sy}")
             nav2.send({"actionType": "set_tile", "x": sx, "y": sy}, 0.8)
             continue
-        # 时间是否在走
+        # 时间是否在走：冻结就强力恢复，两次还不行就重载游戏
         t0 = b.get("time", 0)
-        time.sleep(2.5)
+        time.sleep(3)
         b2 = nav2.rd() or {}
         if b2.get("time", 0) == t0:
+            nav2.send({"actionType": "force_unpause"}, 0.5)
             nav2.send({"actionType": "reset_state"}, 0.5)
+            time.sleep(3)
+            b3 = nav2.rd() or {}
+            if b3.get("time", 0) == t0:
+                log("兜底：时间不走，尝试脱困（走一步/过图/传送）")
+                if unfreeze():
+                    log("  脱困成功，时间恢复")
+                    return True
+                log("兜底：脱困失败，重载游戏")
+                gameio.load_game()
+                time.sleep(5)
             continue
         return True
     return False
@@ -125,6 +148,41 @@ def _win():
         return gi.game_window()
     except Exception:
         return (None, None)
+
+
+def unfreeze():
+    """时间冻结/卡在过图状态时：走一步、触发过图，最后才传送兜底。"""
+    try:
+        nav2.send({"actionType": "force_unpause"}, 0.5)
+        nav2.send({"actionType": "player_wake"}, 0.8)
+        b = nav2.rd() or {}
+        me = nav2.tile(b)
+        nav2.send({"actionType": "player_walk_to", "x": me[0] + 1, "y": me[1]}, 0.8)
+        time.sleep(1.5)
+        t0 = (nav2.rd() or {}).get("time", 0)
+        time.sleep(2.5)
+        if (nav2.rd() or {}).get("time", 0) != t0:
+            return True
+        b = nav2.rd() or {}
+        ex = (b.get("exits") or [])
+        if ex:
+            nav2.send({"actionType": "enter_exit", "target": ex[0].get("target")}, 1.5)
+            time.sleep(3)
+        t1 = (nav2.rd() or {}).get("time", 0)
+        time.sleep(2.5)
+        b2 = nav2.rd() or {}
+        if b2.get("time", 0) != t1:
+            return True
+        loc = b2.get("location")
+        sx, sy = SAFE.get(loc, (20, 20))
+        nav2.send({"actionType": "player_warp", "location": loc, "x": sx, "y": sy}, 1.5)
+        time.sleep(3)
+        t2 = (nav2.rd() or {}).get("time", 0)
+        time.sleep(2.5)
+        return (nav2.rd() or {}).get("time", 0) != t2
+    except Exception as ex:
+        log(f"unfreeze 异常: {ex}")
+        return False
 
 
 def goto_or_warp(target, walk_timeout=None):

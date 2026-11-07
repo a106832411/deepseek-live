@@ -94,6 +94,7 @@ function applyEnv(c) {
   num('DEEPLIVE_TTS_STEPS', ['tts', 'sample_steps']);
   num('DEEPLIVE_TTS_TOP_K', ['tts', 'top_k']);
   num('DEEPLIVE_TTS_TEMPERATURE', ['tts', 'temperature']);
+  num('DEEPLIVE_TTS_REP', ['tts', 'repetition_penalty']);
   bool('DEEPLIVE_TTS_AUTO_PLAY', ['tts', 'auto_play']);
 
   str('DEEPLIVE_DOUYIN_MODE', ['douyin', 'mode']);
@@ -146,7 +147,8 @@ const DEFAULT_CONFIG = {
   douyin: { mode: 'relay', web_rid: '447058766923' },
   ai: { backend: 'openai', openai_base: 'https://api.deepseek.com/v1', openai_model: 'deepseek-chat', openai_key: '', thinking: 'off', max_chars: 20 },
   persona: { system: '你是直播间里的虚拟主播小深，说话自然简洁。' },
-  tts: { api_url: 'http://127.0.0.1:9881', ref_audio: '', prompt_text: '梁山在上，今天大白饭也要变得美味呀。', speed: 0.95, sample_steps: 32, top_k: 20, temperature: 1.0, auto_play: true },
+  // prompt_text 必须和参考音逐字一致，否则 GPT-SoVITS 会念得又平又假
+  tts: { api_url: 'http://127.0.0.1:9881', ref_audio: '', prompt_text: '梁山在上，今天大白饭也要变得美味呀。', speed: 1.0, sample_steps: 32, top_k: 30, temperature: 1.3, repetition_penalty: 1.1, auto_play: true },
   obs: { host: '127.0.0.1', port: 4455, password: '', scene: '鲸live直播', bgColor: '0b0c0e' },
   events: {
     danmaku: { enabled: true, probability: 100, cooldown_user: 5, mode: 'ai' },
@@ -171,7 +173,8 @@ const DEFAULT_CONFIG = {
     melody: 'auto',          // auto | xiaoxingxing | shengri | folk1 | folk2
     bpm: 92,
     vibrato: true,
-    gap_ms: 320,
+    gap_ms: 380,
+    natural: true,              // melody 模式走自然旋律（弱颤音/不硬量化/句尾轻拖）
     filler: '我清清嗓子，准备开唱啦～歌词有点长，我再看一眼～马上就好，再等我一下下～',
     pick_list: ['小星星', '生日快乐', '月亮代表我的心', '童年', '后来', '稻香', '晴天', '童话', '勇气', '宁夏']
   }
@@ -197,6 +200,14 @@ function loadConfig() {
       log('未找到配置，使用默认配置');
     }
     applyEnv(config);
+    // 防呆：参考文本/参考音没配对是"声音又平又假"最常见的原因
+    const ttsCfg = config.tts || {};
+    if (/替换|这个声音说的那句话|这里填/.test(String(ttsCfg.prompt_text || ''))) {
+      log('⚠️ tts.prompt_text 看起来还是占位符，必须改成参考音里逐字一致的那句话，否则声音会很平很假');
+    }
+    if (!ttsCfg.ref_audio || /替换/.test(String(ttsCfg.ref_audio))) {
+      log('⚠️ tts.ref_audio 还没配置（参考音频路径）');
+    }
   } catch (e) {
     log('配置读取失败: ' + e.message);
   }
@@ -420,7 +431,10 @@ async function ttsSpeak(text) {
       ref_audio_path: tts.ref_audio,
       prompt_text: tts.prompt_text || '',
       prompt_lang: 'zh',
-      top_k: tts.top_k || 20,
+      top_k: tts.top_k || 30,
+      top_p: 1.0,
+      temperature: tts.temperature === undefined ? 1.3 : Number(tts.temperature),
+      repetition_penalty: tts.repetition_penalty === undefined ? 1.1 : Number(tts.repetition_penalty),
       text_split_method: 'cut0',
       batch_size: 1,
       speed_factor: tts.speed || 1.0,
@@ -869,13 +883,19 @@ async function doPrep(item) {
     '--ref-audio', String(tts.ref_audio || ''),
     '--prompt-text', String(tts.prompt_text || ''),
     '--speed', String(tts.speed || 0.95),
+    '--top-k', String(tts.top_k || 30),
+    '--temperature', String(tts.temperature === undefined ? 1.3 : tts.temperature),
+    '--repetition-penalty', String(tts.repetition_penalty === undefined ? 1.1 : tts.repetition_penalty),
+    '--sample-steps', String(tts.sample_steps || 32),
     '--mode', String(cfg.mode || 'melody'),
     '--melody', String(cfg.melody || 'auto'),
     '--bpm', String(cfg.bpm || 92),
     '--vibrato', cfg.vibrato === false ? '0' : '1',
-    '--gap-ms', String(cfg.gap_ms || 320),
+    '--gap-ms', String(cfg.gap_ms || 380),
     '--seed', String(Math.floor(Math.random() * 99999))
   ];
+  // melody 模式默认走「自然旋律」（音级走旋律 + 保留音符内自然起伏、弱颤音、句尾轻拖），比旧版硬量化不那么机械
+  if (String(cfg.mode || 'melody') !== 'read' && cfg.natural !== false) args.push('--natural');
   log(`清唱合成开始: 《${item.song.name}》 ${String(cfg.mode || 'melody')} / ${String(cfg.melody || 'auto')}`);
   const t0 = Date.now();
   const r = await runPy(args, 300000);

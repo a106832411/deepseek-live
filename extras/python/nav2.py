@@ -254,6 +254,18 @@ def find_exit(b, target):
     return None
 
 
+def goto_via(waypoints):
+    """一段一段走，每段单独寻路（适合被堵后绕路）。"""
+    for wp in waypoints:
+        b = rd() or {}
+        if b.get("location") == wp:
+            continue
+        if not goto(wp):
+            return False
+        safe_check()
+    return True
+
+
 def hop(target, timeout=30):
     """走到本图通往 target 的出口；一到出口立刻触发过图，不干等。"""
     for attempt in range(3):
@@ -479,21 +491,314 @@ def route_to(start, target):
     return None
 
 
+ALTERNATES = {
+    ("Farm", "Mountain"): [["BusStop", "Town", "Mountain"], ["Forest", "Town", "Mountain"]],
+    ("FarmHouse", "Mountain"): [["Farm", "BusStop", "Town", "Mountain"]],
+    ("Farm", "Town"): [["BusStop", "Town"], ["Forest", "Town"]],
+    ("Forest", "Mountain"): [["Town", "Mountain"]],
+    ("Mountain", "Farm"): [["Town", "BusStop", "Farm"]],
+}
+
+
+def goto(target):
+    """走路径；被挡就换备用路线（比如农场北边被大木桩堵死就走镇上绕）。"""
+    for _attempt in range(3):
+        b = rd() or {}
+        cur = b.get("location")
+        if cur == target:
+            return True
+        alts = [list(p) for p in ALTERNATES.get((cur, target), [])]
+        base = route_to(cur, target)
+        if (cur, target) in (("Farm", "Mountain"), ("FarmHouse", "Mountain")):
+            # 北边后山被大木桩堵死，优先绕镇上
+            paths = alts + ([base] if base else [])
+        else:
+            paths = ([base] if base else []) + alts
+        for path in paths:
+            log(f"  路线: {cur} -> {' -> '.join(path)}")
+            ok = True
+            for h in path:
+                if not hop(h):
+                    ok = False
+                    break
+                safe_check()
+                if (rd() or {}).get("location") != h:
+                    ok = False
+                    break
+            if ok and (rd() or {}).get("location") == target:
+                return True
+    return False
+
+
+def goto_via(waypoints):
+    """一段一段走，每段单独寻路（适合被堵后绕路）。"""
+    for wp in waypoints:
+        b = rd() or {}
+        if b.get("location") == wp:
+            continue
+        if not goto(wp):
+            return False
+        safe_check()
+    return True
+
+
+def hop(target, timeout=30):
+    """走到本图通往 target 的出口；一到出口立刻触发过图，不干等。"""
+    for attempt in range(3):
+        live()
+        b = safe_check()
+        cur_loc = b.get("location")
+        if cur_loc == target:
+            return True
+        # 农舍门口不在 warps 列表里：走到门口再触发进屋
+        if cur_loc == "Farm" and target == "FarmHouse":
+            walk_until(64, 15, 25)
+            send({"actionType": "enter_house"}, 1.2)
+            b2 = rd() or {}
+            if b2.get("location") == "FarmHouse":
+                return True
+            continue
+        e = find_exit(b, target)
+        if not e:
+            log(f"  {cur_loc} 没有通往 {target} 的出口")
+            return False
+        ex, ey = int(e["x"]), int(e["y"])
+        gx, gy = max(ex, 0), max(ey, 0)
+        send({"actionType": "walk_to_target", "target": target}, 0.3)
+        t0 = time.time()
+        fired = False
+        while time.time() - t0 < timeout:
+            check_timeout()
+            time.sleep(0.25)
+            b = rd()
+            if not b:
+                continue
+            if b.get("location") == target:
+                return True
+            t = tile(b)
+            if abs(t[0] - gx) + abs(t[1] - gy) <= 1 and not fired:
+                send({"actionType": "enter_exit", "target": target}, 0.6)
+                fired = True
+            if fired and b.get("location") == target:
+                return True
+        b = safe_check()
+        if b.get("location") == target:
+            return True
+        time.sleep(1.0)
+        avoid_npc()          # 先试着绕开挡路的宠物/NPC
+        broke = break_obstacles(gx, gy, 18)
+        log(f"  过图失败（loc={b.get('location')} tile={tile(b)}），清了 {broke} 个障碍，重试 {attempt+1}/3")
+    return False
+
+
+
+def cut_grass(max_cut=10):
+    """用镰刀割草（真实走位 + 镰刀），能拿干草/纤维。"""
+    cut = 0
+    for _ in range(max_cut * 4):
+        if cut >= max_cut:
+            break
+        b = rd()
+        if not b:
+            break
+        tiles = (b.get("surroundings") or {}).get("Tiles") or []
+        me = tile(b)
+        grass = [t for t in tiles if t.get("Terrain") == "grass"]
+        if not grass:
+            log("  附近没有草了")
+            break
+        grass.sort(key=lambda t: abs(t["X"] - me[0]) + abs(t["Y"] - me[1]))
+        target = None
+        stand = None
+        for g in grass:
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                st = next((t for t in tiles if t["X"] == g["X"] + dx and t["Y"] == g["Y"] + dy and t.get("Passable")), None)
+                if st:
+                    target, stand = g, st
+                    break
+            if target:
+                break
+        if not target:
+            log("  草旁边没站位")
+            break
+        if not walk_until(stand["X"], stand["Y"], 12):
+            unstick()
+            continue
+        send({"actionType": "select_item", "name": "镰刀"}, 0.35)
+        send({"actionType": "player_face_tile", "x": target["X"], "y": target["Y"]}, 0.25)
+        # 镰刀必须用真实点击（游戏内挥镰动画 + 正常割草）
+        click_tile(target["X"], target["Y"], 0.15)
+        time.sleep(0.9)
+        send({"actionType": "collect_debris"}, 0.5)
+        b2 = rd()
+        still = any(t["X"] == target["X"] and t["Y"] == target["Y"] and t.get("Terrain") == "grass"
+                    for t in (b2.get("surroundings") or {}).get("Tiles") or [])
+        if not still:
+            cut += 1
+            log(f"  割草 {target['X']},{target['Y']}（第 {cut} 片）")
+    return cut
+
+
+def _tool_for(obj_type=None, terrain=None):
+    ot = (obj_type or "").lower()
+    if terrain == "grass":
+        return "scythe"
+    if ot == "clump_axe":
+        return "axe"
+    if ot == "clump_pick":
+        return "pickaxe"
+    if ot == "weed":
+        return "scythe"
+    if terrain == "tree" or ot in ("tree", "stump", "log", "twig", "bush"):
+        return "axe"
+    # 矿石/石头/晶球都��镐
+    return "pickaxe"
+
+
+def avoid_npc(tries=6):
+    """被宠物/NPC挡住时，往旁边挪两步再继续（不要去挤它）。"""
+    for _ in range(tries):
+        b = safe_check()
+        if not b:
+            return False
+        cur = tile(b)
+        npcs = [(int(n.get("X", -99)), int(n.get("Y", -99))) for n in (b.get("surroundings") or {}).get("Npcs") or []]
+        near = [n for n in npcs if abs(n[0] - cur[0]) + abs(n[1] - cur[1]) <= 2]
+        if not near:
+            return False
+        moved = False
+        for dx, dy in ((0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, -1)):
+            for step in (2, 3):
+                tx, ty = cur[0] + dx * step, cur[1] + dy * step
+                if walk_until(tx, ty, 4):
+                    moved = True
+                    break
+            if moved:
+                break
+        if not moved:
+            time.sleep(1.5)
+        log(f"  绕开宠物（在 {near[0]} 附近）")
+    return True
+
+
+def break_obstacles(tx, ty, max_break=25):
+    """清掉通往目标方向上的石头/杂草/树枝/树（真实走位 + 工具）。"""
+    broken = 0
+    tried = {}
+    for _ in range(max_break):
+        check_timeout()
+        b = safe_check()
+        if not b:
+            return broken
+        cur = tile(b)
+        tiles = (b.get("surroundings") or {}).get("Tiles") or []
+        target_d = abs(cur[0] - tx) + abs(cur[1] - ty)
+        if target_d <= 1:
+            return broken
+        cands = []
+        for s2 in tiles:
+            if not (s2.get("Breakable") or s2.get("Terrain") in ("tree", "bush")):
+                continue
+            d = abs(s2["X"] - cur[0]) + abs(s2["Y"] - cur[1])
+            if d > 8:
+                continue
+            key = (s2["X"], s2["Y"])
+            if tried.get(key, 0) >= 2:
+                continue
+            if needs_upgrade(s2.get("ObjectType")):
+                mark_needs_upgrade(s2["X"], s2["Y"], (b or {}).get("location") or "?",
+                                   "需要升级斧头/镐子（大木桩/大石头）")
+                continue
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                st = next((t for t in tiles if t["X"] == s2["X"] + dx and t["Y"] == s2["Y"] + dy and t.get("Passable")), None)
+                if st:
+                    cands.append((d, abs(st["X"] - cur[0]) + abs(st["Y"] - cur[1]), s2, st))
+                    break
+        if not cands:
+            return broken
+        cands.sort(key=lambda c: (c[0], c[1]))
+        d, sd, s, st = cands[0]
+        tried[(s["X"], s["Y"])] = tried.get((s["X"], s["Y"]), 0) + 1
+        if not walk_until(st["X"], st["Y"], 12):
+            unstick()
+            continue
+        tool = _tool_for(s.get("ObjectType"), s.get("Terrain"))
+        is_tree = (s.get("Terrain") in ("tree", "bush")
+                   or str(s.get("ObjectType") or "").lower() in ("tree", "stump", "log", "twig", "clump_axe"))
+        max_hits = 20 if is_tree else 10
+        send({"actionType": "player_select_tool", "tool": tool}, 0.3)
+        send({"actionType": "player_face_tile", "x": s["X"], "y": s["Y"]}, 0.25)
+        gone = False
+        for _ in range(max_hits):
+            if tool == "scythe":
+                click_tile(s["X"], s["Y"], 0.12)
+                time.sleep(0.7)
+            else:
+                send({"actionType": "player_use_tool", "tool": tool, "x": s["X"], "y": s["Y"]}, 0.75)
+            bb = rd()
+            still = any(t["X"] == s["X"] and t["Y"] == s["Y"]
+                        and (t.get("Breakable") or t.get("Terrain") in ("tree", "bush"))
+                        for t in (bb.get("surroundings") or {}).get("Tiles") or [])
+            if not still:
+                gone = True
+                break
+        # 等树/石头倒下落地，再捡附近的木头/石头
+        time.sleep(2.2)
+        send({"actionType": "collect_debris", "radius": 4}, 0.7)
+        send({"actionType": "collect_debris", "radius": 4}, 0.6)
+        if gone:
+            broken += 1
+            log(f"  已清 {s['X']},{s['Y']} ({s.get('ObjectType') or s.get('Terrain')})")
+    return broken
+
+
+def route_to(start, target):
+    q = [(start, [])]
+    seen = {start}
+    while q:
+        cur, path = q.pop(0)
+        for nxt in ROUTES.get(cur, []):
+            if nxt in seen:
+                continue
+            if nxt == target:
+                return path + [nxt]
+            seen.add(nxt)
+            q.append((nxt, path + [nxt]))
+    return None
+
+
+ALTERNATES = {
+    ("Farm", "Mountain"): [["BusStop", "Town", "Mountain"], ["Forest", "Town", "Mountain"]],
+    ("Farm", "Town"): [["BusStop", "Town"], ["Forest", "Town"]],
+    ("Forest", "Mountain"): [["Town", "Mountain"]],
+    ("Mountain", "Farm"): [["Town", "BusStop", "Farm"]],
+}
+
+
 def goto(target):
     b = rd()
     start = b.get("location")
     if start == target:
         return True
-    path = route_to(start, target)
-    if not path:
+    paths = []
+    base = route_to(start, target)
+    if base:
+        paths.append(base)
+    paths += [list(p) for p in ALTERNATES.get((start, target), [])]
+    if not paths:
         log(f"  ⚠ 无路线 {start} -> {target}")
         return False
-    log(f"  路线: {start} -> {' -> '.join(path)}")
-    for h in path:
-        if not hop(h):
-            return False
-        safe_check()
-    return True
+    for path in paths:
+        log(f"  路线: {start} -> {' -> '.join(path)}")
+        ok = True
+        for h in path:
+            if not hop(h):
+                ok = False
+                break
+            safe_check()
+        if ok:
+            return True
+    return False
 
 
 if __name__ == "__main__":
