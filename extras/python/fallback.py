@@ -60,18 +60,21 @@ def ensure_ready(auto_load=True, tries=3):
 
 
 def relaunch_game():
-    """游戏窗口没了 → 重启 SMAPI 并加载存档（兜底）。"""
+    """游戏窗口没了 → 重启 SMAPI 并加载存档（兜底）。
+
+    注意：只清理“确认无游戏窗口”时的残留进程，正常情况下绝不杀游戏。
+    """
     import subprocess
     game = r"E:\steam\steamapps\common\Stardew Valley"
     exe = os.path.join(game, "StardewModdingAPI.exe")
     if not os.path.exists(exe):
         log("兜底：找不到 SMAPI 启动器")
         return False
-    log("兜底：重启游戏（先清掉残留进程）")
-    subprocess.run(["powershell", "-NoProfile", "-Command",
-                    "Get-Process 'Stardew Valley','StardewModdingAPI' -ErrorAction SilentlyContinue | Stop-Process -Force"],
-                   capture_output=True)
-    time.sleep(4)
+    h, _ = _win()
+    if h:
+        log("兜底：已有游戏窗口，不重启")
+        return gameio.load_game()
+    log("兜底：重启游戏")
     subprocess.Popen([exe], cwd=game)
     h = None
     for _ in range(50):

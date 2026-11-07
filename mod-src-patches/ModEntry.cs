@@ -278,8 +278,22 @@ namespace StardewMCPBridge
                     return;
                 Array.Sort(files, StringComparer.Ordinal);
 
+                // 防刷屏/防卡顿：每 tick 最多处理 3 条；清理超过 10 分钟的陈旧指令
+                int processed = 0;
                 foreach (string file in files)
                 {
+                    if (processed >= 3)
+                        break;
+                    try
+                    {
+                        if ((DateTime.UtcNow - File.GetLastWriteTimeUtc(file)).TotalMinutes > 10)
+                        {
+                            File.Delete(file);
+                            continue;
+                        }
+                    }
+                    catch { }
+                    processed++;
                     string json;
                     try
                     {
