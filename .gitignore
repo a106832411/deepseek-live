@@ -19,3 +19,8 @@ _el.*
 _envtest.*
 _obs*.cjs
 extras/python/stardew_tokens.jsonl
+
+# 清唱试听 demo / 实验产物
+_singtry/
+_singtry_test.wav
+

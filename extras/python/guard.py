@@ -287,6 +287,17 @@ def work_step():
     b = nav2.rd() or {}
     mode, why = plan_today(b)
     log(f"  自动干活：day={b.get('day')} {b.get('season')} {b.get('time')} money={_money()} → {why}")
+    nav2.set_timeout(150)   # 单轮活最多 150 秒，超时就下一轮（避免一直卡）
+    try:
+        _do_work(mode, b)
+    except TimeoutError:
+        log("  本轮超时（150 秒），跳过，下一轮再试")
+    finally:
+        nav2.clear_timeout()
+    return
+
+
+def _do_work(mode, b):
     if mode == "festival":
         fest = FESTIVALS.get((b.get("season"), b.get("day")))
         if fest:

@@ -30,6 +30,22 @@ ROUTES = {
 }
 
 
+_DEADLINE = [None]
+
+
+def set_timeout(sec):
+    _DEADLINE[0] = time.time() + float(sec)
+
+
+def clear_timeout():
+    _DEADLINE[0] = None
+
+
+def check_timeout():
+    if _DEADLINE[0] is not None and time.time() > _DEADLINE[0]:
+        raise TimeoutError("任务超时")
+
+
 def log(m):
     print(f"[{time.strftime('%H:%M:%S')}] {m}", flush=True)
 
@@ -104,11 +120,12 @@ def tile(b):
     return int(t["x"]), int(t["y"])
 
 
-def walk_until(tx, ty, timeout=10):
+def walk_until(tx, ty, timeout=12):
+    """让游戏自己寻路走过去（PathFindController），不瞬移；卡住就脱困重试。"""
     b = rd()
     if b and tile(b) == (tx, ty):
         return True
-    # 目标格本身被挡（树/石头/宠物）→ 不要傻走向去不了的地方
+    # 目标被挡就不去
     try:
         tiles = (b.get("surroundings") or {}).get("Tiles") or []
         tt = next((s for s in tiles if s["X"] == tx and s["Y"] == ty), None)
@@ -116,26 +133,28 @@ def walk_until(tx, ty, timeout=10):
             return False
     except Exception:
         pass
-    send({"actionType": "player_walk_to", "x": tx, "y": ty}, 0.25)
-    t0 = time.time()
-    last = None
-    still = 0
-    while time.time() - t0 < timeout:
-        time.sleep(0.3)
-        b = rd()
-        if not b:
-            continue
-        cur = tile(b)
-        if cur == (tx, ty):
-            return True
-        if cur == last:
-            still += 1
-            # 4 秒内一步没动 → 判定被卡住，交给上层换目标/清障
-            if still >= 8:
-                return False
-        else:
-            still = 0
-            last = cur
+    for attempt in range(3):
+        send({"actionType": "player_walk_to", "x": tx, "y": ty}, 0.2)
+        t0 = time.time()
+        last = None
+        still = 0
+        while time.time() - t0 < timeout:
+            check_timeout()
+            time.sleep(0.25)
+            b = rd()
+            if not b:
+                continue
+            cur = tile(b)
+            if cur == (tx, ty):
+                return True
+            if cur == last:
+                still += 1
+                if still >= 6:
+                    break
+            else:
+                still = 0
+                last = cur
+        unstick()
     return False
 
 
@@ -236,6 +255,7 @@ def hop(target, timeout=30):
         t0 = time.time()
         fired = False
         while time.time() - t0 < timeout:
+            check_timeout()
             time.sleep(0.25)
             b = rd()
             if not b:
@@ -259,13 +279,64 @@ def hop(target, timeout=30):
 
 
 
+def cut_grass(max_cut=10):
+    """用镰刀割草（真实走位 + 镰刀），能拿干草/纤维。"""
+    cut = 0
+    for _ in range(max_cut * 4):
+        if cut >= max_cut:
+            break
+        b = rd()
+        if not b:
+            break
+        tiles = (b.get("surroundings") or {}).get("Tiles") or []
+        me = tile(b)
+        grass = [t for t in tiles if t.get("Terrain") == "grass"]
+        if not grass:
+            log("  附近没有草了")
+            break
+        grass.sort(key=lambda t: abs(t["X"] - me[0]) + abs(t["Y"] - me[1]))
+        target = None
+        stand = None
+        for g in grass:
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                st = next((t for t in tiles if t["X"] == g["X"] + dx and t["Y"] == g["Y"] + dy and t.get("Passable")), None)
+                if st:
+                    target, stand = g, st
+                    break
+            if target:
+                break
+        if not target:
+            log("  草旁边没站位")
+            break
+        if not walk_until(stand["X"], stand["Y"], 12):
+            unstick()
+            continue
+        send({"actionType": "select_item", "name": "镰刀"}, 0.35)
+        send({"actionType": "player_face_tile", "x": target["X"], "y": target["Y"]}, 0.25)
+        # 镰刀必须用真实点击（游戏内挥镰动画 + 正常割草）
+        click_tile(target["X"], target["Y"], 0.15)
+        time.sleep(0.9)
+        send({"actionType": "collect_debris"}, 0.5)
+        b2 = rd()
+        still = any(t["X"] == target["X"] and t["Y"] == target["Y"] and t.get("Terrain") == "grass"
+                    for t in (b2.get("surroundings") or {}).get("Tiles") or [])
+        if not still:
+            cut += 1
+            log(f"  割草 {target['X']},{target['Y']}（第 {cut} 片）")
+    return cut
+
+
 def _tool_for(obj_type=None, terrain=None):
     ot = (obj_type or "").lower()
+    if terrain == "grass":
+        return "scythe"
     if ot == "clump_axe":
         return "axe"
     if ot == "clump_pick":
         return "pickaxe"
-    if terrain == "tree" or ot in ("tree", "stump", "log", "twig", "weed", "bush"):
+    if ot == "weed":
+        return "scythe"
+    if terrain == "tree" or ot in ("tree", "stump", "log", "twig", "bush"):
         return "axe"
     # 矿石/石头/晶球都��镐
     return "pickaxe"
@@ -298,9 +369,11 @@ def avoid_npc(tries=6):
 
 
 def break_obstacles(tx, ty, max_break=25):
-    """清掉通往目标方向上的石头/杂草/树枝/树（真实走位 + 挥工具）。"""
+    """清掉通往目标方向上的石头/杂草/树枝/树（真实走位 + 工具）。"""
     broken = 0
+    tried = {}
     for _ in range(max_break):
+        check_timeout()
         b = safe_check()
         if not b:
             return broken
@@ -310,36 +383,41 @@ def break_obstacles(tx, ty, max_break=25):
         if target_d <= 1:
             return broken
         cands = []
-        for s in tiles:
-            if not (s.get("Breakable") or s.get("Terrain") in ("tree", "bush")):
+        for s2 in tiles:
+            if not (s2.get("Breakable") or s2.get("Terrain") in ("tree", "bush")):
                 continue
-            d = abs(s["X"] - tx) + abs(s["Y"] - ty)
-            if d >= target_d:
+            d = abs(s2["X"] - cur[0]) + abs(s2["Y"] - cur[1])
+            if d > 8:
                 continue
-            # 需要相邻可站格
+            key = (s2["X"], s2["Y"])
+            if tried.get(key, 0) >= 2:
+                continue
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                st = next((t for t in tiles if t["X"] == s["X"] + dx and t["Y"] == s["Y"] + dy and t.get("Passable")), None)
+                st = next((t for t in tiles if t["X"] == s2["X"] + dx and t["Y"] == s2["Y"] + dy and t.get("Passable")), None)
                 if st:
-                    cands.append((d, abs(st["X"] - cur[0]) + abs(st["Y"] - cur[1]), s, st))
+                    cands.append((d, abs(st["X"] - cur[0]) + abs(st["Y"] - cur[1]), s2, st))
                     break
         if not cands:
             return broken
         cands.sort(key=lambda c: (c[0], c[1]))
         d, sd, s, st = cands[0]
-        if not walk_until(st["X"], st["Y"], 8):
+        tried[(s["X"], s["Y"])] = tried.get((s["X"], s["Y"]), 0) + 1
+        if not walk_until(st["X"], st["Y"], 12):
             unstick()
             continue
         tool = _tool_for(s.get("ObjectType"), s.get("Terrain"))
         is_tree = (s.get("Terrain") in ("tree", "bush")
                    or str(s.get("ObjectType") or "").lower() in ("tree", "stump", "log", "twig", "clump_axe"))
-        max_clicks = 14 if is_tree else 7
+        max_hits = 20 if is_tree else 10
         send({"actionType": "player_select_tool", "tool": tool}, 0.3)
-        send({"actionType": "player_face_tile", "x": s["X"], "y": s["Y"]}, 0.3)
-        # 真实点击：每敲一下都确认是否已经没了，没了就立刻停手
+        send({"actionType": "player_face_tile", "x": s["X"], "y": s["Y"]}, 0.25)
         gone = False
-        for _ in range(max_clicks):
-            click_tile(s["X"], s["Y"], 0.12)
-            time.sleep(0.45)
+        for _ in range(max_hits):
+            if tool == "scythe":
+                click_tile(s["X"], s["Y"], 0.12)
+                time.sleep(0.7)
+            else:
+                send({"actionType": "player_use_tool", "tool": tool, "x": s["X"], "y": s["Y"]}, 0.75)
             bb = rd()
             still = any(t["X"] == s["X"] and t["Y"] == s["Y"]
                         and (t.get("Breakable") or t.get("Terrain") in ("tree", "bush"))
@@ -347,10 +425,12 @@ def break_obstacles(tx, ty, max_break=25):
             if not still:
                 gone = True
                 break
-        send({"actionType": "collect_debris"}, 0.4)
+        time.sleep(1.2)
+        send({"actionType": "collect_debris"}, 0.6)
+        send({"actionType": "collect_debris"}, 0.5)
         if gone:
             broken += 1
-            log(f"  已清 {s['X']},{s['Y']} ({s.get('ObjectType') or s.get('Terrain')})，立刻换下一个")
+            log(f"  已清 {s['X']},{s['Y']} ({s.get('ObjectType') or s.get('Terrain')})")
     return broken
 
 

@@ -742,6 +742,49 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "dump_tools":
+                    {
+                        try
+                        {
+                            var parts = new System.Collections.Generic.List<string>();
+                            foreach (var it in Game1.player.Items)
+                            {
+                                if (it == null) continue;
+                                parts.Add($"{it.Name}|{it.GetType().Name}|{it.GetType().FullName}|stack={it.Stack}");
+                            }
+                            this.monitor.Log("TOOLS " + string.Join(" ; ", parts), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_tools err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "force_unpause":
+                    {
+                        try
+                        {
+                            Game1.options.pauseWhenOutOfFocus = false;
+                            try
+                            {
+                                var optT = Game1.options.GetType();
+                                var sf = optT.GetField("pauseWhenUnfocused",
+                                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                                if (sf != null) sf.SetValue(null, false);
+                            }
+                            catch { }
+                            var tpi = typeof(Game1).GetProperty("paused",
+                                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                            if (tpi != null && tpi.CanWrite)
+                            {
+                                tpi.SetValue(null, false);
+                                this.monitor.Log("force_unpause: paused=false", LogLevel.Info);
+                            }
+                            else this.monitor.Log("force_unpause: paused 属性不可写", LogLevel.Warn);
+                            try { Game1.gameMode = 3; } catch { }
+                        }
+                        catch (Exception ex) { this.monitor.Log("force_unpause err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "enter_house":
                     {
                         try
@@ -856,6 +899,35 @@ namespace StardewMCPBridge
                         Game1.player.faceDirection(pfd.GetInt32());
                     break;
 
+                case "use_item_at":
+                    {
+                        try
+                        {
+                            string nm3 = root.TryGetProperty("name", out var nm4) ? nm4.GetString() : "";
+                            int ix3 = root.GetProperty("x").GetInt32(), iy3 = root.GetProperty("y").GetInt32();
+                            int idx3 = -1;
+                            for (int i = 0; i < Game1.player.Items.Count; i++)
+                            {
+                                var it3 = Game1.player.Items[i];
+                                if (it3 == null) continue;
+                                string dn3 = it3.DisplayName ?? "";
+                                if (dn3.IndexOf(nm3, StringComparison.OrdinalIgnoreCase) >= 0
+                                    || (it3.Name ?? "").IndexOf(nm3, StringComparison.OrdinalIgnoreCase) >= 0)
+                                { idx3 = i; break; }
+                            }
+                            if (idx3 < 0) { this.monitor.Log($"use_item_at: 没找到 {nm3}", LogLevel.Warn); break; }
+                            Game1.player.CurrentToolIndex = idx3;
+                            var it4 = Game1.player.Items[idx3];
+                            var mi = it4.GetType().GetMethod("DoFunction", new[] {
+                                typeof(StardewValley.GameLocation), typeof(int), typeof(int), typeof(int), typeof(StardewValley.Farmer) });
+                            if (mi == null) { this.monitor.Log($"use_item_at: {nm3} 没有 DoFunction", LogLevel.Warn); break; }
+                            mi.Invoke(it4, new object[] { Game1.player.currentLocation, ix3 * 64 + 32, iy3 * 64 + 32, 1, Game1.player });
+                            this.monitor.Log($"used {nm3} at ({ix3},{iy3})", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("use_item_at err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "dump_objects":
                     {
                         try
@@ -906,7 +978,7 @@ namespace StardewMCPBridge
                     if (root.TryGetProperty("tool", out var put) && root.TryGetProperty("x", out var pux) && root.TryGetProperty("y", out var puy))
                     {
                         var want = put.GetString().ToLower();
-                        var tool = Game1.player.Items.OfType<StardewValley.Tool>().FirstOrDefault(t =>
+                        StardewValley.Tool tool = Game1.player.Items.OfType<StardewValley.Tool>().FirstOrDefault(t =>
                         {
                             var n = t.GetType().Name.ToLower();
                             return want switch
@@ -919,11 +991,26 @@ namespace StardewMCPBridge
                                 _ => n == want
                             };
                         });
+                        if (tool == null)
+                        {
+                            // 镰刀是 MeleeWeapon，不在 Tool 里
+                            foreach (var it in Game1.player.Items)
+                            {
+                                if (it == null) continue;
+                                string cn = it.GetType().Name.ToLower();
+                                string inm = (it.Name ?? "").ToLower();
+                                if (cn.Contains(want) || inm.Contains(want))
+                                {
+                                    tool = it as StardewValley.Tool;
+                                    break;
+                                }
+                            }
+                        }
                         if (tool != null)
                         {
                             int idx = Game1.player.Items.IndexOf(tool);
                             if (idx >= 0) Game1.player.CurrentToolIndex = idx;
-                            tool.DoFunction(Game1.player.currentLocation, pux.GetInt32() * 64, puy.GetInt32() * 64, tool.UpgradeLevel + 1, Game1.player);
+                            tool.DoFunction(Game1.player.currentLocation, pux.GetInt32() * 64 + 32, puy.GetInt32() * 64 + 32, tool.UpgradeLevel + 1, Game1.player);
                             this.monitor.Log($"Player used {want} at ({pux.GetInt32()},{puy.GetInt32()})", LogLevel.Info);
                         }
                         else this.monitor.Log($"Player tool not found: {want}", LogLevel.Warn);

@@ -68,12 +68,6 @@
         "嗨",
         "hi"
       ]
-    },
-    {
-      "reply": "唱歌还在练，练好了唱给你听！",
-      "keywords": [
-        "唱歌"
-      ]
     }
   ],
   "merge_window": 0,
@@ -82,9 +76,37 @@
     "max_minutes": 10,
     "max_queue": 20,
     "enabled": true,
+    "dedupe": true,
+    "perform": "sing",
     "sources": [
       "netease",
       "qq"
+    ]
+  },
+  "sing": {
+    "enabled": true,
+    "mode": "melody",
+    "lyrics": "netease",
+    "max_lines": 6,
+    "max_chars": 100,
+    "intro": true,
+    "outro": true,
+    "melody": "auto",
+    "bpm": 92,
+    "vibrato": true,
+    "gap_ms": 320,
+    "filler": "我清清嗓子，准备开唱啦～",
+    "pick_list": [
+      "小星星",
+      "生日快乐",
+      "月亮代表我的心",
+      "童年",
+      "后来",
+      "稻香",
+      "晴天",
+      "童话",
+      "勇气",
+      "宁夏"
     ]
   },
   "obs": {

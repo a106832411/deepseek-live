@@ -14,8 +14,22 @@ const CHANNELS = {
   'event:test': (svc, payload) => svc.testEvent((payload && payload.event) || payload),
   ingest: (svc, payload) => svc.ingest((payload && payload.events) || []),
   'stats:reset': (svc) => svc.resetStats(),
-  'songs:state': (svc) => ({ current: svc.state.song.current, queue: svc.state.song.queue.map((x) => ({ name: x.song.name, by: x.by })) }),
-  'songs:request': (svc, payload) => svc.requestSong((payload && payload.name) || '手动点歌', (payload && (payload.query || payload.song)) || ''),
+  'songs:state': (svc) => {
+    const cfgSongs = (svc.config && svc.config.songs) || {};
+    return {
+      mode: cfgSongs.perform === 'play' ? 'play' : 'sing',
+      playing: !!svc.state.song.current,
+      current: svc.state.song.current,
+      queue: svc.state.song.queue.map((x) => ({ name: x.song.name, by: x.by }))
+    };
+  },
+  'songs:request': (svc, payload) => {
+    const name = (payload && payload.name) || '手动点歌';
+    const query = (payload && (payload.query || payload.song)) || '';
+    const play = ((svc.config && svc.config.songs) || {}).perform === 'play';
+    return play ? svc.requestSong(name, query) : svc.requestSing(name, query);
+  },
+  'songs:skip': (svc) => svc.skipSong(),
   'obs:status': (svc, payload) => svc.obsProbe(payload || {}),
   'obs:setup': (svc, payload) => svc.obsSetup(payload || {})
 };

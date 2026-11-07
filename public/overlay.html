@@ -67,6 +67,7 @@ function connect() {
       const j = JSON.parse(m.data);
       if (j.kind === 'event') addEvent(j.event);
       else if (j.kind === 'reply' || j.kind === 'speak') addReply(j.text);
+      else if (j.kind === 'sing' && j.action === 'start') addReply('🎤 清唱《' + String(j.title || j.name || '') + '》');
       else if (j.kind === 'hello' && Array.isArray(j.recent)) {
         j.recent.slice().reverse().forEach((x) => { if (x.kind === 'event') addEvent({ type: 'danmaku', name: x.name, text: x.text }); });
       }

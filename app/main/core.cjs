@@ -2,7 +2,8 @@
  * 鲸live核心服务（零 npm 依赖）
  * - HTTP API + WS /ws
  * - AI 回复走 DeepSeek，语音走本地 GPT-SoVITS 代理（9881）
- * - 点歌请求转发给独立点歌系统（写 song_requests.jsonl）
+ * - 点歌/唱歌 = 清唱：AI 用 TTS 自己的声音清唱（抓歌词 → 逐句合成 → 旋律后处理 → 串成一首）
+ * - 旧的"播放原曲"保留：songs.perform = 'play'
  * - 静态页：/dashboard /overlay /songs
  */
 const http = require('http');
@@ -104,6 +105,21 @@ function applyEnv(c) {
   bool('DEEPLIVE_SONGS_AUTO_PLAY', ['songs', 'auto_play']);
   num('DEEPLIVE_SONGS_MAX_QUEUE', ['songs', 'max_queue']);
   list('DEEPLIVE_SONGS_SOURCES', ['songs', 'sources']);
+  str('DEEPLIVE_SONGS_PERFORM', ['songs', 'perform']);
+
+  // 清唱（唱歌 = 用 TTS 合成清唱，不播原曲）
+  bool('DEEPLIVE_SING_ENABLED', ['sing', 'enabled']);
+  str('DEEPLIVE_SING_MODE', ['sing', 'mode']);
+  str('DEEPLIVE_SING_LYRICS', ['sing', 'lyrics']);
+  num('DEEPLIVE_SING_MAX_LINES', ['sing', 'max_lines']);
+  num('DEEPLIVE_SING_MAX_CHARS', ['sing', 'max_chars']);
+  bool('DEEPLIVE_SING_INTRO', ['sing', 'intro']);
+  bool('DEEPLIVE_SING_OUTRO', ['sing', 'outro']);
+  str('DEEPLIVE_SING_MELODY', ['sing', 'melody']);
+  num('DEEPLIVE_SING_BPM', ['sing', 'bpm']);
+  bool('DEEPLIVE_SING_VIBRATO', ['sing', 'vibrato']);
+  num('DEEPLIVE_SING_GAP_MS', ['sing', 'gap_ms']);
+  str('DEEPLIVE_SING_FILLER', ['sing', 'filler']);
 
   str('DEEPLIVE_OBS_HOST', ['obs', 'host']);
   num('DEEPLIVE_OBS_PORT', ['obs', 'port']);
@@ -141,7 +157,23 @@ const DEFAULT_CONFIG = {
   fixed_replies: [],
   merge_window: 0,
   filter: { blocklist: ['送出', '送出了'] },
-  songs: { enabled: true, internal: true, request_file: 'song_requests.jsonl', max_queue: 20, auto_play: true, dedupe: true, sources: ['netease', 'qq'] }
+  songs: { enabled: true, internal: true, request_file: 'song_requests.jsonl', max_queue: 20, auto_play: true, dedupe: true, sources: ['netease', 'qq'], perform: 'sing' },
+  // 清唱：点歌/唱歌时，用 AI 主播自己的 TTS 声音清唱（无伴奏），不播原曲
+  sing: {
+    enabled: true,
+    mode: 'melody',          // melody=带旋律清唱 | read=纯念唱（自然朗读节奏）
+    lyrics: 'netease',       // netease=抓原歌词 | ai=让 AI 现编几句
+    max_lines: 6,            // 每首唱几句
+    max_chars: 100,          // 整首歌词字数上限
+    intro: true,             // 唱之前报幕（"一首《x》，清唱版"）
+    outro: true,             // 唱完道谢
+    melody: 'auto',          // auto | xiaoxingxing | shengri | folk1 | folk2
+    bpm: 92,
+    vibrato: true,
+    gap_ms: 320,
+    filler: '我清清嗓子，准备开唱啦～',
+    pick_list: ['小星星', '生日快乐', '月亮代表我的心', '童年', '后来', '稻香', '晴天', '童话', '勇气', '宁夏']
+  }
 };
 
 function deepMerge(a, b) {
@@ -157,7 +189,8 @@ let config = deepMerge(DEFAULT_CONFIG, {});
 function loadConfig() {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
-      config = deepMerge(DEFAULT_CONFIG, JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')));
+      const raw = fs.readFileSync(CONFIG_PATH, 'utf8').replace(/^\uFEFF/, '');   // 兼容记事本写的 BOM
+      config = deepMerge(DEFAULT_CONFIG, JSON.parse(raw));
       log('已加载配置: ' + CONFIG_PATH);
     } else {
       log('未找到配置，使用默认配置');
@@ -183,7 +216,8 @@ const state = {
   agents: new Set(),
   ttsQueue: Promise.resolve(),
   speaking: false,
-  song: { current: null, queue: [], seen: {}, playing: false }
+  playback: null,
+  song: { current: null, queue: [], seen: {}, playing: false, skip: false }
 };
 
 function pushRecent(kind, name, text) {
@@ -325,17 +359,49 @@ function pythonPath() {
   return 'python';
 }
 
-function playWav(file) {
-  return new Promise((resolve) => {
-    const code = [
-      'import sys, soundfile as sf, sounddevice as sd',
-      'y, sr = sf.read(sys.argv[1], dtype="float32")',
-      'sd.play(y, sr)',
-      'sd.wait()'
-    ].join('\n');
-    const p = spawn(pythonPath(), ['-c', code, file], { windowsHide: true });
+function playWavHandle(file) {
+  if (process.env.WT_NO_AUDIO === '1') {
+    return { promise: Promise.resolve(), kill() {} };
+  }
+  const code = [
+    'import sys, soundfile as sf, sounddevice as sd',
+    'y, sr = sf.read(sys.argv[1], dtype="float32")',
+    'sd.play(y, sr)',
+    'sd.wait()'
+  ].join('\n');
+  const p = spawn(pythonPath(), ['-c', code, file], { windowsHide: true });
+  const promise = new Promise((resolve) => {
     p.on('exit', () => resolve());
     p.on('error', () => resolve());
+  });
+  return {
+    promise,
+    kill() { try { p.kill(); } catch (e) {} }
+  };
+}
+
+function playWav(file) {
+  return playWavHandle(file).promise;
+}
+
+/** 跑一个 python 子进程，收 stdout/stderr（带超时，超时直接 kill） */
+function runPy(args, timeoutMs = 120000) {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let done = false;
+    const p = spawn(pythonPath(), args, { windowsHide: true, cwd: ROOT });
+    const finish = (code, extra) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr: stderr + (extra || '') });
+    };
+    p.stdout.on('data', (d) => { stdout += d.toString(); });
+    p.stderr.on('data', (d) => { stderr += d.toString(); });
+    const timer = setTimeout(() => { try { p.kill(); } catch (e) {} finish(-1, '\n[超时]'); }, timeoutMs);
+    p.on('close', (code) => finish(code));
+    p.on('error', (e) => finish(-1, String(e)));
   });
 }
 
@@ -635,6 +701,327 @@ async function requestSong(name, query) {
   return { ok: true, position: pos, song: chosen };
 }
 
+// ---------------- 清唱（唱歌 = 用 TTS 合成清唱，不播原曲） ----------------
+const SING_CREDIT_RE = /(作词|作曲|编曲|制作人|制作|混音|母带|录音|出品|监制|发行|演唱|原唱|翻唱|录音室|吉他|贝斯|鼓|键盘|弦乐|和声|统筹|企划|策划|宣发|版权|OP|SP|℗|©|ISRC|LRC|词：|曲：)/i;
+
+function cleanLyricLine(line) {
+  let s = String(line || '').replace(/^\[[^\]]*\]/g, '').trim();   // LRC 时间标签
+  s = s.replace(/^\d+[.、]\s*/, '').trim();                        // 纯文本歌词的行号
+  if (!s) return '';
+  if (SING_CREDIT_RE.test(s)) return '';                           // 作词/作曲等制作信息
+  if (!/[\u4e00-\u9fa5]/.test(s)) return '';                       // 没有中文（纯英文制作信息/logo）
+  if (s.length < 3) return '';
+  if (s.length > 24) {
+    const parts = s.split(/[，,。.！!？?]/).map((x) => x.trim()).filter((x) => x.length >= 3);
+    if (!parts.length) return '';
+    s = parts[0];
+  }
+  return s;
+}
+
+/** 从整首歌词里挑 N 句：偏向副歌（后半段），控制总字数，去掉相邻重复 */
+function pickLyricLines(rawLines, maxLines, maxChars) {
+  const lines = [];
+  for (const raw of rawLines) {
+    const s = cleanLyricLine(raw);
+    if (!s) continue;
+    if (lines[lines.length - 1] === s) continue;
+    lines.push(s);
+  }
+  if (!lines.length) return [];
+  maxLines = Math.max(1, Math.min(12, Number(maxLines) || 6));
+  maxChars = Math.max(20, Number(maxChars) || 100);
+  const start = Math.max(0, Math.floor(lines.length * 0.4) - 1);
+  const take = (from) => {
+    const out = [];
+    let chars = 0;
+    for (let i = from; i < lines.length && out.length < maxLines; i++) {
+      if (chars + lines[i].length > maxChars) break;
+      out.push(lines[i]);
+      chars += lines[i].length;
+    }
+    return out;
+  };
+  const picked = take(start);
+  return picked.length ? picked : take(0);
+}
+
+async function neteaseLyric(id) {
+  try {
+    const body = 'os=pc&id=' + encodeURIComponent(id) + '&lv=-1&kv=-1&tv=-1';
+    const r = await httpsForm('https://music.163.com/api/song/lyric?' + body, '');
+    if (r.status !== 200) return [];
+    const j = JSON.parse(r.body);
+    const raw = (j.lrc && j.lrc.lyric) || '';
+    return raw.split(/\r?\n/).map(cleanLyricLine).filter(Boolean);
+  } catch (e) {
+    log('取歌词失败: ' + e.message);
+    return [];
+  }
+}
+
+/** 用网易云搜一下，拿到标准歌名/歌手（清唱不需要播放地址，搜不到也能唱） */
+async function searchSongMeta(query) {
+  try {
+    const list = await neteaseSearch(query, 6);
+    if (!list.length) return null;
+    const nq = normSongQuery(query);
+    return list.find((x) => normSongQuery(x.name) === nq) || list[0];
+  } catch (e) {
+    return null;
+  }
+}
+
+/** 抓不到歌词时：让 AI 现编几句原创歌词（不用受版权保护的歌词） */
+async function aiSingLyrics(title, maxLines) {
+  const fallback = [
+    '今天想唱一首《' + title + '》',
+    '没有伴奏也没关系',
+    '清唱一段送给你',
+    '希望你喜欢呀'
+  ];
+  const ai = config.ai || {};
+  if (!ai.openai_key) return fallback;
+  try {
+    const r = await httpPostJson((ai.openai_base || 'https://api.deepseek.com/v1').replace(/\/$/, '') + '/chat/completions', {
+      model: ai.openai_model || 'deepseek-chat',
+      messages: [
+        { role: 'system', content: '你是虚拟主播小深，会把歌名编成几句简单好唱的清唱歌词。' },
+        { role: 'user', content: `为歌名《${title}》写 ${maxLines || 4} 句原创中文歌词，每句 6-12 个字，每句单独一行；不要用任何现有歌曲的歌词，不要序号、不要解释、不要引号和特殊符号。` }
+      ],
+      max_tokens: 220,
+      temperature: 1.0
+    }, { Authorization: 'Bearer ' + ai.openai_key }, 30000);
+    if (r.status !== 200) return fallback;
+    const j = JSON.parse(r.body.toString('utf8'));
+    const text = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+    const lines = text.split(/\r?\n/).map((x) => x.replace(/^\s*\d+[.、)]?\s*/, '').replace(/[“”"'《》]/g, '').trim())
+      .filter((x) => x.length >= 4 && /[\u4e00-\u9fa5]/.test(x)).slice(0, maxLines || 4);
+    return lines.length >= 2 ? lines : fallback;
+  } catch (e) {
+    log('AI 编词失败: ' + e.message);
+    return fallback;
+  }
+}
+
+function pickSingTitle() {
+  const list = ((config.sing || {}).pick_list || []).filter(Boolean);
+  if (!list.length) return '小星星';
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+/** 清唱任务串到同一条音频队列上：不会和其它说话/清唱抢喇叭 */
+function enqueueSing(item) {
+  const task = () => performSing(item)
+    .catch((e) => log('清唱异常: ' + e.message))
+    .finally(() => {
+      state.song.current = null;
+      state.playback = null;
+    });
+  state.ttsQueue = state.ttsQueue.then(task).catch(() => {});
+  return state.ttsQueue;
+}
+
+/** 没有 sing_tts.py 或合成失败时的兜底：逐句念唱（节奏感比唱歌弱，但不会开天窗） */
+async function singFallbackLines(item) {
+  for (let i = 0; i < item.lyrics.length; i++) {
+    if (state.song.skip || !state.song.current) break;
+    state.song.current.lyricIndex = i;
+    wsBroadcast({ kind: 'sing', action: 'line', idx: i, text: item.lyrics[i], t: Date.now() });
+    await ttsSpeak(item.lyrics[i]);
+  }
+}
+
+function pruneSingFiles() {
+  try {
+    const dir = path.join(LOG_DIR, 'sing');
+    for (const ext of ['.wav', '.timing.json', '.lines.json']) {
+      const files = fs.readdirSync(dir)
+        .filter((f) => f.endsWith(ext))
+        .map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs }))
+        .sort((a, b) => b.t - a.t);
+      for (const x of files.slice(20)) { try { fs.unlinkSync(path.join(dir, x.f)); } catch (e) {} }
+    }
+  } catch (e) {}
+}
+
+/** 真正的合成：逐句 TTS + 旋律后处理 + 串接（在 requestSing 时就后台跑，轮到它时通常已经备好） */
+async function doPrep(item) {
+  const cfg = config.sing || {};
+  const tts = config.tts || {};
+  const script = path.join(ROOT, 'extras', 'python', 'sing_tts.py');
+  if (!fs.existsSync(script)) return null;
+  const dir = path.join(LOG_DIR, 'sing');
+  fs.mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  const safe = String(item.song.name).replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 24) || 'song';
+  const outWav = path.join(dir, `${stamp}_${safe}.wav`);
+  const timingPath = outWav.replace(/\.wav$/, '.timing.json');
+  const linesPath = outWav.replace(/\.wav$/, '.lines.json');
+  fs.writeFileSync(linesPath, JSON.stringify(item.lyrics), 'utf8');
+  const args = [
+    script,
+    '--lines-file', linesPath,
+    '--out', outWav,
+    '--timing-out', timingPath,
+    '--tts-url', String(tts.api_url || 'http://127.0.0.1:9881'),
+    '--ref-audio', String(tts.ref_audio || ''),
+    '--prompt-text', String(tts.prompt_text || ''),
+    '--speed', String(tts.speed || 0.95),
+    '--mode', String(cfg.mode || 'melody'),
+    '--melody', String(cfg.melody || 'auto'),
+    '--bpm', String(cfg.bpm || 92),
+    '--vibrato', cfg.vibrato === false ? '0' : '1',
+    '--gap-ms', String(cfg.gap_ms || 320),
+    '--seed', String(Math.floor(Math.random() * 99999))
+  ];
+  log(`清唱合成开始: 《${item.song.name}》 ${String(cfg.mode || 'melody')} / ${String(cfg.melody || 'auto')}`);
+  const t0 = Date.now();
+  const r = await runPy(args, 300000);
+  log(`清唱合成结束 code=${r.code} 用时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  if (r.stderr && r.code !== 0) log('清唱 python stderr: ' + r.stderr.trim().split('\n').slice(-6).join(' | '));
+  let timing = null;
+  try { if (fs.existsSync(timingPath)) timing = JSON.parse(fs.readFileSync(timingPath, 'utf8')); } catch (e) {}
+  if (!timing || timing.ok === false || !timing.lines || !timing.lines.length || !fs.existsSync(outWav)) {
+    log('清唱合成失败（将在轮到它时逐句念唱兜底）');
+    try { fs.unlinkSync(outWav); } catch (e) {}
+    return null;
+  }
+  return { outWav, timing };
+}
+
+/** 合成排队（串行，避免多首同时压 GPU/TTS）；返回的 Promise 给 performSing 用 */
+function prepareSing(item) {
+  if (!state.singPrep) state.singPrep = Promise.resolve();
+  const p = state.singPrep.then(() => doPrep(item).catch((e) => { log('清唱预处理异常: ' + e.message); return null; }));
+  state.singPrep = p.then(() => {}, () => {});
+  return p;
+}
+
+async function performSing(item) {
+  const cfg = config.sing || {};
+  const song = item.song;
+  state.song.skip = false;
+  // 从排队里拿出来，进入"正在清唱"
+  const qi = state.song.queue.indexOf(item);
+  if (qi >= 0) state.song.queue.splice(qi, 1);
+  state.song.current = {
+    name: song.name, artist: song.artist, by: item.by, source: item.source,
+    lyrics: item.lyrics.slice(), lyricIndex: 0, audio: null, duration: 0, t: Date.now()
+  };
+  wsBroadcast({ kind: 'sing', action: 'start', title: song.name, artist: song.artist, by: item.by, lyrics: item.lyrics, t: Date.now() });
+  log(`开始清唱: 《${song.name}》- ${item.by} 点 | 模式 ${cfg.mode || 'melody'} | 歌词${item.lyrics.length}句`);
+
+  // 合成大概率在 requestSing 时就跑过/正在跑；先报幕，别让直播间干等
+  let prepDone = false;
+  const prepP = Promise.resolve(item.prep || prepareSing(item)).then((x) => { prepDone = true; return x; });
+  if (cfg.intro !== false) await ttsSpeak(`一首《${song.name}》，清唱版，献丑啦～`);
+  if (state.song.skip) { state.song.skip = false; wsBroadcast({ kind: 'sing', action: 'end', t: Date.now() }); return; }
+  // 还没合成完就垫一句，避免十几秒静音
+  if (!prepDone && cfg.filler !== false) {
+    await ttsSpeak(String(cfg.filler || '我清清嗓子，准备开唱啦～'));
+    if (state.song.skip) { state.song.skip = false; wsBroadcast({ kind: 'sing', action: 'end', t: Date.now() }); return; }
+  }
+
+  const prep = await prepP;
+  const timing = prep && prep.timing;
+  const outWav = prep && prep.outWav;
+  if (timing && timing.lines && timing.lines.length && outWav) {
+    state.song.current.audio = path.relative(ROOT, outWav).replace(/\\/g, '/');
+    state.song.current.duration = Number(timing.duration) || 0;
+    const handle = playWavHandle(outWav);
+    state.playback = handle;
+    const timers = [];
+    for (const l of timing.lines) {
+      const ms = Math.max(0, Math.round((Number(l.start) || 0) * 1000));
+      timers.push(setTimeout(() => {
+        if (!state.song.current) return;
+        state.song.current.lyricIndex = Number(l.i) || 0;
+        wsBroadcast({ kind: 'sing', action: 'line', idx: Number(l.i) || 0, text: String(l.text || ''), dur: Number(l.dur) || 0, t: Date.now() });
+      }, ms));
+    }
+    await handle.promise;
+    // 测试模式（WT_NO_AUDIO=1）不真的放音，但仍按 realtime 走一遍时间轴，方便验证歌词事件
+    if (process.env.WT_NO_AUDIO === '1' && Number(timing.duration) > 0) {
+      await new Promise((r) => setTimeout(r, Math.round(Number(timing.duration) * 1000)));
+    }
+    timers.forEach((t) => clearTimeout(t));
+    state.playback = null;
+    wsBroadcast({ kind: 'sing', action: 'end', t: Date.now() });
+    log(`清唱完成: 《${song.name}》 ${(Number(timing.duration) || 0).toFixed(1)}s`);
+    if (cfg.outro !== false && !state.song.skip) await ttsSpeak(`唱完啦，谢谢${item.by}点的歌～`);
+    state.song.skip = false;
+    pruneSingFiles();
+    return;
+  }
+
+  // 兜底：逐句念唱
+  log(`《${song.name}》走逐句念唱兜底`);
+  await singFallbackLines(item);
+  wsBroadcast({ kind: 'sing', action: 'end', t: Date.now() });
+  state.song.skip = false;
+}
+
+async function requestSing(name, query) {
+  const cfg = config.sing || {};
+  const songsCfg = config.songs || {};
+  if (songsCfg.enabled === false || cfg.enabled === false) {
+    return { ok: false, error: '清唱已关闭' };
+  }
+  let q = String(query || '').trim().replace(/[《》]/g, '');
+  if (!q) q = pickSingTitle();
+  const nq = normSongQuery(q);
+  if (!nq) return { ok: false, error: '空歌名' };
+  if (songsCfg.dedupe !== false && state.song.seen[nq]) {
+    log('重复点歌跳过（本场已唱）: ' + q);
+    return { ok: false, error: '本场已唱过' };
+  }
+  if (state.song.queue.length >= (songsCfg.max_queue || 20)) {
+    enqueueSpeech(`${name}，清唱排队排满啦，等会儿再点好不好～`).catch(() => {});
+    return { ok: false, error: '队列已满' };
+  }
+
+  const meta = await searchSongMeta(q);
+  const title = (meta && meta.name) || q;
+  const artist = (meta && meta.artist) || '';
+  let lyrics = [];
+  let lyricSource = 'none';
+  if (cfg.lyrics !== 'ai' && meta) {
+    lyrics = pickLyricLines(await neteaseLyric(meta.id), cfg.max_lines, cfg.max_chars);
+    if (lyrics.length) lyricSource = 'netease';
+  }
+  if (!lyrics.length) {
+    lyrics = await aiSingLyrics(title, cfg.max_lines);
+    lyricSource = 'ai';
+  }
+  if (!lyrics.length) {
+    enqueueSpeech(`抱歉${name}，这首歌的歌词没找到。`).catch(() => {});
+    return { ok: false, error: '没拿到歌词' };
+  }
+
+  state.song.seen[nq] = name;
+  const item = { by: name, song: { name: title, artist, dur: 0 }, query: q, source: lyricSource, lyrics };
+  item.prep = prepareSing(item);          // 现在就开始合成；排队期间备好，轮到就能开唱
+  state.song.queue.push(item);
+  const pos = state.song.queue.length;
+  log(`清唱入队: ${name} -> 《${title}》[歌词:${lyricSource}] 第${pos}首`);
+  wsBroadcast({ kind: 'song', action: 'queued', queue: state.song.queue.length, t: Date.now() });
+  // 语音回执不阻塞接口返回（前面可能还有一首正在清唱）
+  enqueueSpeech(`${name}，点好啦！《${title}》清唱排第${pos}个～`).catch(() => {});
+  enqueueSing(item);
+  return { ok: true, position: pos, song: { name: title, artist } };
+}
+
+function skipSong() {
+  state.song.skip = true;
+  if (state.playback) {
+    try { state.playback.kill(); } catch (e) {}
+    state.playback = null;
+  }
+  log('清唱跳过');
+  return { ok: true };
+}
+
 // ---------------- 事件处理 ----------------
 function pickTemplate(list, name) {
   if (!Array.isArray(list) || !list.length) return null;
@@ -665,22 +1052,41 @@ async function handleEvent(ev) {
   pushRecent('event', ev.name, ev.text || ev.gift || '');
   wsBroadcast({ kind: 'event', event: ev, t: now });
 
-  // 点歌优先转交独立点歌系统
+  const cfgSongs = config.songs || {};
+  const singMode = cfgSongs.perform !== 'play';   // 默认：唱歌 = 清唱（TTS 合成，不播原曲）
+
+  // 点歌 / 唱歌 / 清唱：弹幕命令优先处理（在固定回复之前）
   if (ev.type === 'danmaku' && ev.text) {
-    const m = ev.text.match(/^\s*[/／]?\s*(?:点歌|點歌)\s*[:：]?\s*(.+?)\s*$/);
+    const text = String(ev.text).trim();
+    let m = text.match(/^[/／]?\s*(?:点歌|點歌|清唱|唱歌|唱一首|唱一个|来一首|来首)\s*[:：]?\s*(.*?)\s*$/);
+    if (!m) m = text.match(/^[/／]?\s*唱\s+(.+?)\s*$/);
     if (m) {
-      if ((config.songs || {}).internal !== false) {
-        requestSong(ev.name, m[1].trim()).catch((e) => log('点歌异常: ' + e.message));
+      const query = String(m[1] || '').trim().replace(/^[《「"']|[》」"']$/g, '');
+      if (singMode) {
+        requestSing(ev.name, query).catch((e) => log('清唱异常: ' + e.message));
         return;
       }
-      const file = path.join(ROOT, 'tools', 'logs', config.songs.request_file || 'song_requests.jsonl');
+      // 旧行为：播放原曲
+      if (cfgSongs.internal !== false) {
+        requestSong(ev.name, query).catch((e) => log('点歌异常: ' + e.message));
+        return;
+      }
+      const file = path.join(ROOT, 'tools', 'logs', cfgSongs.request_file || 'song_requests.jsonl');
       try {
         fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.appendFileSync(file, JSON.stringify({ t: new Date().toTimeString().slice(0, 8), name: ev.name, query: m[1] }) + '\n');
-        log('点歌转交: ' + ev.name + ' -> ' + m[1]);
+        fs.appendFileSync(file, JSON.stringify({ t: new Date().toTimeString().slice(0, 8), name: ev.name, query }) + '\n');
+        log('点歌转交: ' + ev.name + ' -> ' + query);
         await enqueueSpeech(`收到${ev.name}点的歌，去排队啦！`);
       } catch (e) { log('点歌写入失败: ' + e.message); }
       return;
+    }
+    // 跳过当前清唱 / 切歌
+    if (/^[/／]?\s*(?:跳过|切歌|别唱了|不唱了|stop|skip)\s*$/i.test(text)) {
+      if (state.song.current || state.song.queue.length) {
+        skipSong();
+        enqueueSpeech(`好，那这首就唱到这儿～`).catch(() => {});
+        return;
+      }
     }
   }
 
@@ -835,18 +1241,42 @@ async function route(req, res) {
   }
   if (p === '/api/songs/request') {
     const body = await readBody(req);
-    const r = await requestSong(body.name || '手动点歌', body.query || body.song || '');
+    const name = body.name || '手动点歌';
+    const query = body.query || body.song || '';
+    const r = ((config.songs || {}).perform === 'play')
+      ? await requestSong(name, query)
+      : await requestSing(name, query);
     return json(res, r, r.ok ? 200 : 400);
+  }
+  if (p === '/api/songs/skip') {
+    return json(res, skipSong());
   }
   if (p === '/api/stats') return json(res, state.stats);
   if (p === '/api/recent') return json(res, state.recent);
   if (p === '/api/songs/state') {
-    if ((config.songs || {}).internal !== false) {
+    const cfgSongs2 = config.songs || {};
+    const cfgSing = config.sing || {};
+    const singMode = cfgSongs2.perform !== 'play';
+    if (singMode) {
       return json(res, {
+        mode: 'sing',
+        sing: {
+          enabled: cfgSing.enabled !== false && cfgSongs2.enabled !== false,
+          style: cfgSing.mode || 'melody',
+          lyrics: cfgSing.lyrics || 'netease'
+        },
+        playing: !!state.song.current,
+        current: state.song.current,
+        queue: state.song.queue.map((x) => ({ name: x.song.name, by: x.by }))
+      });
+    }
+    if (cfgSongs2.internal !== false) {
+      return json(res, {
+        mode: 'play',
         current: state.song.current,
         playing: state.song.playing,
-        sources: ((config.songs || {}).sources || ['netease', 'qq']),
-        queue: state.song.queue.slice(state.song.current ? 1 : 0).map((x) => ({ name: x.song.name, by: x.by }))
+        sources: (cfgSongs2.sources || ['netease', 'qq']),
+        queue: state.song.queue.map((x) => ({ name: x.song.name, by: x.by }))
       });
     }
     try {
@@ -942,6 +1372,8 @@ module.exports = {
   enqueueSpeech,
   aiReply,
   requestSong,
+  requestSing,
+  skipSong,
   loadConfig,
   saveConfig,
   setConfig(patch) {
@@ -959,10 +1391,15 @@ module.exports = {
   testEvent(ev) { handleEvent(ev); return { ok: true }; },
   ingest(events) { (events || []).forEach((e) => handleEvent(e)); return { ok: true, count: (events || []).length }; },
   status() {
+    const cfgSongs = config.songs || {};
     return {
       running: state.started, startedAt: state.startedAt, connected: state.connected,
       mode: (config.douyin || {}).mode, stats: state.stats, recent: state.recent,
-      song: { current: state.song.current, queue: state.song.queue.slice(state.song.current ? 1 : 0).map((x) => ({ name: x.song.name, by: x.by })) }
+      song: {
+        mode: cfgSongs.perform === 'play' ? 'play' : 'sing',
+        current: state.song.current,
+        queue: state.song.queue.map((x) => ({ name: x.song.name, by: x.by }))
+      }
     };
   }
 };

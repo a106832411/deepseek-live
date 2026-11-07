@@ -40,8 +40,8 @@
   <span class="muted" id="uptime"></span>
   <span class="muted" style="margin-left:auto">
     <a href="/overlay" target="_blank">弹幕层</a> ·
-    <a href="/songs" target="_blank">歌单</a> ·
-    <a href="http://127.0.0.1:9886/songs" target="_blank">点歌系统</a>
+    <a href="/songs" target="_blank">清唱列表</a> ·
+    <a href="http://127.0.0.1:9886/songs" target="_blank">清唱系统</a>
   </span>
 </header>
 <main>
@@ -84,7 +84,7 @@
     <div class="row" style="margin-top:10px">
       <button onclick="saveCfg()">保存配置</button>
       <button onclick="loadCfg()">重新读取</button>
-      <span class="muted">TTS 走 9881 代理，点歌转交 tools/logs/song_requests.jsonl</span>
+      <span class="muted">TTS 走 9881 代理，清唱请求写入 tools/logs/song_requests.jsonl</span>
     </div>
   </section>
 </main>

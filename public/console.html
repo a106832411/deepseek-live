@@ -58,7 +58,7 @@
     <button data-tab="config">配置</button>
     <button data-tab="live2d">皮套</button>
     <button data-tab="overlay">叠加层</button>
-    <button data-tab="songs">歌单</button>
+    <button data-tab="songs">清唱</button>
     <button data-tab="stardew">星露谷</button>
   </nav>
 </header>
@@ -110,7 +110,7 @@
       <div class="row" style="margin-top:10px">
         <button onclick="saveCfg()">保存配置</button>
         <button onclick="loadCfg()">重新读取</button>
-        <span class="muted">TTS 走 9881 代理，点歌写入 tools/logs/song_requests.jsonl</span>
+        <span class="muted">TTS 走 9881 代理，清唱请求写入 tools/logs/song_requests.jsonl</span>
       </div>
     </div>
   </section>
@@ -140,21 +140,21 @@
           <div class="preview"><iframe id="ovFrame" src="/overlay"></iframe></div>
         </div>
         <div class="preview-col">
-          <div class="badge">歌单 <code>/songs</code> <button onclick="reloadFrame('songFrame')">刷新</button></div>
+          <div class="badge">清唱列表 <code>/songs</code> <button onclick="reloadFrame('songFrame')">刷新</button></div>
           <div class="preview"><iframe id="songFrame" src="/songs"></iframe></div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- 歌单 -->
+  <!-- 清唱 -->
   <section class="tab" id="tab-songs">
     <div class="card">
-      <h2>点歌队列（内嵌网易云，无需登录 cookie）</h2>
+      <h2>清唱队列（AI 用主播声音清唱，网易云抓歌词）</h2>
       <div id="songBox" class="muted">加载中…</div>
       <div class="row" style="margin-top:10px">
         <button onclick="refreshSongs()">刷新</button>
-        <span class="muted">「点歌 歌名」自动搜索入队；也可以直接 POST /api/songs/request</span>
+        <span class="muted">「唱歌 歌名」/「清唱 歌名」自动入队；也可以直接 POST /api/songs/request</span>
       </div>
     </div>
   </section>
@@ -224,11 +224,25 @@ async function saveCfg() {
 }
 async function refreshSongs() {
   try {
-    const d = await (await fetch(API + '/api/songs/state')).json();
-    document.getElementById('songBox').innerHTML =
-      '<div>当前：' + (d.current ? d.current.name : '无') + '</div>' +
-      '<div class="muted">队列：</div><ul>' + ((d.queue || []).map((x, i) =>
-        `<li>${i + 1}. ${x.name} <span class="muted">${x.by} 点</span></li>`).join('') || '<li class="muted">空</li>') + '</ul>';
+    const d = await (await fetch(API + '/api/songs/state', { cache: 'no-store' })).json();
+    const cur = d && d.current ? d.current : null;
+    const lyrics = cur && Array.isArray(cur.lyrics) ? cur.lyrics : [];
+    // mode 缺失时按旧行为兜底：有歌词才算清唱
+    const sing = !!(d && (d.mode === 'sing' || (d.mode !== 'play' && lyrics.length)));
+    let head;
+    if (!cur) head = '当前没有' + (d && d.mode === 'play' ? '播放' : '清唱');
+    else if (sing) head = '正在清唱：' + (cur.name || '未知') + (cur.by ? ' · ' + cur.by + ' 点' : '');
+    else head = '正在播放：' + (cur.name || '未知') + (cur.artist ? ' · ' + cur.artist : '');
+    let lyric = '';
+    if (sing && lyrics.length) {
+      let idx = Number(cur.lyricIndex);
+      if (!isFinite(idx) || idx < 0 || idx >= lyrics.length) idx = 0;
+      lyric = '<div class="muted">当前歌词：' + lyrics[Math.floor(idx)] + '</div>';
+    }
+    const q = d && Array.isArray(d.queue) ? d.queue : [];
+    document.getElementById('songBox').innerHTML = '<div>' + head + '</div>' + lyric +
+      '<div class="muted">队列：</div><ul>' + (q.map((x, i) =>
+        `<li>${i + 1}. ${(x && x.name) || ''} <span class="muted">${(x && x.by) || ''}${x && x.by ? ' 点' : ''}</span></li>`).join('') || '<li class="muted">空</li>') + '</ul>';
   } catch (e) {}
 }
 let speakTimer = null;

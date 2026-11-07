@@ -2,45 +2,184 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>鲸live · 歌单</title>
+<title>鲸live · 清唱列表</title>
 <style>
-  html, body { margin: 0; background: transparent; font-family: "Microsoft YaHei", sans-serif; color: #EAF2FF; }
-  #box { margin: 0; background: linear-gradient(160deg, rgba(16, 30, 58, .78), rgba(8, 16, 34, .72));
-         border: 2px solid rgba(127, 179, 255, .45); border-radius: 22px; padding: 16px 20px; min-height: 480px; }
-  .title { font-size: 26px; color: #8FC1FF; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
-  .title small { font-size: 16px; color: #9FB4D8; }
-  .now { font-size: 27px; color: #fff; margin-bottom: 4px; }
-  .sub { font-size: 17px; color: #9FB4D8; margin-bottom: 8px; }
-  ol { list-style: none; padding: 0; margin: 4px 0 0; }
-  li { display: flex; align-items: center; padding: 8px 0; border-top: 1px dashed rgba(127, 179, 255, .25); }
-  li .n { color: #7FB3FF; width: 32px; font-size: 21px; flex: 0 0 32px; }
-  li .s { color: #EAF2FF; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 21px; padding-right: 12px; }
-  li .by { color: #8FA8CC; font-size: 16px; margin-left: auto; }
-  .empty { color: #9FB4D8; font-size: 19px; }
+  html, body { margin: 0; height: 100%; background: transparent; font-family: "Microsoft YaHei", sans-serif; color: #EAF2FF; overflow: hidden; }
+  #box { position: absolute; inset: 0; box-sizing: border-box; display: flex; flex-direction: column;
+         background: linear-gradient(160deg, rgba(16, 30, 58, .78), rgba(8, 16, 34, .72));
+         border: 2px solid rgba(127, 179, 255, .45); border-radius: 20px; padding: 14px 18px; }
+  .title { flex: 0 0 auto; font-size: 24px; color: #8FC1FF; display: flex; align-items: center; gap: 8px; }
+  .title small { font-size: 14px; color: #9FB4D8; font-weight: 400; }
+  .now { flex: 0 0 auto; font-size: 21px; color: #fff; margin-top: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lyric { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center;
+           text-align: center; font-size: clamp(22px, 6.6vw, 38px); font-weight: 700; line-height: 1.3;
+           color: #FFE7A3; text-shadow: 0 2px 12px rgba(0, 0, 0, .55); padding: 4px 0;
+           overflow: hidden; word-break: break-word; letter-spacing: 1px; }
+  .lyric.empty { color: #9FB4D8; font-weight: 400; font-size: clamp(15px, 3.2vw, 20px); letter-spacing: 0; }
+  .lyric.hide { display: none; }
+  .qhead { flex: 0 0 auto; font-size: 14px; color: #9FB4D8; margin-top: 4px; padding-top: 8px;
+           border-top: 1px dashed rgba(127, 179, 255, .25); }
+  ol { flex: 0 1 auto; max-height: 40%; min-height: 0; list-style: none; padding: 0; margin: 2px 0 0; overflow: hidden; }
+  #box.no-lyric ol { flex: 1 1 auto; max-height: none; }
+  li { display: flex; align-items: center; padding: 6px 0; border-top: 1px dashed rgba(127, 179, 255, .18); }
+  li:first-child { border-top: 0; }
+  li .n { color: #7FB3FF; width: 30px; font-size: 19px; flex: 0 0 30px; }
+  li .s { color: #EAF2FF; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 19px; padding-right: 10px; }
+  li .by { color: #8FA8CC; font-size: 15px; margin-left: auto; flex: 0 0 auto; }
+  .empty { color: #9FB4D8; font-size: 17px; }
 </style>
 </head>
 <body>
-<div id="box">
-  <div class="title">点歌列表 <small>点歌免费</small></div>
-  <div class="now" id="now">当前没有播放</div>
-  <div class="sub">弹幕发「点歌 歌名」即可点歌</div>
+<div id="box" class="no-lyric">
+  <div class="title">🎤 清唱列表 <small>AI 清唱 · 免费</small></div>
+  <div class="now" id="now">当前没有清唱</div>
+  <div class="lyric hide" id="lyric"></div>
+  <div class="qhead" id="qhead">清唱队列</div>
   <ol id="list"><li><span class="s empty">还没有人点歌</span></li></ol>
 </div>
 <script>
 const API = location.origin;
+const boxEl = document.getElementById('box');
+const nowEl = document.getElementById('now');
+const lyricEl = document.getElementById('lyric');
+const qheadEl = document.getElementById('qhead');
+const listEl = document.getElementById('list');
+
+// 页面当前视图：mode 可能是 ''（旧后端没有该字段）、'sing'、'play'
+let view = { mode: '', current: null, queue: [] };
+let lastWsAt = 0;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// 把接口返回整形成安全结构（字段缺失全兜底）
+function normState(d) {
+  d = d || {};
+  return {
+    mode: typeof d.mode === 'string' ? d.mode : '',
+    current: d.current || null,
+    queue: Array.isArray(d.queue) ? d.queue : []
+  };
+}
+
+// 是否清唱视图：明确 play 就按旧行为；mode 缺失时看有没有歌词
+function isSing(v) {
+  if (v.mode === 'play') return false;
+  if (v.mode === 'sing') return true;
+  const c = v.current;
+  return !!(c && Array.isArray(c.lyrics) && c.lyrics.length);
+}
+
+function lyricOf(c) {
+  if (!c || !Array.isArray(c.lyrics) || !c.lyrics.length) return '';
+  let i = Number(c.lyricIndex);
+  if (!isFinite(i) || i < 0 || i >= c.lyrics.length) i = 0;
+  return c.lyrics[Math.floor(i)] || '';
+}
+
+function render() {
+  const v = view || {};
+  const c = v.current;
+  const sing = isSing(v);
+
+  // 当前行
+  if (!c) {
+    nowEl.textContent = v.mode === 'play' ? '当前没有播放' : '当前没有清唱';
+  } else if (sing) {
+    let t = '正在清唱：《' + (c.name || '未知') + '》';
+    if (c.by) t += ' · ' + c.by + ' 点';
+    nowEl.textContent = t;
+  } else {
+    nowEl.textContent = '正在播放：' + (c.name || '未知') + (c.artist ? ' · ' + c.artist : '');
+  }
+
+  // 当前歌词大字（没有 current 时不显示歌词）
+  if (sing && c) {
+    lyricEl.classList.remove('hide');
+    const line = lyricOf(c);
+    lyricEl.textContent = line || '♪ ～';
+    lyricEl.classList.toggle('empty', !line);
+  } else {
+    lyricEl.classList.add('hide');
+  }
+  // 没有歌词时让队列占满剩余高度
+  boxEl.classList.toggle('no-lyric', !(sing && c));
+
+  // 队列
+  const q = Array.isArray(v.queue) ? v.queue : [];
+  qheadEl.textContent = '清唱队列' + (q.length ? ' · ' + q.length + ' 首' : '');
+  if (!q.length) {
+    listEl.innerHTML = '<li><span class="s empty">还没有人点歌</span></li>';
+  } else {
+    listEl.innerHTML = q.map((x, i) => {
+      x = x || {};
+      return '<li><span class="n">' + (i + 1) + '.</span>' +
+        '<span class="s">' + esc(x.name) + '</span>' +
+        '<span class="by">' + esc(x.by) + (x.by ? ' 点' : '') + '</span></li>';
+    }).join('');
+  }
+}
+
 async function tick() {
   try {
     const r = await fetch(API + '/api/songs/state', { cache: 'no-store' });
     const d = await r.json();
-    const now = document.getElementById('now');
-    now.textContent = d.current ? '正在播放：' + d.current.name + (d.current.artist ? ' · ' + d.current.artist : '') : '当前没有播放';
-    const list = document.getElementById('list');
-    if (!d.queue || !d.queue.length) list.innerHTML = '<li><span class="s empty">还没有人点歌</span></li>';
-    else list.innerHTML = d.queue.map((x, i) => '<li><span class="n">' + (i + 1) + '.</span><span class="s">' + x.name + '</span><span class="by">' + x.by + ' 点</span></li>').join('');
+    // WS 刚推过更实时的歌词行，等轮询追平（避免回跳）
+    if (Date.now() - lastWsAt < 1600) return;
+    view = normState(d);
+    render();
   } catch (e) {}
 }
+
+function connect() {
+  let ws;
+  try {
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  } catch (e) { setTimeout(connect, 2500); return; }
+
+  ws.onmessage = (e) => {
+    let j;
+    try { j = JSON.parse(e.data); } catch (err) { return; }
+    if (!j || j.kind !== 'sing') return;
+    const act = j.action;
+
+    if (act === 'start') {
+      view.mode = 'sing';
+      view.current = {
+        name: j.title || j.name || '',
+        artist: j.artist || '',
+        by: j.by || '',
+        lyrics: Array.isArray(j.lyrics) ? j.lyrics.slice() : [],
+        lyricIndex: 0
+      };
+      lastWsAt = Date.now();
+      render();
+    } else if (act === 'line') {
+      if (!view.current) view.current = { name: '', artist: '', by: '', lyrics: [], lyricIndex: 0 };
+      if (!Array.isArray(view.current.lyrics)) view.current.lyrics = [];
+      let idx = Number(j.idx);
+      if (!isFinite(idx) || idx < 0) idx = view.current.lyrics.length ? view.current.lyrics.length : 0;
+      idx = Math.floor(idx);
+      if (typeof j.text === 'string' && j.text) view.current.lyrics[idx] = j.text;
+      view.current.lyricIndex = idx;
+      view.mode = 'sing';
+      lastWsAt = Date.now();
+      render();
+    } else if (act === 'end') {
+      view.mode = 'sing';
+      view.current = null;
+      lastWsAt = Date.now();
+      render();
+    }
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
+}
+
 tick();
 setInterval(tick, 1500);
+connect();
 </script>
 </body>
 </html>

@@ -1,0 +1,78 @@
+def work_step():
+    """一次干活轮次：按季节/天气/运气挑活，晚了就装船睡觉。"""
+    fallback.ensure_ready()
+    b = nav2.rd() or {}
+    mode, why = plan_today(b)
+    log(f"  自动干活：day={b.get('day')} {b.get('season')} {b.get('time')} money={_money()} → {why}")
+    nav2.set_timeout(150)   # 单轮活最多 150 秒，超时就下一轮（避免一直卡）
+    try:
+        _do_work(mode, b)
+    except TimeoutError:
+        log("  本轮超时（150 秒），跳过，下一轮再试")
+    finally:
+        nav2.clear_timeout()
+    return
+
+
+def _do_work(mode, b):
+    if mode == "festival":
+        fest = FESTIVALS.get((b.get("season"), b.get("day")))
+        if fest:
+            log(f"  去{fest[1]}参加{fest[0]}")
+            fallback.goto_or_warp(fest[1])
+            time.sleep(60)   # 到场停留，让节日开始
+            b2 = nav2.rd() or {}
+            if b2.get("location") != "FarmHouse" and b2.get("time", 0) < 1800:
+                # 节日后继续干活
+                if b2.get("time", 0) < 1200:
+                    mine_batch(6)
+                else:
+                    fish_batch(2)
+    elif mode == "mine":
+        mine_batch(8)
+        store_ores()
+        try_smelt()
+    elif mode == "fish":
+        fish_batch(2)
+    else:
+        farm_batch()
+    ship_and_sleep_if_late()
+
+
+def main():
+    once = "--once" in sys.argv
+    demo = "--demo" in sys.argv
+    if not once and not single_instance():
+        log("已有守护进程在跑，退出")
+        return
+    log("守护进程启动（含自动干活）")
+    if once:
+        check_once()
+        work_step()
+        return
+    if demo:
+        for i in range(4):
+            log(f"===== 演示轮次 {i+1}/4 =====")
+            try:
+                check_once()
+                work_step()
+            except Exception as ex:
+                log(f"演示异常: {ex}")
+            time.sleep(10)
+        return
+    while True:
+        try:
+            fallback.keep_awake()
+            ok = check_once()
+            log(f"健康检查: {'正常' if ok else '异常（已尝试修复）'} | " +
+                f"loc={(nav2.rd() or {}).get('location')} " +
+                f"day={(nav2.rd() or {}).get('day')}")
+            work_step()
+        except Exception as ex:
+            log(f"健康检查异常: {ex}")
+        time.sleep(300)
+
+
+if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    main()

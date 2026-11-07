@@ -17,7 +17,7 @@ const MENU = [
     { key: 'stardew', label: '星露谷状态', icon: '🎮' }
   ] },
   { title: '互动玩法', icon: '🎁', items: [
-    { key: 'songs', label: '点歌队列', icon: '🎵' },
+    { key: 'songs', label: '清唱队列', icon: '🎤' },
     { key: 'say', label: '手动说话', icon: '🗣' }
   ] },
   { title: '系统设置', icon: '⚙', items: [
@@ -109,8 +109,34 @@ async function refresh() {
   } catch (e) {}
 }
 async function refreshSongs() {
-  try { songState.value = await invoke('songs:state'); } catch (e) {}
+  try {
+    const d = await invoke('songs:state');
+    const s = d || {};
+    // 字段兜底：旧后端没有 mode/lyrics，前端不会白屏
+    songState.value = {
+      ...s,
+      mode: typeof s.mode === 'string' ? s.mode : '',
+      current: s.current || null,
+      queue: Array.isArray(s.queue) ? s.queue : []
+    };
+  } catch (e) {}
 }
+// 是否清唱视图：明确 play 按旧行为；mode 缺失时看有没有歌词
+function isSingState(st) {
+  const s = st || {};
+  if (s.mode === 'play') return false;
+  if (s.mode === 'sing') return true;
+  const cur = s.current;
+  return !!(cur && Array.isArray(cur.lyrics) && cur.lyrics.length);
+}
+function lyricLineOf(cur) {
+  if (!cur || !Array.isArray(cur.lyrics) || !cur.lyrics.length) return '';
+  let i = Number(cur.lyricIndex);
+  if (!isFinite(i) || i < 0 || i >= cur.lyrics.length) i = 0;
+  return cur.lyrics[Math.floor(i)] || '';
+}
+const singMode = computed(() => isSingState(songState.value));
+const curLyric = computed(() => lyricLineOf(songState.value.current));
 function normalize(c) {
   c = c || {};
   c.ai = c.ai || {};
@@ -140,7 +166,16 @@ function normalize(c) {
   if (c.songs.enabled == null) c.songs.enabled = true;
   if (c.songs.dedupe == null) c.songs.dedupe = true;
   if (c.songs.internal == null) c.songs.internal = true;
+  if (!c.songs.perform) c.songs.perform = 'sing';
   if (!Array.isArray(c.songs.sources) || !c.songs.sources.length) c.songs.sources = ['netease', 'qq'];
+  c.sing = c.sing || {};
+  if (c.sing.enabled == null) c.sing.enabled = true;
+  if (!c.sing.mode) c.sing.mode = 'melody';
+  if (!c.sing.lyrics) c.sing.lyrics = 'netease';
+  if (!c.sing.melody) c.sing.melody = 'auto';
+  if (c.sing.max_lines == null) c.sing.max_lines = 6;
+  if (c.sing.max_chars == null) c.sing.max_chars = 100;
+  if (c.sing.bpm == null) c.sing.bpm = 92;
   c.obs = c.obs || {};
   if (!c.obs.host) c.obs.host = '127.0.0.1';
   if (c.obs.port == null) c.obs.port = 4455;
@@ -205,7 +240,8 @@ function applyJson() {
   } catch (e) { toastShow('JSON 错误: ' + e.message); }
 }
 function loadFromCfg() {
-  const c = cfg.value;
+  const c = normalize(cfg.value);
+  cfg.value = c;
   enterTpl.value = ((c.events && c.events.enter && c.events.enter.templates) || []).join('\n');
   followTpl.value = ((c.events && c.events.follow && c.events.follow.templates) || []).join('\n');
   blockText.value = (((c.filter && c.filter.blocklist) || [])).join('\n');
@@ -234,9 +270,9 @@ async function testEvent(kind) {
 async function requestSong() {
   const q = manualSong.value.trim();
   if (!q) return;
-  const r = await invoke('songs:request', { name: '手动点歌', query: q });
-  if (r && r.ok) { toastShow(`✅ 已入队：${r.song.name}`); manualSong.value = ''; }
-  else toastShow('点歌失败: ' + ((r && r.error) || '未知'));
+  const r = await invoke('songs:request', { name: '手动清唱', query: q });
+  if (r && r.ok) { toastShow(`✅ 已入队：${(r.song && r.song.name) || q}`); manualSong.value = ''; }
+  else toastShow('清唱失败: ' + ((r && r.error) || '未知'));
   refreshSongs();
 }
 function obsPayload() {
@@ -291,7 +327,7 @@ const checks = computed(() => [
   { label: '抖音连接（relay）', ok: connected.value, hint: connected.value ? '' : '中继未就绪' },
   { label: 'AI Key 已配置', ok: !!(cfg.value.ai && cfg.value.ai.openai_key), hint: '' },
   { label: 'TTS 地址已配置', ok: !!(cfg.value.tts && cfg.value.tts.api_url), hint: '' },
-  { label: '点歌音源就绪', ok: !!((((cfg.value.songs || {}).sources) || []).length), hint: '' },
+  { label: '清唱配置就绪', ok: !!cfg.value.sing, hint: '' },
   { label: '皮套模型已内置', ok: true, hint: '' }
 ]);
 
@@ -383,19 +419,20 @@ onUnmounted(() => {
               </ul>
             </div>
             <div class="card">
-              <div class="card-head"><h2>最近点歌</h2><span class="hint">{{ songState.queue.length }} 首排队</span></div>
+              <div class="card-head"><h2>最近清唱</h2><span class="hint">{{ songState.queue.length }} 首排队</span></div>
               <div class="now-playing" v-if="songState.current">
                 <span class="eq">▍▍▍</span>
-                <span>正在播放：<b>{{ songState.current.name }}</b></span>
+                <span>{{ singMode ? '正在清唱：' : '正在播放：' }}<b>{{ songState.current.name }}</b></span>
                 <span class="muted" v-if="songState.current.by"> · {{ songState.current.by }} 点</span>
+                <div class="now-lyric" v-if="singMode && curLyric">🎤 {{ curLyric }}</div>
               </div>
               <ul class="mini-queue">
                 <li v-for="(x, i) in songState.queue.slice(0, 5)" :key="i">
-                  <span class="idx">{{ i + 1 }}</span><span class="qname">{{ x.name }}</span><span class="muted">{{ x.by }}</span>
+                  <span class="idx">{{ i + 1 }}</span><span class="qname">{{ x && x.name }}</span><span class="muted" v-if="x && x.by">{{ x.by }}</span>
                 </li>
               </ul>
               <div v-if="!songState.current && !songState.queue.length" class="empty-hint">
-                还没有人点歌，弹幕发「点歌 歌名」试试
+                还没有人清唱，弹幕发「唱歌 歌名」试试
               </div>
             </div>
             <div class="card">
@@ -414,7 +451,7 @@ onUnmounted(() => {
               <div class="link-list">
                 <a :href="API + '/console'" target="_blank">🖥 网页控制台 <span>/console</span></a>
                 <a :href="API + '/overlay'" target="_blank">💬 弹幕层 <span>/overlay</span></a>
-                <a :href="API + '/songs'" target="_blank">🎵 歌单 <span>/songs</span></a>
+                <a :href="API + '/songs'" target="_blank">🎤 清唱列表 <span>/songs</span></a>
                 <a :href="API + '/stats'" target="_blank">📈 本场统计 <span>/stats</span></a>
                 <a :href="API + '/stardew'" target="_blank">🎮 星露谷状态 <span>/stardew</span></a>
                 <a :href="API + '/live2d'" target="_blank">🎭 皮套 <span>/live2d</span></a>
@@ -424,10 +461,10 @@ onUnmounted(() => {
             <div class="card">
               <div class="card-head"><h2>使用提示</h2><span class="hint">常用操作</span></div>
               <ul class="tips">
-                <li>弹幕发「点歌 歌名」自动搜索入队（网易云 → QQ 音乐回退）</li>
+                <li>弹幕发「唱歌 歌名」/「清唱 歌名」，AI 清唱给你听</li>
                 <li>中继脚本把弹幕 POST 到 <code>/api/douyin/ingest</code> 即可接入</li>
                 <li>密钥/人设/TTS 路径改 <code>.env</code> 后重启生效</li>
-                <li>OBS 浏览器源：弹幕层 <code>/overlay</code>、歌单 <code>/songs</code>、皮套 <code>/live2d</code></li>
+                <li>OBS 浏览器源：弹幕层 <code>/overlay</code>、清唱列表 <code>/songs</code>、皮套 <code>/live2d</code></li>
               </ul>
             </div>
             <div class="card">
@@ -479,10 +516,10 @@ onUnmounted(() => {
 
         <!-- 叠加层 -->
         <div v-if="current === 'overlay'" class="card">
-          <div class="card-head"><h2>OBS 叠加层</h2><span class="hint">弹幕层 / 歌单 / 本场统计 / 星露谷状态</span></div>
+          <div class="card-head"><h2>OBS 叠加层</h2><span class="hint">弹幕层 / 清唱列表 / 本场统计 / 星露谷状态</span></div>
           <div class="frames">
             <div class="fcol"><div class="flabel">弹幕层 <code>/overlay</code></div><iframe :key="'ov' + iframeKey" class="frame" :src="API + '/overlay'"></iframe></div>
-            <div class="fcol"><div class="flabel">歌单 <code>/songs</code></div><iframe :key="'sg' + iframeKey" class="frame" :src="API + '/songs'"></iframe></div>
+            <div class="fcol"><div class="flabel">清唱列表 <code>/songs</code></div><iframe :key="'sg' + iframeKey" class="frame" :src="API + '/songs'"></iframe></div>
             <div class="fcol"><div class="flabel">本场统计 <code>/stats</code></div><iframe :key="'st' + iframeKey" class="frame" :src="API + '/stats'"></iframe></div>
             <div class="fcol"><div class="flabel">星露谷状态 <code>/stardew</code></div><iframe :key="'sd' + iframeKey" class="frame" :src="API + '/stardew'"></iframe></div>
           </div>
@@ -531,22 +568,24 @@ onUnmounted(() => {
           <pre class="obs-log" v-if="obsLog">{{ obsLog }}</pre>
         </div>
 
-        <!-- 点歌 -->
+        <!-- 清唱 -->
         <div v-if="current === 'songs'" class="card">
-          <div class="card-head"><h2>点歌队列</h2><span class="hint">匿名搜索，无需登录</span></div>
+          <div class="card-head"><h2>清唱队列</h2><span class="hint">AI 用主播声音清唱 · 无需登录</span></div>
           <div class="row">
-            <input v-model="manualSong" placeholder="输入歌名，回车点歌" @keyup.enter="requestSong" />
-            <button class="primary" @click="requestSong">点歌</button>
+            <input v-model="manualSong" placeholder="输入歌名，回车清唱" @keyup.enter="requestSong" />
+            <button class="primary" @click="requestSong">清唱</button>
           </div>
           <div class="now-playing" v-if="songState.current">
-            <span class="eq">▍▍▍</span> 正在播放：<b>{{ songState.current.name }}</b>
+            <span class="eq">▍▍▍</span>
+            <span>{{ singMode ? '正在清唱：' : '正在播放：' }}<b>{{ songState.current.name }}</b></span>
             <span class="muted" v-if="songState.current.by"> · {{ songState.current.by }} 点</span>
+            <div class="now-lyric" v-if="singMode && curLyric">🎤 {{ curLyric }}</div>
           </div>
           <ul class="queue">
             <li v-for="(x, i) in songState.queue" :key="i">
-              <span class="idx">{{ i + 1 }}</span><span class="qname">{{ x.name }}</span><span class="muted">{{ x.by }} 点</span>
+              <span class="idx">{{ i + 1 }}</span><span class="qname">{{ x && x.name }}</span><span class="muted" v-if="x && x.by">{{ x.by }} 点</span>
             </li>
-            <li v-if="!songState.queue.length" class="empty">队列为空，弹幕发「点歌 歌名」会自动入队</li>
+            <li v-if="!songState.queue.length" class="empty">队列为空，弹幕发「唱歌 歌名」会自动入队</li>
           </ul>
         </div>
 
@@ -560,7 +599,7 @@ onUnmounted(() => {
           <div class="chips" style="margin-top:12px">
             <button class="chip" @click="quickSay('欢迎来到直播间，宝子们晚上好呀')">欢迎语</button>
             <button class="chip" @click="quickSay('谢谢宝子的礼物，嘿嘿～')">感谢礼物</button>
-            <button class="chip" @click="quickSay('今天想听什么歌，点歌台给你们安排')">点歌引导</button>
+            <button class="chip" @click="quickSay('想听什么？弹幕发「唱歌 歌名」，我清唱给你听')">清唱引导</button>
           </div>
         </div>
 
@@ -660,7 +699,45 @@ onUnmounted(() => {
             </section>
 
             <section class="card">
-              <div class="card-head"><h2>🎵 点歌</h2><span class="hint">多音源自动回退</span></div>
+              <div class="card-head"><h2>🎤 清唱</h2><span class="hint">AI 用主播声音清唱（无伴奏）</span></div>
+              <label class="field"><span>表演模式</span>
+                <select v-model="cfg.songs.perform" @change="markDirty">
+                  <option value="sing">清唱（TTS 合成，默认）</option>
+                  <option value="play">播放原曲（旧行为）</option>
+                </select>
+              </label>
+              <div class="row">
+                <label class="check"><input type="checkbox" v-model="cfg.songs.enabled" @change="markDirty" /> 点歌/清唱总开关</label>
+                <label class="check"><input type="checkbox" v-model="cfg.sing.enabled" @change="markDirty" /> 启用清唱</label>
+              </div>
+              <div class="row2">
+                <label class="field"><span>唱法模式</span>
+                  <select v-model="cfg.sing.mode" @change="markDirty">
+                    <option value="melody">带旋律</option>
+                    <option value="read">纯念唱</option>
+                  </select>
+                </label>
+                <label class="field"><span>歌词来源</span>
+                  <select v-model="cfg.sing.lyrics" @change="markDirty">
+                    <option value="netease">抓原歌词</option>
+                    <option value="ai">AI 现编</option>
+                  </select>
+                </label>
+                <label class="field"><span>旋律</span>
+                  <select v-model="cfg.sing.melody" @change="markDirty">
+                    <option value="auto">自动选</option>
+                    <option value="xiaoxingxing">小星星</option>
+                    <option value="shengri">生日快乐</option>
+                    <option value="folk1">民谣 1</option>
+                    <option value="folk2">民谣 2</option>
+                  </select>
+                </label>
+                <label class="field"><span>节拍 BPM</span><input type="number" v-model.number="cfg.sing.bpm" @input="markDirty" /></label>
+                <label class="field"><span>每首句数</span><input type="number" v-model.number="cfg.sing.max_lines" @input="markDirty" /></label>
+                <label class="field"><span>整首字数</span><input type="number" v-model.number="cfg.sing.max_chars" @input="markDirty" /></label>
+              </div>
+              <label class="check"><input type="checkbox" v-model="cfg.songs.dedupe" @change="markDirty" /> 本场同歌去重</label>
+              <label class="check"><input type="checkbox" v-model="cfg.songs.internal" @change="markDirty" /> 使用内嵌网易云搜索</label>
               <div class="field">
                 <span>音源优先级（勾选启用，按此顺序依次尝试）</span>
                 <div class="chips">
@@ -670,9 +747,6 @@ onUnmounted(() => {
                   </label>
                 </div>
               </div>
-              <label class="check"><input type="checkbox" v-model="cfg.songs.enabled" @change="markDirty" /> 启用点歌</label>
-              <label class="check"><input type="checkbox" v-model="cfg.songs.internal" @change="markDirty" /> 使用内嵌网易云搜索</label>
-              <label class="check"><input type="checkbox" v-model="cfg.songs.dedupe" @change="markDirty" /> 本场同歌去重</label>
               <div class="row2">
                 <label class="field"><span>最大排队数</span><input type="number" v-model.number="cfg.songs.max_queue" @input="markDirty" /></label>
                 <label class="field"><span>自动播放</span>
@@ -696,7 +770,7 @@ onUnmounted(() => {
           <div class="card-head"><h2>关于</h2></div>
           <ul class="about">
             <li><b>deepseek-live</b> · 鲸live控制台（Vue 3 + Electron 33）</li>
-            <li>核心：<code>app/main/core.cjs</code>（零依赖 Node，HTTP + WS + AI + TTS + 点歌）</li>
+            <li>核心：<code>app/main/core.cjs</code>（零依赖 Node，HTTP + WS + AI + TTS + 清唱）</li>
             <li>控制：IPC（window.whale.invoke）· OBS 叠加层走 HTTP</li>
             <li>皮套：pixi-live2d-display + Cubism 4（内置模型）</li>
             <li>仓库：<a href="https://github.com/a106832411/deepseek-live" target="_blank">github.com/a106832411/deepseek-live</a></li>
@@ -708,7 +782,7 @@ onUnmounted(() => {
         <button class="foot-link" @click="current = 'about'">ℹ 关于</button>
         <span class="foot-sep">·</span>
         <a :href="API + '/overlay'" target="_blank">弹幕层</a>
-        <a :href="API + '/songs'" target="_blank">歌单</a>
+        <a :href="API + '/songs'" target="_blank">清唱</a>
         <a :href="API + '/live2d'" target="_blank">皮套</a>
         <span class="foot-right">
           <span class="dot" :class="running ? 'on' : 'off'"></span>
@@ -1033,6 +1107,11 @@ button { font-family: inherit; }
   margin: 14px 0; padding: 14px 16px; border-radius: 10px;
   background: var(--panel-2); border: 1px solid var(--line);
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.now-lyric {
+  flex: 1 0 100%; margin-top: 4px; padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  font-size: 14px; line-height: 1.6; color: #e8d9b0; word-break: break-word;
 }
 .eq { color: var(--accent); letter-spacing: -2px; }
 .queue { list-style: none; margin: 12px 0 0; padding: 0; }

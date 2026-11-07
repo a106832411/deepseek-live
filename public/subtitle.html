@@ -51,6 +51,16 @@
           else if (j.kind === 'speak_end') {
             clearTimeout(hideTimer);
             hideTimer = setTimeout(() => line.classList.remove('show'), 2500);
+          } else if (j.kind === 'sing') {
+            // 清唱：开始报幕 → 逐句歌词（样式与普通字幕一致）→ 结束淡出
+            if (j.action === 'start') {
+              show('🎤 清唱《' + String(j.title || j.name || '') + '》');
+            } else if (j.action === 'line' && j.text) {
+              show(j.text);
+            } else if (j.action === 'end') {
+              clearTimeout(hideTimer);
+              hideTimer = setTimeout(() => line.classList.remove('show'), 600);
+            }
           }
         } catch (err) {}
       };
