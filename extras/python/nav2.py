@@ -105,13 +105,53 @@ def tile(b):
 
 
 def walk_until(tx, ty, timeout=10):
+    b = rd()
+    if b and tile(b) == (tx, ty):
+        return True
+    # 目标格本身被挡（树/石头/宠物）→ 不要傻走向去不了的地方
+    try:
+        tiles = (b.get("surroundings") or {}).get("Tiles") or []
+        tt = next((s for s in tiles if s["X"] == tx and s["Y"] == ty), None)
+        if tt is not None and not tt.get("Passable"):
+            return False
+    except Exception:
+        pass
     send({"actionType": "player_walk_to", "x": tx, "y": ty}, 0.25)
     t0 = time.time()
+    last = None
+    still = 0
     while time.time() - t0 < timeout:
         time.sleep(0.3)
         b = rd()
-        if b and tile(b) == (tx, ty):
+        if not b:
+            continue
+        cur = tile(b)
+        if cur == (tx, ty):
             return True
+        if cur == last:
+            still += 1
+            # 4 秒内一步没动 → 判定被卡住，交给上层换目标/清障
+            if still >= 8:
+                return False
+        else:
+            still = 0
+            last = cur
+    return False
+
+
+def unstick():
+    """卡住时往旁边挪一格，避免原地打转。"""
+    try:
+        b = rd()
+        cur = tile(b)
+        tiles = (b.get("surroundings") or {}).get("Tiles") or []
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1)):
+            t = next((s for s in tiles if s["X"] == cur[0] + dx and s["Y"] == cur[1] + dy), None)
+            if t and t.get("Passable"):
+                send({"actionType": "player_walk_to", "x": t["X"], "y": t["Y"]}, 0.6)
+                return True
+    except Exception:
+        pass
     return False
 
 

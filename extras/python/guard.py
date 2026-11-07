@@ -115,39 +115,17 @@ def _day():
 
 
 def mine_batch(max_mined=8):
-    """去矿洞挖一批（先走路，失败再兜底传送/进矿）。"""
+    """去矿洞挖一批：真实走路 + 真实挥镐（不瞬移）。"""
     try:
-        b = nav2.rd() or {}
-        if b.get("location") != "Mountain":
+        import mine_real
+        if not mine_real.enter_mine_walk():
+            log("  挖矿：走路进矿失败，兜底传送上山再进")
             fallback.goto_or_warp("Mountain")
-        nav2.live()
-        # 走到矿洞入口附近再进矿（不要在远处凭空进）
-        b = nav2.rd() or {}
-        if b.get("location") == "Mountain":
-            t = nav2.tile(b)
-            if abs(t[0] - 51) + abs(t[1] - 7) > 3:
-                nav2.walk_until(51, 7, 25)
-            _send({"actionType": "enter_mine", "level": 1}, 2.0)
+            nav2.send({"actionType": "enter_mine", "level": 1}, 2.0)
             time.sleep(4)
-        b = nav2.rd() or {}
-        if "Mine" not in str(b.get("location")):
-            log(f"  挖矿：进矿失败（loc={b.get('location')}）")
-            return 0
-        mined = 0
-        for _ in range(max_mined * 3):
-            if mined >= max_mined:
-                break
-            b = nav2.rd() or {}
-            tiles = (b.get("surroundings") or {}).get("Tiles") or []
-            cands = [t for t in tiles if t.get("Breakable")]
-            if not cands:
-                break
-            s = cands[0]
-            _send({"actionType": "player_mine_at", "x": s["X"], "y": s["Y"]}, 0.7)
-            _send({"actionType": "collect_debris"}, 0.3)
-            mined += 1
-        log(f"  挖矿：挖了 {mined} 个，金币 {_money()}")
-        return mined
+        n = mine_real.mine_rocks(max_mined)
+        log(f"  挖矿：{n} 块，金币 {_money()}")
+        return n
     except Exception as ex:
         log(f"  挖矿异常: {ex}")
         return 0
@@ -180,6 +158,61 @@ def farm_batch():
         return 0
 
 
+def _inv():
+    b = nav2.rd() or {}
+    return b.get("player", {}).get("inventory") or []
+
+
+def _count(name_part):
+    n = 0
+    for it in _inv():
+        if it and name_part in str(it.get("name")):
+            n += it.get("stack", 1)
+    return n
+
+
+def store_ores():
+    """有箱子就把矿石存进去（没有就留在背包，不卖）。"""
+    try:
+        b = nav2.rd() or {}
+        tiles = (b.get("surroundings") or {}).get("Tiles") or []
+        chest = next((t for t in tiles if t.get("ObjectType") == "chest"), None)
+        if not chest:
+            return False
+        nav2.send({"actionType": "chest_store_ores", "x": chest["X"], "y": chest["Y"]}, 0.8)
+        log(f"  矿石已存入箱子 ({chest['X']},{chest['Y']})")
+        return True
+    except Exception as ex:
+        log(f"  存矿石异常: {ex}")
+        return False
+
+
+def try_smelt():
+    """铜矿石够就烧铜锭（需要熔炉；没有就先做）。"""
+    try:
+        ore = _count("铜矿石")
+        stone = _count("石头")
+        if ore < 5:
+            return False
+        b = nav2.rd() or {}
+        tiles = (b.get("surroundings") or {}).get("Tiles") or []
+        furnace = next((t for t in tiles if t.get("ObjectType") == "machine" and "熔炉" in str(t.get("ObjectName"))), None)
+        if not furnace and stone >= 25 and ore >= 20:
+            nav2.send({"actionType": "craft_item", "name": "Furnace"}, 1.2)
+            log("  试着做了个熔炉")
+            return False
+        if furnace:
+            nav2.send({"actionType": "machine_drop_in", "x": furnace["X"], "y": furnace["Y"], "item": "铜矿石"}, 1.2)
+            time.sleep(30)
+            nav2.send({"actionType": "machine_collect", "x": furnace["X"], "y": furnace["Y"]}, 1.0)
+            log("  熔炉：收了一炉")
+            return True
+        return False
+    except Exception as ex:
+        log(f"  熔炼异常: {ex}")
+        return False
+
+
 def ship_and_sleep_if_late():
     """时间晚了就装船+睡觉跨天（快速跨天用 set_clock 兜底）。"""
     b = nav2.rd() or {}
@@ -187,8 +220,8 @@ def ship_and_sleep_if_late():
         return False
     try:
         fallback.goto_or_warp("Farm")
-        _send({"actionType": "player_ship_all"}, 0.6)
-        _send({"actionType": "player_sell_instant"}, 0.6)
+        # 只卖收的菜/水果/花，矿石一律不卖
+        _send({"actionType": "sell_crops"}, 0.8)
         m0 = _money()
         fallback.goto_or_warp("FarmHouse")
         d0 = _day()
@@ -269,6 +302,8 @@ def work_step():
                     fish_batch(2)
     elif mode == "mine":
         mine_batch(8)
+        store_ores()
+        try_smelt()
     elif mode == "fish":
         fish_batch(2)
     else:

@@ -1667,6 +1667,66 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "sell_crops":
+                    {
+                        try
+                        {
+                            long total = 0;
+                            int sold = 0;
+                            for (int i = Game1.player.Items.Count - 1; i >= 0; i--)
+                            {
+                                var it = Game1.player.Items[i];
+                                if (it == null) continue;
+                                int cat = it.Category;
+                                // 只卖「收的菜/水果/花」(-75 蔬菜, -79 水果, -80 花)
+                                if (cat == -75 || cat == -79 || cat == -80)
+                                {
+                                    int price = it.sellToStorePrice();
+                                    total += (long)price * it.Stack;
+                                    Game1.player.Items[i] = null;
+                                    sold += it.Stack;
+                                }
+                            }
+                            Game1.player.Money += (int)total;
+                            this.monitor.Log($"sell_crops: {sold} 个，+{total}G", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("sell_crops err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "chest_store_ores":
+                    {
+                        try
+                        {
+                            int cx = root.GetProperty("x").GetInt32(), cy = root.GetProperty("y").GetInt32();
+                            var loc2 = Game1.player.currentLocation;
+                            if (!loc2.Objects.TryGetValue(new Vector2(cx, cy), out var chestObj) || !(chestObj is StardewValley.Objects.Chest chest))
+                            {
+                                this.monitor.Log("chest_store_ores: 目标不是箱子", LogLevel.Warn);
+                                break;
+                            }
+                            int moved = 0;
+                            for (int i = Game1.player.Items.Count - 1; i >= 0; i--)
+                            {
+                                var it = Game1.player.Items[i];
+                                if (it == null) continue;
+                                string nm2 = it.Name ?? "";
+                                var so2 = it as StardewValley.Object;
+                                bool oreLike = (so2 != null && so2.Type == "Minerals") || nm2.Contains("Ore") || nm2.Contains("Node")
+                                               || nm2.Contains("Geode") || nm2.Contains("Coal")
+                                               || nm2.Contains("Bar") || nm2.Contains("Quartz") || nm2.Contains("Crystal");
+                                if (!oreLike) continue;
+                                if (chest.Items.Count >= chest.GetActualCapacity()) break;
+                                chest.Items.Add(it);
+                                Game1.player.Items[i] = null;
+                                moved++;
+                            }
+                            this.monitor.Log($"chest_store_ores: 存入 {moved} 个", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("chest_store_ores err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "player_ship_all":
                     {
                         // 走到出货箱旁边，把背包可卖物品放进真实出货箱（第二天结算）
