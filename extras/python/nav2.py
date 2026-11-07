@@ -82,6 +82,17 @@ def tile(b):
     return int(t["x"]), int(t["y"])
 
 
+def walk_until(tx, ty, timeout=10):
+    send({"actionType": "player_walk_to", "x": tx, "y": ty}, 0.25)
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        time.sleep(0.3)
+        b = rd()
+        if b and tile(b) == (tx, ty):
+            return True
+    return False
+
+
 def step_walk(tx, ty, max_steps=260):
     """一小步一小步走过去（用扫描到的可通行格规划），带防卡死。"""
     last = None
@@ -102,10 +113,15 @@ def step_walk(tx, ty, max_steps=260):
             stuck = 0
         last = cur
         tiles = (b.get("surroundings") or {}).get("Tiles") or []
+        npc_tiles = set()
+        for n in (b.get("surroundings") or {}).get("Npcs") or []:
+            npc_tiles.add((int(n.get("X", -99)), int(n.get("Y", -99))))
         best = None
         bestd = abs(cur[0] - tx) + abs(cur[1] - ty)
         for s in tiles:
             if not s.get("Passable") or s.get("IsWater"):
+                continue
+            if (s["X"], s["Y"]) in npc_tiles:
                 continue
             step = abs(s["X"] - cur[0]) + abs(s["Y"] - cur[1])
             if step < 1 or step > 2:
@@ -132,37 +148,93 @@ def find_exit(b, target):
     return None
 
 
-def hop(target, timeout=60):
-    """走到本图通往 target 的出口，走到后再触发过图（不穿墙、不越界）。"""
+def hop(target, timeout=30):
+    """走到本图通往 target 的出口；一到出口立刻触发过图，不干等。"""
     for attempt in range(3):
         live()
         b = safe_check()
         cur_loc = b.get("location")
         if cur_loc == target:
             return True
-        # 1) 真实走路到出口（地图内）
-        send({"actionType": "walk_to_target", "target": target}, 0.4)
+        e = find_exit(b, target)
+        if not e:
+            log(f"  {cur_loc} 没有通往 {target} 的出口")
+            return False
+        ex, ey = int(e["x"]), int(e["y"])
+        gx, gy = max(ex, 0), max(ey, 0)
+        send({"actionType": "walk_to_target", "target": target}, 0.3)
         t0 = time.time()
+        fired = False
         while time.time() - t0 < timeout:
-            time.sleep(0.4)
+            time.sleep(0.25)
             b = rd()
-            if b and b.get("location") == target:
+            if not b:
+                continue
+            if b.get("location") == target:
+                return True
+            t = tile(b)
+            if abs(t[0] - gx) + abs(t[1] - gy) <= 1 and not fired:
+                send({"actionType": "enter_exit", "target": target}, 0.6)
+                fired = True
+            if fired and b.get("location") == target:
                 return True
         b = safe_check()
-        if b and b.get("location") == target:
+        if b.get("location") == target:
             return True
-        # 2) 人已走到出口附近，再触发过图（等价于踩上 warp 格）
-        time.sleep(1.5)
-        send({"actionType": "enter_exit", "target": target}, 0.8)
-        t0 = time.time()
-        while time.time() - t0 < 12:
-            time.sleep(0.5)
-            b = rd()
-            if b and b.get("location") == target:
-                return True
-        b = safe_check()
-        log(f"  过图失败（loc={b.get('location')} tile={tile(b)}），重试 {attempt+1}/3")
+        time.sleep(2.0)   # 等宠物/NPC 挪开
+        broke = break_obstacles(gx, gy, 18)
+        log(f"  过图失败（loc={b.get('location')} tile={tile(b)}），清了 {broke} 个障碍，重试 {attempt+1}/3")
     return False
+
+
+
+def _tool_for(obj_type=None, terrain=None):
+    ot = (obj_type or "").lower()
+    if terrain == "tree" or ot in ("tree", "stump", "log", "twig", "weed"):
+        return "axe"
+    return "pickaxe"
+
+
+def break_obstacles(tx, ty, max_break=25):
+    """清掉通往目标方向上的石头/杂草/树枝/树（真实走位 + 挥工具）。"""
+    broken = 0
+    for _ in range(max_break):
+        b = safe_check()
+        if not b:
+            return broken
+        cur = tile(b)
+        tiles = (b.get("surroundings") or {}).get("Tiles") or []
+        target_d = abs(cur[0] - tx) + abs(cur[1] - ty)
+        if target_d <= 1:
+            return broken
+        cands = []
+        for s in tiles:
+            if not (s.get("Breakable") or s.get("Terrain") in ("tree", "bush")):
+                continue
+            d = abs(s["X"] - tx) + abs(s["Y"] - ty)
+            if d >= target_d:
+                continue
+            # 需要相邻可站格
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                st = next((t for t in tiles if t["X"] == s["X"] + dx and t["Y"] == s["Y"] + dy and t.get("Passable")), None)
+                if st:
+                    cands.append((d, abs(st["X"] - cur[0]) + abs(st["Y"] - cur[1]), s, st))
+                    break
+        if not cands:
+            return broken
+        cands.sort(key=lambda c: (c[0], c[1]))
+        d, sd, s, st = cands[0]
+        if not walk_until(st["X"], st["Y"], 8):
+            continue
+        tool = _tool_for(s.get("ObjectType"), s.get("Terrain"))
+        send({"actionType": "player_select_tool", "tool": tool}, 0.3)
+        send({"actionType": "player_face_tile", "x": s["X"], "y": s["Y"]}, 0.3)
+        for _ in range(4):
+            send({"actionType": "player_use_tool", "tool": tool, "x": s["X"], "y": s["Y"]}, 0.55)
+        send({"actionType": "collect_debris"}, 0.4)
+        broken += 1
+        log(f"  清障碍 {s['X']},{s['Y']} ({s.get('ObjectType') or s.get('Terrain')})")
+    return broken
 
 
 def route_to(start, target):

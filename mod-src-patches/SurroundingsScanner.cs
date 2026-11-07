@@ -148,6 +148,11 @@ namespace StardewMCPBridge
                 interactable = IsInteractable(obj);
             }
 
+            // 有物体的格子（石头/杂草/树枝/机器等）玩家走不进去，统一标成不可通行
+            if (objectName != null) passable = false;
+            // 树/灌木也挡路
+            if (terrainType == "tree" || terrainType == "bush") passable = false;
+
             // 包含所有格子（含可通行空地），方便上层做寻路/找水边
             bool hasContent = terrainType != null || objectName != null || isWater || !passable;
             if (!hasContent && !passable) return null;

@@ -83,6 +83,12 @@ def load_game(timeout_attempts=6):
     return False
 
 
+def walk_until(tx, ty, timeout=12):
+    import subprocess
+    send = {"x": tx, "y": ty}
+    return send
+
+
 if __name__ == "__main__":
     ok = load_game()
     print("load_game:", ok)

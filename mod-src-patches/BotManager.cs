@@ -630,6 +630,27 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "find_action":
+                    {
+                        try
+                        {
+                            string needle = root.TryGetProperty("needle", out var nd) ? nd.GetString() : "Mine";
+                            var fa = Game1.player.currentLocation;
+                            int fw = fa.Map.Layers[0].LayerWidth, fh = fa.Map.Layers[0].LayerHeight;
+                            var found = new System.Collections.Generic.List<string>();
+                            for (int yy = 0; yy < fh; yy++)
+                                for (int xx = 0; xx < fw; xx++)
+                                {
+                                    var act = fa.doesTileHaveProperty(xx, yy, "Action", "Buildings");
+                                    if (!string.IsNullOrEmpty(act) && act.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0)
+                                        found.Add($"{xx},{yy}={act}");
+                                }
+                            this.monitor.Log($"FINDACTION {fa.Name}: " + string.Join(" | ", found), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("find_action err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "set_tile":
                     {
                         try
