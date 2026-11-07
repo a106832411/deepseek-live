@@ -13,7 +13,8 @@ const MENU = [
   { title: '形象与画面', icon: '🎭', items: [
     { key: 'live2d', label: 'Live2D 皮套', icon: '🎙' },
     { key: 'overlay', label: 'OBS 叠加层', icon: '🖼' },
-      { key: 'obs', label: 'OBS 一键配置', icon: '🎬' }
+      { key: 'obs', label: 'OBS 一键配置', icon: '🎬' },
+    { key: 'stardew', label: '星露谷状态', icon: '🎮' }
   ] },
   { title: '互动玩法', icon: '🎁', items: [
     { key: 'songs', label: '点歌队列', icon: '🎵' },
@@ -414,6 +415,8 @@ onUnmounted(() => {
                 <a :href="API + '/console'" target="_blank">🖥 网页控制台 <span>/console</span></a>
                 <a :href="API + '/overlay'" target="_blank">💬 弹幕层 <span>/overlay</span></a>
                 <a :href="API + '/songs'" target="_blank">🎵 歌单 <span>/songs</span></a>
+                <a :href="API + '/stats'" target="_blank">📈 本场统计 <span>/stats</span></a>
+                <a :href="API + '/stardew'" target="_blank">🎮 星露谷状态 <span>/stardew</span></a>
                 <a :href="API + '/live2d'" target="_blank">🎭 皮套 <span>/live2d</span></a>
                 <a href="https://github.com/a106832411/deepseek-live" target="_blank">📦 仓库 <span>GitHub</span></a>
               </div>
@@ -476,10 +479,26 @@ onUnmounted(() => {
 
         <!-- 叠加层 -->
         <div v-if="current === 'overlay'" class="card">
-          <div class="card-head"><h2>OBS 叠加层</h2><span class="hint">弹幕层 / 歌单</span></div>
+          <div class="card-head"><h2>OBS 叠加层</h2><span class="hint">弹幕层 / 歌单 / 本场统计 / 星露谷状态</span></div>
           <div class="frames">
             <div class="fcol"><div class="flabel">弹幕层 <code>/overlay</code></div><iframe :key="'ov' + iframeKey" class="frame" :src="API + '/overlay'"></iframe></div>
             <div class="fcol"><div class="flabel">歌单 <code>/songs</code></div><iframe :key="'sg' + iframeKey" class="frame" :src="API + '/songs'"></iframe></div>
+            <div class="fcol"><div class="flabel">本场统计 <code>/stats</code></div><iframe :key="'st' + iframeKey" class="frame" :src="API + '/stats'"></iframe></div>
+            <div class="fcol"><div class="flabel">星露谷状态 <code>/stardew</code></div><iframe :key="'sd' + iframeKey" class="frame" :src="API + '/stardew'"></iframe></div>
+          </div>
+        </div>
+
+        <!-- 星露谷状态 -->
+        <div v-if="current === 'stardew'" class="card">
+          <div class="card-head"><h2>星露谷 AI 状态</h2><span class="hint">OBS 浏览器源：{{ API }}/stardew 或 http://127.0.0.1:8790/stardew</span></div>
+          <div class="row" style="margin-bottom:12px">
+            <a :href="API + '/stardew'" target="_blank">新窗口打开</a>
+            <a href="http://127.0.0.1:8790/stardew" target="_blank">独立状态服务（OBS 推荐）</a>
+          </div>
+          <iframe :key="'stardew' + iframeKey" class="frame" style="height:420px" :src="API + '/stardew'"></iframe>
+          <div class="hint-text">
+            · OBS 里加「浏览器源」→ URL 填 <code>http://127.0.0.1:8790/stardew</code>，宽 480 高 300 放左下角<br>
+            · 也可以直接用一键脚本：<code>node scripts/add_stardew_obs.cjs</code>
           </div>
         </div>
 
