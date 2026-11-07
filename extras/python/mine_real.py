@@ -117,7 +117,8 @@ def mine_rocks(max_rocks=5):
         if not now or now.get("Passable"):
             mined += 1
             log(f"  敲碎 {target['X']},{target['Y']}（第 {mined} 块）")
-            nav2.send({"actionType": "collect_debris"}, 0.4)
+            time.sleep(1.5)
+            nav2.send({"actionType": "collect_debris", "radius": 4}, 0.6)
         else:
             log(f"  {target['X']},{target['Y']} 还没碎，再敲")
     log(f"  挖矿完成：{mined} 块，金币 {((nav2.rd() or {}).get('player') or {}).get('money')}")

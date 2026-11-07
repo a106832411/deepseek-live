@@ -2017,6 +2017,7 @@ namespace StardewMCPBridge
                 case "collect_debris":
                     {
                         int picked = 0;
+                        int radius = root.TryGetProperty("radius", out var rr) ? rr.GetInt32() : 3;
                         var dloc = Game1.player.currentLocation;
                         if (dloc != null)
                         {
@@ -2024,6 +2025,17 @@ namespace StardewMCPBridge
                             {
                                 try
                                 {
+                                    // 只捡附近地上的掉落，别把全地图掉落一次吸走
+                                    try
+                                    {
+                                        var pf = d.GetType().GetField("position");
+                                        if (pf != null)
+                                        {
+                                            var pv = (Vector2)pf.GetValue(d);
+                                            if (Vector2.Distance(pv, Game1.player.Position) > radius * 64f) continue;
+                                        }
+                                    }
+                                    catch { }
                                     if (d.item != null && Game1.player.addItemToInventoryBool(d.item)) { picked++; d.item = null; }
                                 }
                                 catch { }

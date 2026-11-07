@@ -454,9 +454,10 @@ def break_obstacles(tx, ty, max_break=25):
             if not still:
                 gone = True
                 break
-        time.sleep(1.2)
-        send({"actionType": "collect_debris"}, 0.6)
-        send({"actionType": "collect_debris"}, 0.5)
+        # 等树/石头倒下落地，再捡附近的木头/石头
+        time.sleep(2.2)
+        send({"actionType": "collect_debris", "radius": 4}, 0.7)
+        send({"actionType": "collect_debris", "radius": 4}, 0.6)
         if gone:
             broken += 1
             log(f"  已清 {s['X']},{s['Y']} ({s.get('ObjectType') or s.get('Terrain')})")
