@@ -20,8 +20,9 @@ const PUBLIC = path.join(ROOT, 'public');
 const LOG_DIR = path.join(ROOT, 'logs');
 fs.mkdirSync(LOG_DIR, { recursive: true });
 
+let LOG_TAG = '';
 function log(msg) {
-  const line = `[${new Date().toISOString().slice(11, 19)}] ${msg}`;
+  const line = `[${new Date().toISOString().slice(11, 19)}]${LOG_TAG ? ' ' + LOG_TAG : ''} ${msg}`;
   console.log(line);
   try {
     fs.appendFileSync(path.join(LOG_DIR, 'app.log'), line + '\n');
@@ -171,7 +172,7 @@ const DEFAULT_CONFIG = {
     bpm: 92,
     vibrato: true,
     gap_ms: 320,
-    filler: '我清清嗓子，准备开唱啦～',
+    filler: '我清清嗓子，准备开唱啦～歌词有点长，我再看一眼～马上就好，再等我一下下～',
     pick_list: ['小星星', '生日快乐', '月亮代表我的心', '童年', '后来', '稻香', '晴天', '童话', '勇气', '宁夏']
   }
 };
@@ -217,7 +218,7 @@ const state = {
   ttsQueue: Promise.resolve(),
   speaking: false,
   playback: null,
-  song: { current: null, queue: [], seen: {}, playing: false, skip: false }
+  song: { current: null, queue: [], seen: {}, playing: false, skip: false, skipUntil: 0, inflight: 0 }
 };
 
 function pushRecent(kind, name, text) {
@@ -902,9 +903,15 @@ async function performSing(item) {
   const cfg = config.sing || {};
   const song = item.song;
   state.song.skip = false;
-  // 从排队里拿出来，进入"正在清唱"
+  // 先从排队里拿出来（取消分支也要摘掉，避免幽灵队列项）
   const qi = state.song.queue.indexOf(item);
   if (qi >= 0) state.song.queue.splice(qi, 1);
+  if (item.skipped || Date.now() < (state.song.skipUntil || 0)) {   // 排队期间/点歌刚发出时就被「跳过」了
+    state.song.skipUntil = 0;
+    log(`清唱已取消（排队时跳过）: 《${song.name}》`);
+    wsBroadcast({ kind: 'sing', action: 'end', t: Date.now() });
+    return;
+  }
   state.song.current = {
     name: song.name, artist: song.artist, by: item.by, source: item.source,
     lyrics: item.lyrics.slice(), lyricIndex: 0, audio: null, duration: 0, t: Date.now()
@@ -917,13 +924,16 @@ async function performSing(item) {
   const prepP = Promise.resolve(item.prep || prepareSing(item)).then((x) => { prepDone = true; return x; });
   if (cfg.intro !== false) await ttsSpeak(`一首《${song.name}》，清唱版，献丑啦～`);
   if (state.song.skip) { state.song.skip = false; wsBroadcast({ kind: 'sing', action: 'end', t: Date.now() }); return; }
-  // 还没合成完就垫一句，避免十几秒静音
-  if (!prepDone && cfg.filler !== false) {
-    await ttsSpeak(String(cfg.filler || '我清清嗓子，准备开唱啦～'));
+  // 还没合成完就垫一句，避免十几秒静音（合成慢就循环垫，最多 2 次）
+  const fillerText = String((cfg.filler === false ? '' : cfg.filler) || '我清清嗓子，准备开唱啦～歌词有点长，我再看一眼～马上就好，再等我一下下～');
+  for (let i = 0; i < 2 && !prepDone && fillerText; i++) {
+    await ttsSpeak(fillerText);
     if (state.song.skip) { state.song.skip = false; wsBroadcast({ kind: 'sing', action: 'end', t: Date.now() }); return; }
   }
 
   const prep = await prepP;
+  // 合成等待期间点了跳过：合成出来也别唱了
+  if (state.song.skip) { state.song.skip = false; wsBroadcast({ kind: 'sing', action: 'end', t: Date.now() }); return; }
   const timing = prep && prep.timing;
   const outWav = prep && prep.outWav;
   if (timing && timing.lines && timing.lines.length && outWav) {
@@ -963,6 +973,15 @@ async function performSing(item) {
 }
 
 async function requestSing(name, query) {
+  state.song.inflight = (state.song.inflight || 0) + 1;
+  try {
+    return await doRequestSing(name, query);
+  } finally {
+    state.song.inflight = Math.max(0, (state.song.inflight || 1) - 1);
+  }
+}
+
+async function doRequestSing(name, query) {
   const cfg = config.sing || {};
   const songsCfg = config.songs || {};
   if (songsCfg.enabled === false || cfg.enabled === false) {
@@ -1013,12 +1032,29 @@ async function requestSing(name, query) {
 }
 
 function skipSong() {
-  state.song.skip = true;
-  if (state.playback) {
-    try { state.playback.kill(); } catch (e) {}
-    state.playback = null;
+  // 还在排队（报幕/等待中，current 未建立）：直接把下一首从队列里去掉
+  if (!state.song.current && state.song.queue.length) {
+    const dropped = state.song.queue.shift();
+    dropped.skipped = true;
+    log(`跳过排队中的清唱: 《${dropped.song.name}》`);
+    return { ok: true, skipped: dropped.song.name };
   }
-  log('清唱跳过');
+  if (state.song.current) {
+    state.song.skip = true;
+    if (state.playback) {
+      try { state.playback.kill(); } catch (e) {}
+      state.playback = null;
+    }
+    log('清唱跳过');
+    return { ok: true };
+  }
+  // 什么都没在唱（比如点歌刚发出、还在查歌词）：3 秒内到达的第一首直接取消
+  if (state.song.inflight > 0) {
+    state.song.skipUntil = Date.now() + 3000;
+    log('清唱跳过（3 秒内新开始的清唱会取消）');
+  } else {
+    log('清唱跳过：当前没有在唱的歌');
+  }
   return { ok: true };
 }
 
@@ -1058,12 +1094,39 @@ async function handleEvent(ev) {
   // 点歌 / 唱歌 / 清唱：弹幕命令优先处理（在固定回复之前）
   if (ev.type === 'danmaku' && ev.text) {
     const text = String(ev.text).trim();
-    let m = text.match(/^[/／]?\s*(?:点歌|點歌|清唱|唱歌|唱一首|唱一个|来一首|来首)\s*[:：]?\s*(.*?)\s*$/);
-    if (!m) m = text.match(/^[/／]?\s*唱\s+(.+?)\s*$/);
-    if (m) {
-      const query = String(m[1] || '').trim().replace(/^[《「"']|[》」"']$/g, '');
+    let query = null;
+    let m = text.match(/^[/／]?\s*(?:点歌|點歌|清唱)\s*[:：]?\s*(.*?)\s*$/);
+    if (m) query = m[1];
+    if (query === null) {
+      // 「唱歌」类：必须用冒号/空格分隔歌名，避免「唱歌比赛开始了吗」这类闲聊被当成点歌
+      m = text.match(/^[/／]?\s*(?:唱歌|唱一首|唱一个|来一首|来首|唱)\s*[:：]\s*(.*?)\s*$/);
+      if (m) query = m[1];
+    }
+    if (query === null) {
+      m = text.match(/^[/／]?\s*(?:唱歌|唱一首|唱一个|来一首|来首)\s+(.+?)\s*$/);
+      if (m) query = m[1];
+    }
+    if (query === null) {
+      m = text.match(/^[/／]?\s*唱\s+(.+?)\s*$/);
+      if (m) query = m[1];
+    }
+    if (query === null) {
+      m = text.match(/^[/／]?\s*(?:点歌|點歌|清唱|唱歌|唱一首|唱一个|来一首|来首|唱)\s*$/);
+      if (m) query = '';
+    }
+    if (query !== null) {
+      query = String(query).replace(/^[《「"'（(]/, '').replace(/[》」"'）)]$/, '').trim();
       if (singMode) {
-        requestSing(ev.name, query).catch((e) => log('清唱异常: ' + e.message));
+        requestSing(ev.name, query).then((r) => {
+          if (!r || r.ok !== false) return;
+          // 已经由 requestSing 语音提示过的不重复说
+          const short = {
+            '本场已唱过': `${ev.name}，这首本场唱过啦，换一首吧～`,
+            '清唱已关闭': '清唱暂时关掉啦，等会儿再唱～',
+            '空歌名': '想听哪首呀？说个歌名给我～'
+          }[r.error];
+          if (short) enqueueSpeech(short).catch(() => {});
+        }).catch((e) => log('清唱异常: ' + e.message));
         return;
       }
       // 旧行为：播放原曲
@@ -1076,13 +1139,13 @@ async function handleEvent(ev) {
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.appendFileSync(file, JSON.stringify({ t: new Date().toTimeString().slice(0, 8), name: ev.name, query }) + '\n');
         log('点歌转交: ' + ev.name + ' -> ' + query);
-        await enqueueSpeech(`收到${ev.name}点的歌，去排队啦！`);
+        enqueueSpeech(`收到${ev.name}点的歌，去排队啦！`).catch(() => {});
       } catch (e) { log('点歌写入失败: ' + e.message); }
       return;
     }
     // 跳过当前清唱 / 切歌
     if (/^[/／]?\s*(?:跳过|切歌|别唱了|不唱了|stop|skip)\s*$/i.test(text)) {
-      if (state.song.current || state.song.queue.length) {
+      if (state.song.current || state.song.queue.length || state.song.inflight > 0) {
         skipSong();
         enqueueSpeech(`好，那这首就唱到这儿～`).catch(() => {});
         return;
@@ -1322,6 +1385,7 @@ function serveFile(res, name) {
 // ---------------- 启动 ----------------
 function start(port) {
   port = resolvePort(port);
+  LOG_TAG = '[p' + port + ']';
   loadConfig();
   const server = http.createServer((req, res) => {
     route(req, res).catch((e) => {

@@ -72,7 +72,15 @@ def mine_rocks(max_rocks=5):
             log("  不在矿里，停止挖矿")
             break
         tiles = _tiles(b)
-        targets = [t for t in tiles if t.get("Breakable") and not t.get("Passable")]
+        targets = []
+        for t in tiles:
+            if not (t.get("Breakable") and not t.get("Passable")):
+                continue
+            if nav2.needs_upgrade(t.get("ObjectType")):
+                nav2.mark_needs_upgrade(t["X"], t["Y"], (b or {}).get("location") or "?",
+                                        "需要升级镐子（巨石）")
+                continue
+            targets.append(t)
         if not targets:
             log("  附近没石头了")
             break

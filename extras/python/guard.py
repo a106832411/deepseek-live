@@ -198,7 +198,8 @@ def try_smelt():
         tiles = (b.get("surroundings") or {}).get("Tiles") or []
         furnace = next((t for t in tiles if t.get("ObjectType") == "machine" and "熔炉" in str(t.get("ObjectName"))), None)
         if not furnace and stone >= 25 and ore >= 20:
-            nav2.send({"actionType": "craft_item", "name": "Furnace"}, 1.2)
+            nav2.send({"actionType": "learn_recipe", "name": "Furnace"}, 0.8)
+            nav2.send({"actionType": "craft_item", "item": "Furnace"}, 1.2)
             log("  试着做了个熔炉")
             return False
         if furnace:

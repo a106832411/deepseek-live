@@ -58,7 +58,8 @@ def chops_for_wood(need=50):
 def make_chest():
     if count("木材") < 50:
         return False
-    nav2.send({"actionType": "craft_item", "name": "Chest"}, 1.5)
+    nav2.send({"actionType": "learn_recipe", "name": "Chest"}, 0.8)
+    nav2.send({"actionType": "craft_item", "item": "Chest"}, 1.5)
     log(f"  做箱子后 木材={count('木材')} 背包={[i['name'] for i in inv()]}")
     return count("箱子") > 0 or count("Chest") > 0
 
@@ -95,7 +96,8 @@ def make_furnace():
     if count("石头") < 25 or count("铜矿石") < 20:
         log("  材料不够做熔炉")
         return False
-    nav2.send({"actionType": "craft_item", "name": "Furnace"}, 1.5)
+    nav2.send({"actionType": "learn_recipe", "name": "Furnace"}, 0.8)
+    nav2.send({"actionType": "craft_item", "item": "Furnace"}, 1.5)
     log(f"  做熔炉后 石头={count('石头')} 铜矿={count('铜矿石')} 背包={[i['name'] for i in inv()]}")
     return True
 

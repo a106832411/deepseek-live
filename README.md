@@ -2,11 +2,12 @@
 
 开源 AI 虚拟主播直播控制台：抖音弹幕接入 → DeepSeek 生成回复 → TTS 语音播报 → Live2D 皮套 + OBS 网页叠加层，全部自托管。
 
-- **零依赖核心**：`app/main/core.cjs` 只用 Node 标准库，HTTP + WebSocket + AI + TTS + 点歌全在里面
+- **零依赖核心**：`app/main/core.cjs` 只用 Node 标准库，HTTP + WebSocket + AI + TTS + 点歌/清唱全在里面
 - **桌面控制台**：Electron 主进程拉起核心服务，渲染层通过 IPC 控制（也可纯网页使用）
 - **实时皮套**：pixi.js + pixi-live2d-display（Cubism 4），说话时自动口型、随机表情
-- **多音源点歌**：网易云 + QQ 音乐，自动回退
-- **OBS 友好**：`/live2d` `/overlay` `/songs` 三个透明网页源
+- **清唱点歌**：弹幕点歌 → AI 用自己的 TTS 声音清唱（抓歌词 → 逐句合成 → WORLD 加旋律 → 串成一首），
+  不播原曲、无版权风险；旧版「播放原曲」保留（`songs.perform=play`），见 [docs/清唱.md](docs/清唱.md)
+- **OBS 友好**：`/live2d` `/overlay` `/songs` `/subtitle` 透明网页源
 
 ## 目录结构
 
@@ -18,7 +19,7 @@ electron/preload.cjs   渲染层 API（window.whale.invoke）
 src/                   Vue 3 控制台（Vite 构建）
 public/                免构建页面：console/dashboard/live2d/overlay/songs
 server/index.cjs       纯 Node 启动入口（无 Electron）
-extras/python/         可选增强脚本（点歌/合成/游戏画面等）
+extras/python/         可选增强脚本（清唱音频管线 sing_tts.py/点歌/合成/游戏画面等）
 ```
 
 ## 快速开始
@@ -62,13 +63,41 @@ copy .env.example .env      # Linux/macOS: cp
 | `DEEPLIVE_TTS_REF_AUDIO` / `DEEPLIVE_TTS_PROMPT_TEXT` | 参考音频路径与对应文字 |
 | `DEEPLIVE_TTS_SPEED` / `_STEPS` / `_TOP_K` / `_TEMPERATURE` | 合成参数 |
 | `DEEPLIVE_DOUYIN_MODE` / `DEEPLIVE_DOUYIN_RID` | 抖音接入方式（relay/browser）与房间号 |
-| `DEEPLIVE_SONGS_ENABLED` / `_SOURCES` / `_MAX_QUEUE` | 点歌开关、音源顺序、队列长度 |
+| `DEEPLIVE_SONGS_ENABLED` / `_SOURCES` / `_MAX_QUEUE` | 点歌/清唱开关、音源顺序（play 模式）、队列长度 |
+| `DEEPLIVE_SONGS_PERFORM` | 唱歌方式：`sing` 清唱（默认）/ `play` 播放原曲（旧行为） |
+| `DEEPLIVE_SING_ENABLED` / `_MODE` / `_LYRICS` | 清唱开关、唱法 `melody`（带旋律）/`read`（纯念唱）、歌词来源 `netease`（抓原词）/`ai`（AI 现编） |
+| `DEEPLIVE_SING_MAX_LINES` / `_MAX_CHARS` | 每首唱几句（默认 6）、整首歌词字数上限（默认 100） |
+| `DEEPLIVE_SING_INTRO` / `_OUTRO` / `_FILLER` | 开唱报幕 / 唱完道谢 / 合成等待时的垫话（`false` 可关） |
+| `DEEPLIVE_SING_MELODY` / `_BPM` / `_VIBRATO` / `_GAP_MS` | 旋律（auto/xiaoxingxing/shengri/folk1/folk2）、节拍、颤音、句间停顿 |
 | `DEEPLIVE_OBS_HOST` / `_PORT` / `_PASSWORD` | OBS WebSocket 地址（默认 4455）与密码 |
 | `DEEPLIVE_OBS_SCENE` / `_BG` | 自动创建的场景名、背景色（hex） |
 | `DEEPLIVE_MERGE_WINDOW` | 同用户事件合并窗口（秒） |
 | `DEEPLIVE_FILTER_BLOCKLIST` | 弹幕过滤词，逗号分隔 |
 
 优先级：**真实环境变量 > `.env` > `config.json` > 内置默认值**。
+
+> 注意：清唱参数如果在 `.env` 里写了（如 `DEEPLIVE_SING_FILLER`），会覆盖 `config.json`/控制台里改的值。
+
+## 清唱（唱歌 = 用主播自己的声音清唱）
+
+默认 `songs.perform=sing`：弹幕点歌不再播放原曲，而是抓网易云歌词 → 逐句 TTS 合成 →
+WORLD 给每句加旋律 → 串成一首无伴奏清唱，播报/字幕/皮套口型全部跟着 timing 走。
+
+```bash
+# 弹幕里发（全角斜杠/冒号/书名号都兼容）
+唱歌                 # 不带歌名：从 sing.pick_list 随机
+唱歌 稻香            # 「唱歌/唱一首/来一首」类需要空格或冒号分隔歌名
+清唱 晴天
+点歌 七里香
+/点歌 宁夏
+跳过                 # 跳过当前清唱 / 排队中的下一首
+```
+
+- 需要本地 **GPT-SoVITS TTS**（见下文「依赖服务」）；参考音配 `DEEPLIVE_TTS_REF_AUDIO`。
+- 控制台「清唱队列」看当前/排队，「配置 → 🎤 清唱」改唱法（melody/read）、歌词来源、句数、BPM、垫话等。
+- 想回到旧行为（播原曲）：`.env` 里 `DEEPLIVE_SONGS_PERFORM=play` 或控制台「表演模式 → 播放原曲」，
+  旧接口/旧状态形状都保留。
+- 详细原理、参数、API、排障见 **[docs/清唱.md](docs/清唱.md)**。
 
 ## 地址
 
@@ -77,7 +106,8 @@ copy .env.example .env      # Linux/macOS: cp
 | `/console` | 完整控制台（网页版） |
 | `/live2d` | Live2D 皮套（OBS 浏览器源，透明） |
 | `/overlay` | 弹幕层（OBS 浏览器源） |
-| `/songs` | 点歌列表（OBS 浏览器源） |
+| `/songs` | 清唱列表 / 当前歌词（OBS 浏览器源） |
+| `/subtitle` | 清唱歌词字幕条（OBS 浏览器源） |
 | `/dashboard` | 精简控制台 |
 
 ## 星露谷 AI（本地模型）
@@ -125,7 +155,7 @@ curl -X POST http://127.0.0.1:8788/api/obs/setup   -d '{}'   # 一键建场景
 3. 加 3 个浏览器源并按画布自动摆位（横屏/竖屏自动判断）：
    - 皮套 `/live2d?scale=0.95`
    - 弹幕层 `/overlay`
-   - 歌单 `/songs`
+   - 清唱列表 `/songs`（需要歌词字幕可再加一个 `/subtitle`）
 4. 切到该场景
 
 需要在 OBS 里开启：**工具 → WebSocket 服务器设置 → 启用**，把端口/密码填进 `.env` 或控制台。
@@ -139,14 +169,15 @@ curl -X POST http://127.0.0.1:8788/api/obs/setup   -d '{}'   # 一键建场景
 | POST | `/api/say` | 手动让主播说话（走 TTS） |
 | GET/POST | `/api/config` | 读/改配置（即时生效） |
 | POST | `/api/test_event` | 注入测试事件 |
-| GET | `/api/songs/state` | 点歌队列 |
-| POST | `/api/songs/request` | 点歌 `{name, query}` |
-| WS | `/ws` | 事件/回复/日志/状态推送 |
+| GET | `/api/songs/state` | 清唱状态 `{mode:'sing', sing{enabled,style,lyrics}, current{lyrics,lyricIndex,audio,duration}, queue}`（`perform=play` 时返回旧形状） |
+| POST | `/api/songs/request` | 点歌/清唱 `{name, query}`；返回 `{ok, position, song}` |
+| POST | `/api/songs/skip` | 跳过（正在唱→打断；排队→删队首；查歌词窗口→3 秒内取消；空闲→无操作），见 [docs/清唱.md](docs/清唱.md) |
+| WS | `/ws` | 事件/回复/日志/状态推送；清唱事件 `sing start/line/end`、`song queued` |
 
 ## 桌面版特性
 
-- 左侧菜单树控制台（会话 / 事件 / 配置 / 皮套 / 叠加层 / 歌单 / 点歌 / 说话）
-- 全部配置表单化（AI、TTS、事件触发、固定回复、过滤词、点歌音源），也支持高级 JSON 编辑
+- 左侧菜单树控制台（会话 / 事件 / 配置 / 皮套 / 叠加层 / 清唱队列 / 说话）
+- 全部配置表单化（AI、TTS、事件触发、固定回复、过滤词、清唱/点歌），也支持高级 JSON 编辑
 - 黑金主题，可二次开发换肤
 
 ## 依赖服务
@@ -154,7 +185,7 @@ curl -X POST http://127.0.0.1:8788/api/obs/setup   -d '{}'   # 一键建场景
 | 服务 | 用途 |
 |---|---|
 | DeepSeek API | AI 回复 |
-| GPT-SoVITS（可选） | 语音克隆 TTS；不可用时自动降级 edge-tts |
+| GPT-SoVITS（清唱必需） | 语音克隆 TTS（9881 代理 → 9882）：说话和清唱都用它；TTS 不通时清唱会退化成逐句念唱/无声，但不会卡队列 |
 | OBS Studio（可选） | 直播推流与叠加层合成 |
 | 抖音中继脚本（可选） | 弹幕采集后 POST 到 `/api/douyin/ingest` |
 

@@ -11,6 +11,11 @@ namespace StardewMCPBridge
 {
     public class BotManager
     {
+        public static void ResetFarmerPose()
+        {
+            try { Game1.player.UsingTool = false; Game1.player.canMove = true; } catch { }
+            try { Game1.player.FarmerSprite.StopAnimation(); } catch { }
+        }
         private readonly IMonitor monitor;
         private readonly IModHelper helper;
         private readonly Dictionary<string, CompanionAI> companions = new Dictionary<string, CompanionAI>();
@@ -742,6 +747,17 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "farmer_state":
+                    {
+                        try
+                        {
+                            var fs = Game1.player.FarmerSprite;
+                            this.monitor.Log($"farmer_state usingTool={Game1.player.UsingTool} canMove={Game1.player.canMove} frame={fs.CurrentFrame} shirt={Game1.player.shirtItem?.Name} pants={Game1.player.pantsItem?.Name}", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("farmer_state err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "dump_tools":
                     {
                         try
@@ -923,6 +939,7 @@ namespace StardewMCPBridge
                             if (mi == null) { this.monitor.Log($"use_item_at: {nm3} 没有 DoFunction", LogLevel.Warn); break; }
                             mi.Invoke(it4, new object[] { Game1.player.currentLocation, ix3 * 64 + 32, iy3 * 64 + 32, 1, Game1.player });
                             this.monitor.Log($"used {nm3} at ({ix3},{iy3})", LogLevel.Info);
+                            ResetFarmerPose();
                         }
                         catch (Exception ex) { this.monitor.Log("use_item_at err: " + ex.Message, LogLevel.Warn); }
                         break;
@@ -1408,6 +1425,7 @@ namespace StardewMCPBridge
                                 Game1.player.CurrentToolIndex = Game1.player.Items.IndexOf(tool);
                                 tool.DoFunction(mineLoc, tx * 64, ty * 64, tool.UpgradeLevel + 1, Game1.player);
                                 this.monitor.Log($"Mined at ({tx},{ty})", LogLevel.Info);
+                                ResetFarmerPose();
                             }
                             else this.monitor.Log("no pickaxe", LogLevel.Warn);
                         }

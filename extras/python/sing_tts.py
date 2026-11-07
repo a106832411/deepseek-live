@@ -369,8 +369,10 @@ def melody_phrases(name, seed):
         return [list(p) for p in _MELODY_XX]
     if name == "shengri":
         return [list(p) for p in _MELODY_SR]
-    tpl = [list(p) for p in _FOLK_TEMPLATES[int(seed) % len(_FOLK_TEMPLATES)]]
-    rot = (int(seed) // 7) % len(tpl)
+    # folk1 / folk2：同一套原创五声音阶模板，用 seed 偏移选不同走向（保证两档听感不同）
+    offset = 2 if name == "folk2" else 0
+    tpl = [list(p) for p in _FOLK_TEMPLATES[(int(seed) + offset) % len(_FOLK_TEMPLATES)]]
+    rot = (int(seed) // 7 + (1 if name == "folk2" else 0)) % len(tpl)
     return tpl[rot:] + tpl[:rot]
 
 
@@ -637,8 +639,8 @@ def build_parser():
     p.add_argument("--speed", type=float, default=0.95, help="TTS 语速（默认 0.95）")
     p.add_argument("--mode", choices=["melody", "read"], default="melody",
                    help="melody=带旋律清唱（默认）/ read=纯念唱")
-    p.add_argument("--melody", choices=["auto", "xiaoxingxing", "shengri", "folk1"], default="auto",
-                   help="旋律：auto=按 seed 选（默认）/ 小星星 / 生日快乐 / 原创五声音阶")
+    p.add_argument("--melody", choices=["auto", "xiaoxingxing", "shengri", "folk1", "folk2"], default="auto",
+                   help="旋律：auto=按 seed 选（默认）/ 小星星 / 生日快乐 / 原创五声音阶 folk1、folk2")
     p.add_argument("--bpm", type=float, default=92.0, help="节拍，用于音头轻量化吸附（默认 92）")
     p.add_argument("--vibrato", type=float, default=1.0, help="颤音强度倍数（0~2，默认 1 => ±20 音分）")
     p.add_argument("--gap-ms", type=int, default=320, help="句间间隔毫秒（默认 320）")

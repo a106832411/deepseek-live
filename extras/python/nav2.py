@@ -5,6 +5,31 @@ import time
 BRIDGE = r"E:\steam\steamapps\common\Stardew Valley\Mods\StardewMCPBridge"
 BRIDGE_FILE = os.path.join(BRIDGE, "bridge_data.json")
 ACTION_DIR = os.path.join(BRIDGE, "actions")
+MARK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "needs_upgrade.jsonl")
+_MARKED = set()
+
+
+def needs_upgrade(obj_type=None):
+    """大树桩/大圆木/巨石：要升级斧头/镐子才能清。"""
+    ot = (obj_type or "").lower()
+    return ot in ("clump_axe", "clump_pick")
+
+
+def mark_needs_upgrade(x, y, location, reason):
+    """记录一个需要升级工具才能清的目标（只记一次）。"""
+    key = (location, x, y)
+    if key in _MARKED:
+        return
+    _MARKED.add(key)
+    try:
+        os.makedirs(os.path.dirname(MARK_FILE), exist_ok=True)
+        import json as _json
+        with open(MARK_FILE, "a", encoding="utf-8") as f:
+            f.write(_json.dumps({"location": location, "x": x, "y": y, "reason": reason,
+                                 "time": time.strftime("%Y-%m-%d %H:%M:%S")}, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+    log(f"  标记跳过 ({x},{y})：{reason}")
 SEQ = 0
 
 SAFE = {
@@ -391,6 +416,10 @@ def break_obstacles(tx, ty, max_break=25):
                 continue
             key = (s2["X"], s2["Y"])
             if tried.get(key, 0) >= 2:
+                continue
+            if needs_upgrade(s2.get("ObjectType")):
+                mark_needs_upgrade(s2["X"], s2["Y"], (b or {}).get("location") or "?",
+                                   "需要升级斧头/镐子（大木桩/大石头）")
                 continue
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 st = next((t for t in tiles if t["X"] == s2["X"] + dx and t["Y"] == s2["Y"] + dy and t.get("Passable")), None)
