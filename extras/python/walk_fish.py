@@ -239,12 +239,13 @@ def fish_here(h, attempts=3):
             if hooked and stf.get("minigame"):
                 break
             time.sleep(0.12)
-        deadline = time.time() + 20
+        # 钩鱼后等小游戏真正弹出来（最多 8 秒）
+        deadline = time.time() + 8
         while time.time() < deadline:
             stf = (rd().get("player") or {}).get("fishing") or {}
-            if not stf.get("minigame"):
+            if stf.get("minigame"):
                 break
-            time.sleep(0.35)
+            time.sleep(0.3)
         stf = (rd().get("player") or {}).get("fishing") or {}
         if not stf.get("minigame"):
             log("  咬钩后小游戏没开，重置鱼竿重试")
