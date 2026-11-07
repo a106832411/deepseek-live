@@ -21,10 +21,13 @@ def game_window():
         if n:
             b = ctypes.create_unicode_buffer(n + 1)
             u.GetWindowTextW(h, b, n + 1)
-            if "Stardew Valley 1.6.15" in b.value and u.IsWindowVisible(h) and not u.IsIconic(h):
+            if b.value.startswith("Stardew Valley"):
+                if u.IsIconic(h):
+                    u.ShowWindow(h, 9)
+                    time.sleep(0.2)
                 r = wintypes.RECT()
                 u.GetWindowRect(h, ctypes.byref(r))
-                if r.right - r.left > 600:
+                if r.right - r.left > 600 and r.bottom - r.top > 400:
                     wins.append((h, r))
         return True
 
