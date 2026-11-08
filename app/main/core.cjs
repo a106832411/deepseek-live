@@ -912,9 +912,10 @@ function aceSettings() {
     script: String(cfg.script || 'D:/sing_gpu/ace_sing.py'),
     svcPython: String(cfg.svc_python || 'D:/seedvc/venv/Scripts/python.exe'),
     svcScript: String(cfg.svc_script || 'D:/seedvc/convert.py'),
-    duration: Math.max(8, Math.min(60, Number(cfg.duration) || 22)),
+    duration: Math.max(8, Math.min(60, Number(cfg.duration) || 20)),
     cfgRate: Number(cfg.cfg === undefined ? 0.75 : cfg.cfg),
-    steps: Math.max(10, Math.min(100, Number(cfg.steps) || 30)),
+    steps: Math.max(10, Math.min(100, Number(cfg.steps) || 25)),
+    inferSteps: Math.max(4, Math.min(60, Number(cfg.infer_steps) || 12)),
     timeoutMs: Math.max(60000, Number(cfg.timeout_sec || 600) * 1000),
     tags: Array.isArray(cfg.tags) ? cfg.tags.filter(Boolean) : [String(cfg.tags || 'female solo vocal, a cappella, no instruments, pure vocal, cute, clear diction, mandarin, 80 BPM')]
   };
@@ -957,6 +958,7 @@ async function aceGenerate(lyrics, outWav, tags, seed) {
     '--lyrics-file', linesPath,
     '--tags', tags,
     '--duration', String(ace.duration),
+    '--infer-steps', String(ace.inferSteps),
     '--seed', String(seed),
     '--out', outWav,
     '--json-out', jsonPath
@@ -1011,9 +1013,20 @@ async function prepareAce(item) {
   const tags = pickAceTags(ace);
   const seed = Math.floor(Math.random() * 999999);
   log(`真唱生成开始: 《${item.song.name}》 tags="${tags}" seed=${seed}`);
-  const gen = await aceGenerate(item.lyrics, aceWav, tags, seed);
+  // 主机内存/显存偶发紧张时（MemoryError / OOM）重试一次，避免直接掉回 TTS
+  let gen = await aceGenerate(item.lyrics, aceWav, tags, seed).catch((e) => { log('真唱 ACE 异常: ' + e.message); return null; });
+  if (!gen) {
+    log('真唱：ACE 生成失败，3 秒后重试一次');
+    await new Promise((r) => setTimeout(r, 3000));
+    gen = await aceGenerate(item.lyrics, aceWav, tags, seed).catch((e) => { log('真唱 ACE 重试异常: ' + e.message); return null; });
+  }
   if (!gen) return null;
-  const conv = await aceConvert(aceWav, outWav);
+  let conv = await aceConvert(aceWav, outWav).catch((e) => { log('真唱 SeedVC 异常: ' + e.message); return null; });
+  if (!conv) {
+    log('真唱：Seed-VC 换声失败，3 秒后重试一次');
+    await new Promise((r) => setTimeout(r, 3000));
+    conv = await aceConvert(aceWav, outWav).catch((e) => { log('真唱 SeedVC 重试异常: ' + e.message); return null; });
+  }
   if (!conv) return null;
   const dur = (await probeWavDuration(ace.svcPython, outWav)) || gen.duration;
   const timing = buildAceTiming(item.lyrics, dur);
@@ -1208,14 +1221,18 @@ async function doRequestSing(name, query) {
   const meta = await searchSongMeta(q);
   const title = (meta && meta.name) || q;
   const artist = (meta && meta.artist) || '';
+  // 真唱引擎（ACE-Step）单次生成时长有限，歌词句数/字数收一收，保证 22s 内唱得完
+  const aceMode = String(cfg.engine || 'tts') === 'ace';
+  const maxLines = aceMode ? Math.min(Number(cfg.max_lines) || 6, 4) : (Number(cfg.max_lines) || 6);
+  const maxChars = aceMode ? Math.min(Number(cfg.max_chars) || 100, 64) : (Number(cfg.max_chars) || 100);
   let lyrics = [];
   let lyricSource = 'none';
   if (cfg.lyrics !== 'ai' && meta) {
-    lyrics = pickLyricLines(await neteaseLyric(meta.id), cfg.max_lines, cfg.max_chars);
+    lyrics = pickLyricLines(await neteaseLyric(meta.id), maxLines, maxChars);
     if (lyrics.length) lyricSource = 'netease';
   }
   if (!lyrics.length) {
-    lyrics = await aiSingLyrics(title, cfg.max_lines);
+    lyrics = await aiSingLyrics(title, maxLines);
     lyricSource = 'ai';
   }
   if (!lyrics.length) {

@@ -110,7 +110,21 @@
       "宁夏"
     ],
     "v2": true,
-    "beat_scale": 0.75
+    "beat_scale": 0.75,
+    "engine": "tts",
+    "ace": {
+      "python": "D:/sing_gpu/venv/Scripts/python.exe",
+      "script": "D:/sing_gpu/ace_sing.py",
+      "svc_python": "D:/seedvc/venv/Scripts/python.exe",
+      "svc_script": "D:/seedvc/convert.py",
+      "duration": 22,
+      "cfg": 0.75,
+      "steps": 30,
+      "timeout_sec": 600,
+      "tags": [
+        "female solo vocal, a cappella, no instruments, pure vocal, cute, clear diction, mandarin, 80 BPM"
+      ]
+    }
   },
   "obs": {
     "host": "127.0.0.1",

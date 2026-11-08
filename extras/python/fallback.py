@@ -113,6 +113,16 @@ def save_crash_logs():
         return None
 
 
+def _game_process_alive():
+    try:
+        import subprocess
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq StardewModdingAPI.exe"],
+                             capture_output=True, text=True)
+        return "StardewModdingAPI" in (out.stdout or "")
+    except Exception:
+        return False
+
+
 def relaunch_game():
     """游戏窗口没了 → 重启 SMAPI 并加载存档（兜底）。
 
@@ -128,21 +138,40 @@ def relaunch_game():
     if h:
         log("兜底：已有游戏窗口，不重启")
         return gameio.load_game()
-    log("兜底：重启游戏")
-    import subprocess as _sp
-    subprocess.Popen([exe], cwd=game,
-                     stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
-                     creationflags=getattr(_sp, "DETACHED_PROCESS", 0))
-    h = None
-    for _ in range(50):
-        time.sleep(3)
-        h, r = _win()
+
+    for attempt in range(2):
+        log(f"兜底：重启游戏（第 {attempt+1} 次）")
+        import subprocess as _sp
+        subprocess.Popen([exe], cwd=game,
+                         stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                         creationflags=getattr(_sp, "DETACHED_PROCESS", 0))
+        # 先等进程起来
+        time.sleep(8)
+        if not _game_process_alive():
+            log("兜底：SMAPI 进程没起来，再试一次")
+            continue
+        # 等窗口（最多 4 分钟）
+        h = None
+        for _ in range(80):
+            time.sleep(3)
+            h, r = _win()
+            if h:
+                break
+            if bridge_age() < 15:
+                # 桥接在更新说明游戏已经在跑（可能还在标题/加载）
+                continue
+            if not _game_process_alive():
+                log("兜底：SMAPI 进程中途退出")
+                break
         if h:
-            break
-    if not h:
-        log("兜底：等待游戏窗口超时")
-        return False
-    return gameio.load_game()
+            ok = gameio.load_game()
+            if ok:
+                return True
+            log("兜底：窗口出来了但加载存档失败")
+        if bridge_age() < 15:
+            return True
+    log("兜底：重启游戏失败（已尝试 2 次）")
+    return False
 
 
 def _win():
