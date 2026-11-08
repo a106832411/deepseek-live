@@ -71,6 +71,8 @@ def main():
     last = None
     stuck = 0
     cycle = 0
+    mine_fail = 0
+    last_gain = (0, 0)
     while time.time() - START < DURATION:
         cycle += 1
         try:
@@ -95,6 +97,30 @@ def main():
             else:
                 stuck = 0
             last = cur
+
+            # 矿洞卡住检测：连续 3 轮没收获就离开矿洞去干农场活
+            gain = (st["stone"], st["copper"])
+            if "Mine" in str(st["loc"]) and gain == last_gain:
+                mine_fail += 1
+            else:
+                mine_fail = 0
+            if gain != last_gain:
+                last_gain = gain
+            if mine_fail >= 3:
+                log("  矿洞连续没收获，先离开干农场活")
+                nav2.send({"actionType": "leave_mine"}, 2.0)
+                time.sleep(3)
+                fallback.goto_or_warp("Farm")
+                nav2.set_timeout(300)
+                try:
+                    nav2.break_obstacles(64, 15, 8)
+                    nav2.cut_grass(2)
+                except TimeoutError:
+                    pass
+                finally:
+                    nav2.clear_timeout()
+                mine_fail = 0
+                continue
 
             t = st["time"] or 0
             if t >= 2100:

@@ -983,6 +983,18 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "step_tile":
+                    {
+                        try
+                        {
+                            int sx9 = root.GetProperty("x").GetInt32(), sy9 = root.GetProperty("y").GetInt32();
+                            Game1.player.Position = new Microsoft.Xna.Framework.Vector2(sx9 * 64f + 32f, sy9 * 64f + 32f);
+                            this.monitor.Log($"step_tile -> ({sx9},{sy9})", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("step_tile err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "cancel_dialogue":
                     {
                         try
