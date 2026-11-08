@@ -37,6 +37,7 @@ def ensure_ready(auto_load=True, tries=3):
                 continue
             return False
         nav2.live()
+        nav2.send({"actionType": "cancel_dialogue"}, 0.4)
         nav2.send({"actionType": "force_unpause"}, 0.5)
         # 踩在出口格上容易卡在过图状态：主动触发一次过图
         try:

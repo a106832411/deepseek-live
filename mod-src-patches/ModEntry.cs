@@ -267,6 +267,7 @@ namespace StardewMCPBridge
                 {
                     time = Game1.timeOfDay,
                     day = Game1.dayOfMonth,
+                    dialogueUp = Game1.dialogueUp,
                     ladderSpawned = GetMineField("ladderHasSpawned"),
                     ladderPosText = GetMineField("netTileBeneathLadder")?.ToString(),
                     ladderX = GetMinePoint("netTileBeneathLadder", true),

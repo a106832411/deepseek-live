@@ -79,6 +79,7 @@ def main():
                 log("  游戏没就绪，等 30 秒")
                 time.sleep(30)
                 continue
+            nav2.send({"actionType": "cancel_dialogue"}, 0.3)
             st = state()
             log(f"[{cycle}] {st['loc']} day={st['day']} {st['time']} 金={st['money']} 石={st['stone']} 铜={st['copper']} 木={st['wood']} 铜锭={st['bars']} 熔炉={st['furnace']}")
 

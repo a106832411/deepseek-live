@@ -777,6 +777,23 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "find_ladder_pos":
+                    {
+                        try
+                        {
+                            var lm = Game1.currentLocation?.GetType().GetMethod("findLadder",
+                                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                            if (lm != null)
+                            {
+                                var res = lm.Invoke(Game1.player.currentLocation, null);
+                                this.monitor.Log($"FINDLADDER -> {res}", LogLevel.Info);
+                            }
+                            else this.monitor.Log("FINDLADDER: 方法不存在", LogLevel.Warn);
+                        }
+                        catch (Exception ex) { this.monitor.Log("find_ladder_pos err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "dump_mineshaft":
                     {
                         try
@@ -786,6 +803,12 @@ namespace StardewMCPBridge
                             var parts = new System.Collections.Generic.List<string>();
                             for (var t0 = locM.GetType(); t0 != null && t0 != typeof(object); t0 = t0.BaseType)
                             {
+                                foreach (var mi in t0.GetMethods(bt))
+                                {
+                                    string mn = mi.Name.ToLower();
+                                    if (mn.Contains("ladder") || mn.Contains("shaft") || mn.Contains("stair") || mn.Contains("exit") || mn.Contains("descend"))
+                                        parts.Add($"M {t0.Name}.{mi.Name}({string.Join(",", Array.ConvertAll(mi.GetParameters(), pp => pp.ParameterType.Name))})");
+                                }
                                 foreach (var f in t0.GetFields(bt))
                                 {
                                     string fn = f.Name.ToLower();
@@ -957,6 +980,40 @@ namespace StardewMCPBridge
                             this.monitor.Log($"give_item {idv} -> {ok} ({it?.Name}) max={Game1.player.MaxItems} count={Game1.player.Items.Count} none={Game1.player.Items.Count(x => x == null)}", LogLevel.Info);
                         }
                         catch (Exception ex) { this.monitor.Log("give_item err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "cancel_dialogue":
+                    {
+                        try
+                        {
+                            try { Game1.dialogueUp = false; } catch { }
+                            try
+                            {
+                                var bfq = System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                                foreach (var fn2 in new[] { "dialogueBox", "currentQuestionDialogue", "questionDialogue" })
+                                {
+                                    var fi2 = typeof(Game1).GetField(fn2, bfq);
+                                    if (fi2 != null) fi2.SetValue(null, null);
+                                    var pi2 = typeof(Game1).GetProperty(fn2, bfq);
+                                    if (pi2 != null && pi2.CanWrite) pi2.SetValue(null, null);
+                                }
+                            }
+                            catch { }
+                            try
+                            {
+                                var cd = typeof(Game1).GetField("currentDialogueStack",
+                                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                                var stack = cd?.GetValue(null);
+                                stack?.GetType().GetMethod("Clear")?.Invoke(stack, null);
+                            }
+                            catch { }
+
+                            try { Game1.activeClickableMenu = null; } catch { }
+                            try { Game1.player.UsingTool = false; Game1.player.canMove = true; } catch { }
+                            this.monitor.Log("cancel_dialogue done", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("cancel_dialogue err: " + ex.Message, LogLevel.Warn); }
                         break;
                     }
 
