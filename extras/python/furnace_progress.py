@@ -95,7 +95,7 @@ def go_deeper():
     return False
 
 
-def main():
+def run_once():
     log("=== 目标：熔炉（20 铜 + 25 石）===")
     fallback.ensure_ready()
     nav2.live()
@@ -150,6 +150,33 @@ def main():
             time.sleep(1)
             log(f"  铜锭={count('铜锭')} 背包={[i['name'] for i in rd().get('player', {}).get('inventory') or [] if i]}")
     log("=== 结束 ===")
+
+
+def sleep_new_day():
+    day0 = rd().get("day")
+    log("  石头不够做楼梯，先睡一天再挖")
+    fallback.goto_or_warp("FarmHouse")
+    nav2.send({"actionType": "player_sleep_bed"}, 2.0)
+    for _ in range(15):
+        time.sleep(2)
+        if rd().get("day") != day0:
+            return True
+    nav2.send({"actionType": "player_force_new_day"}, 2.0)
+    time.sleep(8)
+    nav2.send({"actionType": "force_unpause"}, 0.5)
+    return rd().get("day") != day0
+
+
+def main():
+    log("=== 目标：熔炉（自动多天）===")
+    for _day in range(4):
+        run_once()
+        if count("铜矿石") >= 20:
+            break
+        if count("石头") < 99:
+            if not sleep_new_day():
+                break
+    log(f"最终：铜={count('铜矿石')} 石头={count('石头')}")
 
 
 if __name__ == "__main__":
