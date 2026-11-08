@@ -983,6 +983,27 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "pick_object_at":
+                    {
+                        try
+                        {
+                            int px9 = root.GetProperty("x").GetInt32(), py9 = root.GetProperty("y").GetInt32();
+                            var locP = Game1.player.currentLocation;
+                            var posP = new Microsoft.Xna.Framework.Vector2(px9, py9);
+                            StardewValley.Object objP;
+                            if (locP.Objects.TryGetValue(posP, out objP) && objP != null)
+                            {
+                                objP.TileLocation = posP;
+                                bool picked = Game1.player.addItemToInventoryBool(objP, true);
+                                if (picked) { locP.Objects.Remove(posP); }
+                                this.monitor.Log($"pick_object_at ({px9},{py9}) name={objP.Name} picked={picked}", LogLevel.Info);
+                            }
+                            else this.monitor.Log($"pick_object_at ({px9},{py9}) 没有物体", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("pick_object_at err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "step_tile":
                     {
                         try

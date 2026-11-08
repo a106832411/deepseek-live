@@ -41,8 +41,9 @@ def main():
             restarts += 1
             left = int((DURATION - (time.time() - START)) / 60)
             log(f"autoplay 不在跑，重新拉起（第 {restarts} 次，剩余 {left} 分钟）")
+            out = open(os.path.join(HERE, "logs", "autoplay_stdout.log"), "ab")
             subprocess.Popen([PY, AUTOPLAY, str(max(300, int(DURATION - (time.time() - START))))],
-                             cwd=HERE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             cwd=HERE, stdout=out, stderr=out,
                              creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
         time.sleep(60)
     log("=== 到点，总管结束 ===")

@@ -17,6 +17,9 @@ import mine_real
 import nav2
 
 LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "autoplay4h.log")
+STUCK_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "stuck_report.jsonl")
+LAST_CYCLE = [time.time()]
+STUCK_WATCH = True
 DURATION = int(sys.argv[1]) if len(sys.argv) > 1 else 14400
 START = time.time()
 
@@ -29,6 +32,47 @@ def log(m):
             f.write(line + "\n")
     except Exception:
         pass
+
+
+def _dump_stuck(reason):
+    import json as _json
+    try:
+        b = nav2.rd() or {}
+        tiles = (b.get("surroundings") or {}).get("Tiles") or []
+        lads = [t for t in tiles if "梯" in str(t.get("ObjectName") or "") or t.get("ObjectType") == "ladder"]
+        rec = {
+            "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "reason": reason,
+            "loc": b.get("location"),
+            "tile": nav2.tile(b) if b else None,
+            "day": b.get("day"), "clock": b.get("time"),
+            "money": (b.get("player") or {}).get("money"),
+            "ladderSpawned": b.get("ladderSpawned"),
+            "ladderPosText": b.get("ladderPosText"),
+            "stairs": b.get("stairs"),
+            "dialogueUp": b.get("dialogueUp"),
+            "nearLadders": [(t.get("X"), t.get("Y")) for t in lads][:5],
+            "inv": [i["name"] for i in (b.get("player") or {}).get("inventory") or [] if i],
+        }
+        with open(STUCK_LOG, "a", encoding="utf-8") as f:
+            f.write(_json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _watchdog():
+    while True:
+        time.sleep(60)
+        gap = time.time() - LAST_CYCLE[0]
+        if gap > 600:
+            _dump_stuck(f"no cycle for {int(gap)}s")
+            log(f"⚠ 检测到卡住 {int(gap)} 秒，记录状态并重启自己")
+            try:
+                nav2.send({"actionType": "cancel_dialogue"}, 0.3)
+            except Exception:
+                pass
+            time.sleep(2)
+            os._exit(9)
 
 
 def rd():
@@ -68,6 +112,11 @@ def go_home_sleep():
 
 def main():
     log(f"=== 4 小时自动开始（计划 {DURATION//3600} 小时）===")
+    try:
+        import threading
+        threading.Thread(target=_watchdog, daemon=True).start()
+    except Exception:
+        pass
     last = None
     stuck = 0
     cycle = 0
@@ -75,6 +124,7 @@ def main():
     last_gain = (0, 0)
     while time.time() - START < DURATION:
         cycle += 1
+        LAST_CYCLE[0] = time.time()
         try:
             fallback.keep_awake()
             if not fallback.ensure_ready(tries=5):

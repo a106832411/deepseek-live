@@ -100,6 +100,76 @@ def _unused_old():
     return False
 
 
+# 房子门口固定机器位置（别到处放）
+FURNACE_SPOTS = [(63, 15), (65, 15), (66, 15)]
+CHEST_SPOTS = [(62, 16), (63, 16), (64, 16)]
+HOUSE_DOOR = (64, 15)
+
+
+def _tile_obj(b, x, y):
+    for t in (b.get("surroundings") or {}).get("Tiles") or []:
+        if t["X"] == x and t["Y"] == y:
+            return t
+    return None
+
+
+def _spot_furnace(b, spot):
+    t = _tile_obj(b, spot[0], spot[1])
+    if t and "熔炉" in str(t.get("ObjectName")):
+        return t
+    return None
+
+
+def _spot_empty(b, spot):
+    t = _tile_obj(b, spot[0], spot[1])
+    return bool(t and t.get("Passable") and not t.get("ObjectName"))
+
+
+def _stand_for(spot):
+    b = nav2.rd() or {}
+    return mine_real._stand(b, spot[0], spot[1])
+
+
+def _pick_machine(x, y):
+    st = _stand_for((x, y))
+    if not st:
+        return False
+    nav2.walk_until(st["X"], st["Y"], 10)
+    nav2.send({"actionType": "pick_object_at", "x": x, "y": y}, 0.8)
+    time.sleep(0.4)
+    return count("熔炉") > 0 or count("箱子") > 0
+
+
+def _place_at_spot(name, spot):
+    st = _stand_for(spot)
+    if st:
+        nav2.walk_until(st["X"], st["Y"], 10)
+    nav2.send({"actionType": "place_item_here", "name": name, "x": spot[0], "y": spot[1]}, 1.2)
+    b = nav2.rd() or {}
+    t = _tile_obj(b, spot[0], spot[1])
+    return bool(t and name in str(t.get("ObjectName") or ""))
+
+
+def tidy_machines():
+    """把散落的熔炉/箱子收起来，统一放到房子门口固定位置。"""
+    b = nav2.rd() or {}
+    if "Farm" not in str(b.get("location")):
+        return
+    tiles = (b.get("surroundings") or {}).get("Tiles") or []
+    fixed = set(FURNACE_SPOTS) | set(CHEST_SPOTS)
+    scattered = [t for t in tiles if ("熔炉" in str(t.get("ObjectName")) or "箱子" in str(t.get("ObjectName")))
+                 and (t["X"], t["Y"]) not in fixed]
+    for t in scattered[:4]:
+        name = "熔炉" if "熔炉" in str(t.get("ObjectName")) else "箱子"
+        if _pick_machine(t["X"], t["Y"]):
+            log(f"  收起散落的{name} ({t['X']},{t['Y']})")
+            spots = FURNACE_SPOTS if name == "熔炉" else CHEST_SPOTS
+            b2 = nav2.rd() or {}
+            free = [sp for sp in spots if _spot_empty(b2, sp)]
+            if free:
+                _place_at_spot(name, free[0])
+
+
 def _scan_furnace(b=None):
     b = b or nav2.rd() or {}
     tiles = (b.get("surroundings") or {}).get("Tiles") or []
@@ -122,7 +192,18 @@ def _walk_farm_and_scan():
 
 
 def find_existing_furnace():
-    """先看脚边，再在农场范围找；找到返回 tile dict。"""
+    """先看脚边和固定位置；散落的先收拢到固定位置，再使用。"""
+    b = nav2.rd() or {}
+    for sp in FURNACE_SPOTS:
+        f0 = _spot_furnace(b, sp)
+        if f0:
+            return f0
+    tidy_machines()
+    b = nav2.rd() or {}
+    for sp in FURNACE_SPOTS:
+        f0 = _spot_furnace(b, sp)
+        if f0:
+            return f0
     f = _scan_furnace()
     if f:
         return f
@@ -133,6 +214,11 @@ def find_existing_furnace():
 
 
 def place_furnace_here():
+    b = nav2.rd() or {}
+    for sp in FURNACE_SPOTS:
+        if _spot_empty(b, sp):
+            if _place_at_spot("熔炉", sp):
+                return _spot_furnace(nav2.rd() or {}, sp)
     me = nav2.tile(rd())
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (2, 0), (0, 2)):
         nav2.send({"actionType": "place_item_here", "name": "熔炉", "x": me[0] + dx, "y": me[1] + dy}, 1.2)
