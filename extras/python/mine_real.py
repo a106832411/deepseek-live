@@ -146,7 +146,16 @@ def descend_via_ladder():
                 if floor_num(bb.get("location")) > f0:
                     log(f"  下到 {bb.get('location')}（交互 {cx},{cy}）")
                     return True
-            return False
+            # 交互没成功：走开一点再回来踩梯子试试
+            nav2.walk_until(lx, ly + 2, 8)
+            time.sleep(0.3)
+            nav2.walk_until(lx, ly, 8)
+            time.sleep(1.0)
+            b9 = nav2.rd() or {}
+            if floor_num(b9.get("location")) > f0:
+                log(f"  下到 {b9.get('location')}（踩梯子）")
+                return True
+            continue
         # 楼梯还没出现：敲它上面那块石头
         tiles = _tiles(b)
         rock = _find(b, lx, ly)
@@ -166,7 +175,7 @@ def descend_via_ladder():
                 time.sleep(1.0)
                 nav2.send({"actionType": "collect_debris", "radius": 4}, 0.5)
                 continue
-            return False
+            continue
         # 那块石头已经没了但楼梯没出现 → 敲附近石头碰概率
         rocks = [t for t in tiles if t.get("Breakable") and not t.get("Passable")
                  and t.get("ObjectType") not in ("clump_axe", "clump_pick")]
