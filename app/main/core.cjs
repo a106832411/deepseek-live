@@ -117,6 +117,8 @@ function applyEnv(c) {
   num('DEEPLIVE_SING_MAX_CHARS', ['sing', 'max_chars']);
   bool('DEEPLIVE_SING_INTRO', ['sing', 'intro']);
   bool('DEEPLIVE_SING_OUTRO', ['sing', 'outro']);
+  bool('DEEPLIVE_SING_V2', ['sing', 'v2']);
+  num('DEEPLIVE_SING_BEAT_SCALE', ['sing', 'beat_scale']);
   str('DEEPLIVE_SING_MELODY', ['sing', 'melody']);
   num('DEEPLIVE_SING_BPM', ['sing', 'bpm']);
   bool('DEEPLIVE_SING_VIBRATO', ['sing', 'vibrato']);
@@ -175,6 +177,8 @@ const DEFAULT_CONFIG = {
     vibrato: true,
     gap_ms: 380,
     natural: true,              // melody 模式走自然旋律（弱颤音/不硬量化/句尾轻拖）
+    v2: true,                   // 唱腔化 v2：按节拍拉伸元音（一字 0.4~0.8s）+ legato + 颤音，唱法感更强
+    beat_scale: 0.75,           // v2 档位：0.55 保守 / 0.75 中等 / 0.95 明显
     filler: '我清清嗓子，准备开唱啦～歌词有点长，我再看一眼～马上就好，再等我一下下～',
     pick_list: ['小星星', '生日快乐', '月亮代表我的心', '童年', '后来', '稻香', '晴天', '童话', '勇气', '宁夏']
   }
@@ -894,8 +898,25 @@ async function doPrep(item) {
     '--gap-ms', String(cfg.gap_ms || 380),
     '--seed', String(Math.floor(Math.random() * 99999))
   ];
-  // melody 模式默认走「自然旋律」（音级走旋律 + 保留音符内自然起伏、弱颤音、句尾轻拖），比旧版硬量化不那么机械
-  if (String(cfg.mode || 'melody') !== 'read' && cfg.natural !== false) args.push('--natural');
+  // melody 模式：默认走「唱腔化 v2」（元音按节拍拉伸 + legato + 轻颤音，最像在唱）；也可关掉退回自然旋律
+  if (String(cfg.mode || 'melody') !== 'read') {
+    if (cfg.v2 !== false) {
+      args.push(
+        '--sing-v2',
+        '--beat-scale', String(Number(cfg.beat_scale) || 0.75),
+        '--tail-beats', '1.8',
+        '--note-fade-db', '-2.0',
+        '--tail-stretch', '1.15',
+        '--tail-fall', '0.3',
+        '--blend', '0.55',
+        '--blend-mode', 'note',
+        '--vibrato', '0.6',
+        '--quantize-ms', '0'
+      );
+    } else if (cfg.natural !== false) {
+      args.push('--natural');
+    }
+  }
   log(`清唱合成开始: 《${item.song.name}》 ${String(cfg.mode || 'melody')} / ${String(cfg.melody || 'auto')}`);
   const t0 = Date.now();
   const r = await runPy(args, 300000);

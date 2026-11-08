@@ -176,6 +176,9 @@ function normalize(c) {
   if (c.sing.max_lines == null) c.sing.max_lines = 6;
   if (c.sing.max_chars == null) c.sing.max_chars = 100;
   if (c.sing.bpm == null) c.sing.bpm = 92;
+  if (c.sing.v2 == null) c.sing.v2 = true;
+  if (c.sing.natural == null) c.sing.natural = true;
+  if (c.sing.beat_scale == null) c.sing.beat_scale = 0.75;
   c.obs = c.obs || {};
   if (!c.obs.host) c.obs.host = '127.0.0.1';
   if (c.obs.port == null) c.obs.port = 4455;
@@ -733,8 +736,19 @@ onUnmounted(() => {
                   </select>
                 </label>
                 <label class="field"><span>节拍 BPM</span><input type="number" v-model.number="cfg.sing.bpm" @input="markDirty" /></label>
+                <label class="field"><span>唱腔档位</span>
+                  <select v-model.number="cfg.sing.beat_scale" @change="markDirty">
+                    <option :value="0.55">保守（拖短一点）</option>
+                    <option :value="0.75">中等（推荐）</option>
+                    <option :value="0.95">明显（拖更长）</option>
+                  </select>
+                </label>
                 <label class="field"><span>每首句数</span><input type="number" v-model.number="cfg.sing.max_lines" @input="markDirty" /></label>
                 <label class="field"><span>整首字数</span><input type="number" v-model.number="cfg.sing.max_chars" @input="markDirty" /></label>
+              </div>
+              <div class="row">
+                <label class="check"><input type="checkbox" v-model="cfg.sing.v2" @change="markDirty" /> 唱腔化 v2（拉长元音+连唱，更像在唱）</label>
+                <label class="check"><input type="checkbox" v-model="cfg.sing.natural" @change="markDirty" /> 自然旋律（关掉 v2 时生效）</label>
               </div>
               <label class="check"><input type="checkbox" v-model="cfg.songs.dedupe" @change="markDirty" /> 本场同歌去重</label>
               <label class="check"><input type="checkbox" v-model="cfg.songs.internal" @change="markDirty" /> 使用内嵌网易云搜索</label>
