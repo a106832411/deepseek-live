@@ -13,6 +13,26 @@ import nav2
 log = nav2.log
 
 
+import re
+
+
+def floor_num(loc=None):
+    """矿洞楼层号；不在矿洞返回 -1。"""
+    if loc is None:
+        loc = str((nav2.rd() or {}).get("location") or "")
+    m = re.search(r"UndergroundMine(\d+)", str(loc))
+    if m:
+        return int(m.group(1))
+    if "Mine" in str(loc) or "mine" in str(loc):
+        return 0
+    return -1
+
+
+def _stand_any(b, tx, ty):
+    """目标旁边有没有能站的格子（只查四方向）。"""
+    return _stand(b, tx, ty)
+
+
 def _tiles(b):
     return (b.get("surroundings") or {}).get("Tiles") or []
 
@@ -83,17 +103,18 @@ def go_down():
         for st in stairs_sorted[:4]:
             sx, sy = int(st["x"]), int(st["y"])
             log(f"  走向楼梯 ({sx},{sy})")
+            f0 = floor_num(b.get("location"))
             for attempt in range(3):
                 nav2.walk_until(sx, sy, 15)
                 time.sleep(0.6)
                 b2 = nav2.rd() or {}
-                if str(b2.get("location")) != str(b.get("location")):
+                if floor_num(b2.get("location")) > f0:
                     log(f"  下到 {b2.get('location')}")
                     return True
                 nav2.send({"actionType": "player_interact_at", "x": sx, "y": sy}, 1.0)
                 time.sleep(1.0)
                 b3 = nav2.rd() or {}
-                if str(b3.get("location")) != str(b.get("location")):
+                if floor_num(b3.get("location")) > f0:
                     log(f"  下到 {b3.get('location')}")
                     return True
         log("  桥接楼梯都走不到，退回扫描")
@@ -177,8 +198,26 @@ def mine_rocks(max_rocks=5):
                 target, stand = t, st
                 break
         if not target:
-            log("  石头旁边没有能站的格子，停下")
-            break
+            # 兜底：这块石头被围住 → 先敲它旁边挡路的石头/杂物
+            blocker = None
+            for t in targets:
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    n = _find(b, t["X"] + dx, t["Y"] + dy)
+                    if not n or not (n.get("Breakable") and not n.get("Passable")):
+                        continue
+                    if _stand(b, n["X"], n["Y"]):
+                        blocker = n
+                        break
+                if blocker:
+                    break
+            if blocker:
+                log(f"  石头被围住，先敲挡路的 {blocker['X']},{blocker['Y']}")
+                targets = [blocker] + targets
+                target = blocker
+                stand = _stand(b, blocker["X"], blocker["Y"])
+            else:
+                log("  石头旁边没有能站的格子，停下")
+                break
         # 走过去（PathFindController 真实走路）
         if nav2.tile(nav2.rd()) != (stand["X"], stand["Y"]):
             if not nav2.walk_until(stand["X"], stand["Y"], 25):

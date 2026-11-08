@@ -119,6 +119,7 @@ function applyEnv(c) {
   bool('DEEPLIVE_SING_OUTRO', ['sing', 'outro']);
   bool('DEEPLIVE_SING_V2', ['sing', 'v2']);
   num('DEEPLIVE_SING_BEAT_SCALE', ['sing', 'beat_scale']);
+  str('DEEPLIVE_SING_ENGINE', ['sing', 'engine']);
   str('DEEPLIVE_SING_MELODY', ['sing', 'melody']);
   num('DEEPLIVE_SING_BPM', ['sing', 'bpm']);
   bool('DEEPLIVE_SING_VIBRATO', ['sing', 'vibrato']);
@@ -179,6 +180,23 @@ const DEFAULT_CONFIG = {
     natural: true,              // melody 模式走自然旋律（弱颤音/不硬量化/句尾轻拖）
     v2: true,                   // 唱腔化 v2：按节拍拉伸元音（一字 0.4~0.8s）+ legato + 颤音，唱法感更强
     beat_scale: 0.75,           // v2 档位：0.55 保守 / 0.75 中等 / 0.95 明显
+    engine: 'tts',              // tts=TTS 清唱（默认）| ace=真唱（ACE-Step 生成人声 + Seed-VC 换声，需本地部署）
+    ace: {
+      python: 'D:/sing_gpu/venv/Scripts/python.exe',
+      script: 'D:/sing_gpu/ace_sing.py',
+      svc_python: 'D:/seedvc/venv/Scripts/python.exe',
+      svc_script: 'D:/seedvc/convert.py',
+      duration: 22,             // 生成时长（秒）
+      cfg: 0.75,                // Seed-VC 音色相似度 cfg
+      steps: 30,                // Seed-VC diffusion steps
+      timeout_sec: 600,
+      tags: [                   // 每次随机挑一组 → 旋律/唱法不固定
+        'female solo vocal, a cappella, no instruments, pure vocal, cute, clear diction, mandarin, 80 BPM',
+        'female solo vocal, a cappella, no instruments, pure vocal, sweet, gentle, clear pronunciation, mandarin, 72 BPM',
+        'female solo vocal, a cappella, no instruments, pure vocal, bright, playful, clear diction, mandarin, 92 BPM',
+        'female solo vocal, a cappella, no instruments, pure vocal, soft breathy, tender, slow, mandarin, 68 BPM'
+      ]
+    },
     filler: '我清清嗓子，准备开唱啦～歌词有点长，我再看一眼～马上就好，再等我一下下～',
     pick_list: ['小星星', '生日快乐', '月亮代表我的心', '童年', '后来', '稻香', '晴天', '童话', '勇气', '宁夏']
   }
@@ -401,12 +419,12 @@ function playWav(file) {
 }
 
 /** 跑一个 python 子进程，收 stdout/stderr（带超时，超时直接 kill） */
-function runPy(args, timeoutMs = 120000) {
+function runPy(args, timeoutMs = 120000, pyExe = null) {
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
     let done = false;
-    const p = spawn(pythonPath(), args, { windowsHide: true, cwd: ROOT });
+    const p = spawn(pyExe || pythonPath(), args, { windowsHide: true, cwd: ROOT });
     const finish = (code, extra) => {
       if (done) return;
       done = true;
@@ -865,9 +883,153 @@ function pruneSingFiles() {
 }
 
 /** 真正的合成：逐句 TTS + 旋律后处理 + 串接（在 requestSing 时就后台跑，轮到它时通常已经备好） */
+/** 用某个 venv 的 python 读一下 wav 时长（秒） */
+function probeWavDuration(pyExe, file) {
+  return new Promise((resolve) => {
+    const code = 'import sys,soundfile as sf;d,sr=sf.read(sys.argv[1]);print(len(d)/max(sr,1))';
+    let out = '';
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    try {
+      const p = spawn(pyExe, ['-c', code, file], { windowsHide: true });
+      const timer = setTimeout(() => { try { p.kill(); } catch (e) {} finish(0); }, 30000);
+      p.stdout.on('data', (d) => { out += d.toString(); });
+      p.on('exit', () => { clearTimeout(timer); finish(Number(out.trim()) || 0); });
+      p.on('error', () => { clearTimeout(timer); finish(0); });
+    } catch (e) { finish(0); }
+  });
+}
+
+/**
+ * 真唱管线（可插拔）：
+ *   ACE-Step 生成 a cappella 纯人声清唱 → Seed-VC 换成主播音色 → wav
+ * 任一环节失败返回 null，调用方回退到 TTS 清唱。
+ */
+function aceSettings() {
+  const cfg = (config.sing || {}).ace || {};
+  return {
+    python: String(cfg.python || 'D:/sing_gpu/venv/Scripts/python.exe'),
+    script: String(cfg.script || 'D:/sing_gpu/ace_sing.py'),
+    svcPython: String(cfg.svc_python || 'D:/seedvc/venv/Scripts/python.exe'),
+    svcScript: String(cfg.svc_script || 'D:/seedvc/convert.py'),
+    duration: Math.max(8, Math.min(60, Number(cfg.duration) || 22)),
+    cfgRate: Number(cfg.cfg === undefined ? 0.75 : cfg.cfg),
+    steps: Math.max(10, Math.min(100, Number(cfg.steps) || 30)),
+    timeoutMs: Math.max(60000, Number(cfg.timeout_sec || 600) * 1000),
+    tags: Array.isArray(cfg.tags) ? cfg.tags.filter(Boolean) : [String(cfg.tags || 'female solo vocal, a cappella, no instruments, pure vocal, cute, clear diction, mandarin, 80 BPM')]
+  };
+}
+
+/** 每次随机挑一组风格 tags，配合随机 seed，让"唱法/旋律"不固定 */
+function pickAceTags(ace) {
+  const list = ace.tags;
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function buildAceTiming(lines, duration) {
+  const total = Math.max(5, Number(duration) || 20);
+  const head = 0.3;
+  const tail = 0.4;
+  const gap = 0.15;
+  const weights = lines.map((l) => Math.max(1, String(l).length));
+  const sum = weights.reduce((a, b) => a + b, 0) || 1;
+  const usable = Math.max(2, total - head - tail - gap * Math.max(0, lines.length - 1));
+  let t = head;
+  const outLines = lines.map((text, i) => {
+    const d = (usable * weights[i]) / sum;
+    const line = { i, text, start: Number(t.toFixed(3)), dur: Number(d.toFixed(3)) };
+    t += d + gap;
+    return line;
+  });
+  return { ok: true, sr: 32000, duration: total, mode: 'ace', engine: 'ace', lines: outLines };
+}
+
+async function aceGenerate(lyrics, outWav, tags, seed) {
+  const ace = aceSettings();
+  const linesPath = outWav.replace(/\.wav$/, '.lyrics.json');
+  const jsonPath = outWav.replace(/\.wav$/, '.ace.json');
+  const script = ace.script;
+  if (!fs.existsSync(script)) { log('真唱：找不到 ACE-Step 脚本 ' + script); return null; }
+  fs.writeFileSync(linesPath, JSON.stringify(lyrics), 'utf8');
+  try { fs.unlinkSync(jsonPath); } catch (e) {}
+  const args = [
+    script,
+    '--lyrics-file', linesPath,
+    '--tags', tags,
+    '--duration', String(ace.duration),
+    '--seed', String(seed),
+    '--out', outWav,
+    '--json-out', jsonPath
+  ];
+  const t0 = Date.now();
+  const r = await runPy(args, ace.timeoutMs, ace.python);
+  log(`真唱 ACE-Step 结束 code=${r.code} 用时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  if (r.stderr && r.code !== 0) log('ACE-Step stderr: ' + r.stderr.trim().split('\n').slice(-5).join(' | '));
+  let j = null;
+  try { if (fs.existsSync(jsonPath)) j = JSON.parse(fs.readFileSync(jsonPath, 'utf8')); } catch (e) {}
+  if (r.code !== 0 || !fs.existsSync(outWav) || (j && j.ok === false)) {
+    log('真唱：ACE-Step 生成失败');
+    return null;
+  }
+  return { outWav, duration: Number((j && j.duration) || 0) || ace.duration };
+}
+
+async function aceConvert(srcWav, outWav) {
+  const ace = aceSettings();
+  const tts = config.tts || {};
+  const jsonPath = outWav.replace(/\.wav$/, '.svc.json');
+  if (!fs.existsSync(ace.svcScript)) { log('真唱：找不到 Seed-VC 脚本 ' + ace.svcScript); return null; }
+  try { fs.unlinkSync(jsonPath); } catch (e) {}
+  const args = [
+    ace.svcScript,
+    '--source', srcWav,
+    '--ref', String(tts.ref_audio || ''),
+    '--out', outWav,
+    '--cfg', String(ace.cfgRate),
+    '--steps', String(ace.steps),
+    '--json-out', jsonPath
+  ];
+  const t0 = Date.now();
+  const r = await runPy(args, ace.timeoutMs, ace.svcPython);
+  log(`真唱 Seed-VC 结束 code=${r.code} 用时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  if (r.stderr && r.code !== 0) log('Seed-VC stderr: ' + r.stderr.trim().split('\n').slice(-5).join(' | '));
+  if (r.code !== 0 || !fs.existsSync(outWav)) {
+    log('真唱：Seed-VC 换声失败');
+    return null;
+  }
+  return { outWav };
+}
+
+async function prepareAce(item) {
+  const dir = path.join(LOG_DIR, 'sing');
+  fs.mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  const safe = String(item.song.name).replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 24) || 'song';
+  const aceWav = path.join(dir, `${stamp}_${safe}.ace.wav`);
+  const outWav = path.join(dir, `${stamp}_${safe}.wav`);
+  const ace = aceSettings();
+  const tags = pickAceTags(ace);
+  const seed = Math.floor(Math.random() * 999999);
+  log(`真唱生成开始: 《${item.song.name}》 tags="${tags}" seed=${seed}`);
+  const gen = await aceGenerate(item.lyrics, aceWav, tags, seed);
+  if (!gen) return null;
+  const conv = await aceConvert(aceWav, outWav);
+  if (!conv) return null;
+  const dur = (await probeWavDuration(ace.svcPython, outWav)) || gen.duration;
+  const timing = buildAceTiming(item.lyrics, dur);
+  log(`真唱生成完成: 《${item.song.name}》 ${dur.toFixed(1)}s`);
+  return { outWav, timing, engine: 'ace' };
+}
+
 async function doPrep(item) {
   const cfg = config.sing || {};
   const tts = config.tts || {};
+  // 真唱引擎（ACE-Step + Seed-VC）：失败自动回落到下面的 TTS 清唱
+  if (String(cfg.engine || 'tts') === 'ace') {
+    const r = await prepareAce(item).catch((e) => { log('真唱管线异常: ' + e.message); return null; });
+    if (r) return r;
+    log('真唱管线失败，回退 TTS 清唱');
+  }
   const script = path.join(ROOT, 'extras', 'python', 'sing_tts.py');
   if (!fs.existsSync(script)) return null;
   const dir = path.join(LOG_DIR, 'sing');
@@ -967,7 +1129,9 @@ async function performSing(item) {
   if (state.song.skip) { state.song.skip = false; wsBroadcast({ kind: 'sing', action: 'end', t: Date.now() }); return; }
   // 还没合成完就垫一句，避免十几秒静音（合成慢就循环垫，最多 2 次）
   const fillerText = String((cfg.filler === false ? '' : cfg.filler) || '我清清嗓子，准备开唱啦～歌词有点长，我再看一眼～马上就好，再等我一下下～');
-  for (let i = 0; i < 2 && !prepDone && fillerText; i++) {
+  // 真唱管线要 1~2 分钟，垫话次数按引擎放宽
+  const fillerMax = String(cfg.engine || 'tts') === 'ace' ? 7 : 2;
+  for (let i = 0; i < fillerMax && !prepDone && fillerText; i++) {
     await ttsSpeak(fillerText);
     if (state.song.skip) { state.song.skip = false; wsBroadcast({ kind: 'sing', action: 'end', t: Date.now() }); return; }
   }

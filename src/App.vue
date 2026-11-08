@@ -179,6 +179,8 @@ function normalize(c) {
   if (c.sing.v2 == null) c.sing.v2 = true;
   if (c.sing.natural == null) c.sing.natural = true;
   if (c.sing.beat_scale == null) c.sing.beat_scale = 0.75;
+  if (!c.sing.engine) c.sing.engine = 'tts';
+  if (!c.sing.ace) c.sing.ace = {};
   c.obs = c.obs || {};
   if (!c.obs.host) c.obs.host = '127.0.0.1';
   if (c.obs.port == null) c.obs.port = 4455;
@@ -714,6 +716,12 @@ onUnmounted(() => {
                 <label class="check"><input type="checkbox" v-model="cfg.sing.enabled" @change="markDirty" /> 启用清唱</label>
               </div>
               <div class="row2">
+                <label class="field"><span>清唱引擎</span>
+                  <select v-model="cfg.sing.engine" @change="markDirty">
+                    <option value="tts">TTS 清唱（默认，快）</option>
+                    <option value="ace">真唱 ACE-Step（本地部署，慢但真唱）</option>
+                  </select>
+                </label>
                 <label class="field"><span>唱法模式</span>
                   <select v-model="cfg.sing.mode" @change="markDirty">
                     <option value="melody">带旋律</option>

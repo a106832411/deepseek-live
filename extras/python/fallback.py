@@ -70,7 +70,10 @@ def ensure_ready(auto_load=True, tries=3):
             time.sleep(3)
             b3 = nav2.rd() or {}
             if b3.get("time", 0) == t0:
-                log("兜底：时间不走，尝试脱困（走一步/过图/传送）")
+                bb = nav2.rd() or {}
+                log(f"兜底：时间不走（menu={((bb.get('player') or {}).get('fishing') or {}).get('activeMenu')}, loc={bb.get('location')}），先关菜单再脱困")
+                nav2.send({"actionType": "exit_menu"}, 0.6)
+                nav2.send({"actionType": "force_unpause"}, 0.4)
                 if unfreeze():
                     log("  脱困成功，时间恢复")
                     return True

@@ -60,13 +60,14 @@ def use_staircase():
     me = nav2.tile(rd())
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
         tx, ty = me[0] + dx, me[1] + dy
+        f0 = mine_real.floor_num(rd().get("location"))
         nav2.send({"actionType": "place_item_here", "name": "楼梯", "x": tx, "y": ty}, 1.2)
         if count("楼梯") == 0:
             nav2.send({"actionType": "player_interact_at", "x": tx, "y": ty}, 1.2)
             time.sleep(1.5)
             b = rd()
-            if "Mine" in str(b.get("location")):
-                log(f"  下到 {b.get('location')}")
+            if mine_real.floor_num(b.get("location")) > f0:
+                log(f"  下到 {b.get('location')}（{f0} -> {mine_real.floor_num(b.get('location'))}）")
                 return True
     return False
 
@@ -140,15 +141,29 @@ def run_once():
         b = rd()
         tiles = (b.get("surroundings") or {}).get("Tiles") or []
         f = next((t for t in tiles if "熔炉" in str(t.get("ObjectName"))), None)
+        if not f:
+            # 放在脚边找一遍
+            me = nav2.tile(rd())
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nav2.send({"actionType": "place_item_here", "name": "熔炉", "x": me[0] + dx, "y": me[1] + dy}, 1.2)
+                b2 = rd()
+                tiles2 = (b2.get("surroundings") or {}).get("Tiles") or []
+                f = next((t for t in tiles2 if "熔炉" in str(t.get("ObjectName"))), None)
+                if f:
+                    break
         if f:
-            log(f"  熔炉放在 ({f['X']},{f['Y']})")
-            for _ in range(5):
-                nav2.send({"actionType": "machine_drop_in", "x": f["X"], "y": f["Y"], "item": "铜矿石"}, 0.9)
-            log("  等 60 秒烧铜锭…")
-            time.sleep(60)
-            nav2.send({"actionType": "machine_collect", "x": f["X"], "y": f["Y"]}, 1.5)
-            time.sleep(1)
-            log(f"  铜锭={count('铜锭')} 背包={[i['name'] for i in rd().get('player', {}).get('inventory') or [] if i]}")
+            log(f"  熔炉在 ({f['X']},{f['Y']})")
+            rounds = 0
+            while count("铜矿石") >= 5 and rounds < 8:
+                rounds += 1
+                for _ in range(5):
+                    nav2.send({"actionType": "machine_drop_in", "x": f["X"], "y": f["Y"], "item": "铜矿石"}, 0.7)
+                log(f"  第 {rounds} 炉：投 5 铜矿，等 60 秒…")
+                time.sleep(60)
+                nav2.send({"actionType": "machine_collect", "x": f["X"], "y": f["Y"]}, 1.5)
+                time.sleep(1)
+                log(f"  第 {rounds} 炉收完：铜锭={count('铜锭')} 剩余铜矿={count('铜矿石')}")
+            log(f"  熔炼结束：铜锭={count('铜锭')}")
     log("=== 结束 ===")
 
 

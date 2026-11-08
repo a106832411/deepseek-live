@@ -41,7 +41,7 @@ SAFE = {
 
 ROUTES = {
     "FarmHouse": ["Farm"],
-    "Farm": ["BusStop", "Backwoods", "Forest", "FarmHouse"],
+    "Farm": ["BusStop", "Forest", "FarmHouse"],
     "BusStop": ["Town", "Farm"],
     "Backwoods": ["Farm", "Mountain"],
     "Town": ["Beach", "Mountain", "BusStop", "Blacksmith", "SeedShop"],
