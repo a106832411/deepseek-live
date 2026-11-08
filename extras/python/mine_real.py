@@ -247,6 +247,7 @@ def mine_rocks(max_rocks=5):
     """真实走过去、挥镐敲石头，直到敲碎。"""
     h, _ = gameio.game_window()
     mined = 0
+    _skip = set()
     for _ in range(max_rocks * 12):
         if mined >= max_rocks:
             break
@@ -258,6 +259,8 @@ def mine_rocks(max_rocks=5):
         tiles = _tiles(b)
         targets = []
         for t in tiles:
+            if (t["X"], t["Y"]) in _skip:
+                continue
             if not (t.get("Breakable") and not t.get("Passable")):
                 continue
             if nav2.needs_upgrade(t.get("ObjectType")):
@@ -310,8 +313,10 @@ def mine_rocks(max_rocks=5):
                 target = blocker
                 stand = _stand(b, blocker["X"], blocker["Y"])
             else:
-                log("  石头旁边没有能站的格子，停下")
-                break
+                for t in targets[:8]:
+                    _skip.add((t["X"], t["Y"]))
+                log("  附近石头都站不到，先跳过换别的")
+                continue
         # 走过去（PathFindController 真实走路）
         if nav2.tile(nav2.rd()) != (stand["X"], stand["Y"]):
             if not nav2.walk_until(stand["X"], stand["Y"], 25):

@@ -91,9 +91,22 @@ def send(a, wait=0.35):
     os.makedirs(ACTION_DIR, exist_ok=True)
     name = f"{int(time.time()*1000):013d}-v{SEQ:03d}.json"
     tmp = os.path.join(ACTION_DIR, name + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(a, f, ensure_ascii=False)
-    os.replace(tmp, os.path.join(ACTION_DIR, name))
+    final = os.path.join(ACTION_DIR, name)
+    payload = json.dumps(a, ensure_ascii=False)
+    for attempt in range(6):
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(payload)
+            os.replace(tmp, final)
+            break
+        except OSError:
+            # 杀软/索引可能锁文件：重试，最后直接写正式文件名
+            try:
+                with open(final, "w", encoding="utf-8") as f:
+                    f.write(payload)
+                break
+            except OSError:
+                time.sleep(0.2)
     time.sleep(wait)
 
 
