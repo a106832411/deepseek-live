@@ -103,9 +103,11 @@ def safe_check():
     if not b:
         return b
     t = tile(b)
-    if abs(t[0]) > 150 or abs(t[1]) > 150:
+    mw, mh = int(b.get("mapWidth") or 100), int(b.get("mapHeight") or 100)
+    if t[0] < 0 or t[1] < 0 or t[0] >= mw or t[1] >= mh or abs(t[0]) > 150 or abs(t[1]) > 150:
         loc = b.get("location")
         sx, sy = SAFE.get(loc, (20, 20))
+        sx, sy = int(mw / 2), int(mh / 2) if (t[0] < 0 or t[1] < 0 or t[0] >= mw or t[1] >= mh) else (sx, sy)
         log(f"  ⚠ 位置异常 {t} @{loc}，放回 ({sx},{sy})")
         send({"actionType": "set_tile", "x": sx, "y": sy}, 0.8)
         b = rd()
@@ -147,7 +149,11 @@ def tile(b):
 
 def walk_until(tx, ty, timeout=12):
     """让游戏自己寻路走过去（PathFindController），不瞬移；卡住就脱困重试。"""
-    b = rd()
+    b = rd() or {}
+    mw, mh = int(b.get("mapWidth") or 100), int(b.get("mapHeight") or 100)
+    tx, ty = int(tx), int(ty)
+    if tx < 0 or ty < 0 or tx >= mw or ty >= mh:
+        return False
     if b and tile(b) == (tx, ty):
         return True
     # 目标被挡就不去
@@ -535,7 +541,14 @@ def goto(target):
     """走路径；被挡就换备用路线（比如农场北边被大木桩堵死就走镇上绕）。"""
     for _attempt in range(3):
         b = rd() or {}
-        cur = b.get("location")
+        cur = b.get("location") or ""
+        # 人在矿洞里而目标是矿外 → 先走 leave_mine 出来（矿里没有正常出口 warp）
+        if "Mine" in cur and "Mine" not in target:
+            log("  先离开矿洞")
+            send({"actionType": "leave_mine"}, 1.8)
+            time.sleep(3)
+            b = rd() or {}
+            cur = b.get("location") or ""
         if cur == target:
             ensure_spawn(target)
             return True

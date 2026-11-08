@@ -237,6 +237,8 @@ namespace StardewMCPBridge
                 {
                     time = Game1.timeOfDay,
                     day = Game1.dayOfMonth,
+                    mapWidth = Game1.currentLocation?.Map?.Layers[0].LayerWidth ?? 0,
+                    mapHeight = Game1.currentLocation?.Map?.Layers[0].LayerHeight ?? 0,
                     season = Game1.currentSeason,
                     weather = Game1.isLightning ? "storm" : Game1.isRaining ? "rain" : Game1.isSnowing ? "snow" : Game1.isDebrisWeather ? "windy" : "sunny",
                     luck = Game1.player.DailyLuck,

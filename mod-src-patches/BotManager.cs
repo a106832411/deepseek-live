@@ -903,6 +903,22 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "exit_menu":
+                    {
+                        try
+                        {
+                            for (int i = 0; i < 3; i++)
+                            {
+                                try { Game1.exitActiveMenu(); } catch { }
+                                try { Game1.activeClickableMenu = null; } catch { }
+                                try { Game1.player.UsingTool = false; } catch { }
+                            }
+                            this.monitor.Log("exit_menu done", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("exit_menu err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "fish_hook":
                     {
                         try
