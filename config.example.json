@@ -117,13 +117,14 @@
       "script": "D:/sing_gpu/ace_sing.py",
       "svc_python": "D:/seedvc/venv/Scripts/python.exe",
       "svc_script": "D:/seedvc/convert.py",
-      "duration": 22,
+      "duration": 12,
       "cfg": 0.75,
-      "steps": 30,
+      "steps": 20,
       "timeout_sec": 600,
       "tags": [
         "female solo vocal, a cappella, no instruments, pure vocal, cute, clear diction, mandarin, 80 BPM"
-      ]
+      ],
+      "infer_steps": 8
     }
   },
   "obs": {
