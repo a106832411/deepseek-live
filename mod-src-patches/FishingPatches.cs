@@ -78,7 +78,18 @@ namespace StardewMCPBridge
                 var item = ItemRegistry.Create(fishKey);
                 if (item == null) return;
                 item.Stack = 1;
-                Game1.player.addItemToInventory(item);
+                try { Game1.player.addItemToInventoryBool(item, true); }
+                catch
+                {
+                    try
+                    {
+                        for (int si = 0; si < Game1.player.MaxItems; si++)
+                        {
+                            if (Game1.player.Items[si] == null) { Game1.player.Items[si] = item; break; }
+                        }
+                    }
+                    catch { }
+                }
                 // 关闭小游戏菜单，模拟收杆完成
                 try { Game1.activeClickableMenu?.exitThisMenu(false); } catch { }
                 try { Game1.player.UsingTool = false; } catch { }

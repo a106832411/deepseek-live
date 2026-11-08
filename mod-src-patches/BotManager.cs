@@ -14,7 +14,6 @@ namespace StardewMCPBridge
         public static void ResetFarmerPose()
         {
             try { Game1.player.UsingTool = false; Game1.player.canMove = true; } catch { }
-            try { Game1.player.FarmerSprite.StopAnimation(); } catch { }
         }
         private readonly IMonitor monitor;
         private readonly IModHelper helper;
@@ -775,6 +774,180 @@ namespace StardewMCPBridge
                             this.monitor.Log("TOOLS " + string.Join(" ; ", parts), LogLevel.Info);
                         }
                         catch (Exception ex) { this.monitor.Log("dump_tools err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "throw_item":
+                    {
+                        try
+                        {
+                            string tn = root.TryGetProperty("name", out var tnEl) ? tnEl.GetString() : "";
+                            int removed = 0;
+                            for (int i = 0; i < Game1.player.Items.Count; i++)
+                            {
+                                var it = Game1.player.Items[i];
+                                if (it == null) continue;
+                                string dn = it.DisplayName ?? "";
+                                string nm = it.Name ?? "";
+                                if (dn.Contains(tn) || nm.Contains(tn)) { Game1.player.Items[i] = null; removed++; break; }
+                            }
+                            this.monitor.Log($"throw_item {tn} removed={removed} slots={Game1.player.Items.Count(x => x != null)}/{Game1.player.MaxItems}", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("throw_item err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "drop_item":
+                    {
+                        try
+                        {
+                            string dn = root.TryGetProperty("name", out var dnEl) ? dnEl.GetString() : "";
+                            int dnCount = root.TryGetProperty("count", out var dcEl) ? dcEl.GetInt32() : 1;
+                            var lloc = Game1.player.currentLocation;
+                            int dropped = 0;
+                            for (int i = Game1.player.Items.Count - 1; i >= 0 && dropped < dnCount; i--)
+                            {
+                                var it = Game1.player.Items[i];
+                                if (it == null) continue;
+                                string inm = it.DisplayName ?? it.Name ?? "";
+                                if (!inm.Contains(dn)) continue;
+                                Game1.player.Items[i] = null;
+                                try { lloc.debris.Add(new StardewValley.Debris(it, Game1.player.Position)); } catch { }
+                                dropped++;
+                            }
+                            this.monitor.Log($"drop_item {dn} x{dropped}", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("drop_item err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "chest_store_named":
+                    {
+                        try
+                        {
+                            int cx7 = root.GetProperty("x").GetInt32(), cy7 = root.GetProperty("y").GetInt32();
+                            var names7 = new System.Collections.Generic.List<string>();
+                            if (root.TryGetProperty("names", out var nmArr) && nmArr.ValueKind == System.Text.Json.JsonValueKind.Array)
+                                foreach (var e in nmArr.EnumerateArray()) names7.Add(e.GetString());
+                            var loc7 = Game1.player.currentLocation;
+                            if (!loc7.Objects.TryGetValue(new Microsoft.Xna.Framework.Vector2(cx7, cy7), out var chest7) || !(chest7 is StardewValley.Objects.Chest ch7))
+                            { this.monitor.Log("chest_store_named: 目标不是箱子", LogLevel.Warn); break; }
+                            int moved7 = 0;
+                            for (int i7 = Game1.player.Items.Count - 1; i7 >= 0; i7--)
+                            {
+                                var it7 = Game1.player.Items[i7];
+                                if (it7 == null) continue;
+                                string nm7 = it7.DisplayName ?? it7.Name ?? "";
+                                if (!names7.Exists(n => nm7.Contains(n))) continue;
+                                if (ch7.Items.Count >= ch7.GetActualCapacity()) break;
+                                ch7.Items.Add(it7);
+                                Game1.player.Items[i7] = null;
+                                moved7++;
+                            }
+                            this.monitor.Log($"chest_store_named: 存入 {moved7} 个", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("chest_store_named err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "give_item":
+                    {
+                        try
+                        {
+                            string idv = root.TryGetProperty("id", out var idEl) ? idEl.GetString() : "(O)131";
+                            var it = StardewValley.ItemRegistry.Create(idv);
+                            bool ok = false;
+                            if (it != null)
+                            {
+                                if (it.Stack <= 0) it.Stack = 1;
+                                ok = Game1.player.addItemToInventoryBool(it, false);
+                                if (!ok)
+                                {
+                                    for (int si = 0; si < Game1.player.MaxItems; si++)
+                                    {
+                                        if (Game1.player.Items[si] == null) { Game1.player.Items[si] = it; ok = true; this.monitor.Log($"give_item: 放入槽位 {si}", LogLevel.Info); break; }
+                                    }
+                                }
+                            }
+                            this.monitor.Log($"give_item {idv} -> {ok} ({it?.Name}) max={Game1.player.MaxItems} count={Game1.player.Items.Count} none={Game1.player.Items.Count(x => x == null)}", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("give_item err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "fish_hook":
+                    {
+                        try
+                        {
+                            var bf6 = System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var pm6 = typeof(Game1).GetMethod("pressUseToolButton", bf6);
+                            if (pm6 != null) { pm6.Invoke(null, null); this.monitor.Log("fish_hook: pressUseToolButton", LogLevel.Info); }
+                            else this.monitor.Log("fish_hook: 没有 pressUseToolButton", LogLevel.Warn);
+                        }
+                        catch (Exception ex) { this.monitor.Log("fish_hook err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "fish_hook2":
+                    {
+                        try
+                        {
+                            var rod6 = Game1.player.Items.OfType<StardewValley.Tools.FishingRod>().FirstOrDefault();
+                            if (rod6 != null)
+                            {
+                                Game1.player.CurrentToolIndex = Game1.player.Items.IndexOf(rod6);
+                                rod6.DoFunction(Game1.player.currentLocation, (int)Game1.player.Tile.X * 64 + 32, (int)Game1.player.Tile.Y * 64 + 32, 1, Game1.player);
+                                this.monitor.Log("fish_hook2: rod.DoFunction", LogLevel.Info);
+                            }
+                        }
+                        catch (Exception ex) { this.monitor.Log("fish_hook2 err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "fix_outfit":
+                    {
+                        try
+                        {
+                            var bf4 = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            bool did = false;
+                            foreach (var mn in new[] { "changeShirt", "changePants", "changePant" })
+                            {
+                                var m = typeof(StardewValley.Farmer).GetMethod(mn, bf4, null, new[] { typeof(int) }, null);
+                                if (m != null)
+                                {
+                                    int v = mn == "changeShirt" ? 1000 : 0;
+                                    m.Invoke(Game1.player, new object[] { v });
+                                    did = true;
+                                    this.monitor.Log($"fix_outfit: {mn}({v}) ok", LogLevel.Info);
+                                }
+                            }
+                            if (!did) this.monitor.Log("fix_outfit: 没找到换装方法", LogLevel.Warn);
+                        }
+                        catch (Exception ex) { this.monitor.Log("fix_outfit err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "fish_begin":
+                    {
+                        try
+                        {
+                            var rod = Game1.player.Items.OfType<StardewValley.Tools.FishingRod>().FirstOrDefault();
+                            if (rod == null) { this.monitor.Log("fish_begin: 没有鱼竿", LogLevel.Warn); break; }
+                            Game1.player.CurrentToolIndex = Game1.player.Items.IndexOf(rod);
+                            int fx = root.TryGetProperty("x", out var fxEl) ? fxEl.GetInt32() : (int)Game1.player.Tile.X;
+                            int fy = root.TryGetProperty("y", out var fyEl) ? fyEl.GetInt32() : (int)Game1.player.Tile.Y;
+                            var mi = typeof(StardewValley.Tools.FishingRod).GetMethod("beginUsing",
+                                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                            if (mi != null)
+                            {
+                                Game1.player.UsingTool = true;
+                                Game1.player.canMove = false;
+                                var res = mi.Invoke(rod, new object[] { Game1.player.currentLocation, fx * 64 + 32, fy * 64 + 32, Game1.player });
+                                this.monitor.Log($"fish_begin beginUsing({fx},{fy}) -> {res} inUse={rod.inUse()}", LogLevel.Info);
+                            }
+                            else this.monitor.Log("fish_begin: beginUsing 不存在", LogLevel.Warn);
+                        }
+                        catch (Exception ex) { this.monitor.Log("fish_begin err: " + ex.Message, LogLevel.Warn); }
                         break;
                     }
 

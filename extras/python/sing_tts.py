@@ -487,6 +487,222 @@ def _apply_tail(f0_new, sp, ap, bounds, args):
     return f0_new, sp, ap, bounds
 
 
+def _stretch_frames(f0, sp, ap, factor):
+    """整句 WORLD 帧域均匀拉伸（简单变速对照用；factor>1 变慢）。"""
+    factor = float(factor)
+    T = len(f0)
+    if factor <= 1.0001 or T < 3:
+        return f0, sp, ap
+    T2 = max(T + 2, int(round(T * factor)))
+    idx = np.linspace(0, T - 1, T2)
+    src = np.arange(T, dtype=np.float64)
+    f0n = np.interp(idx, src, f0)
+    spn = np.empty((T2, sp.shape[1]), dtype=np.float64)
+    apn = np.empty((T2, ap.shape[1]), dtype=np.float64)
+    for j in range(sp.shape[1]):
+        spn[:, j] = np.interp(idx, src, sp[:, j])
+        apn[:, j] = np.interp(idx, src, ap[:, j])
+    return f0n, spn, apn
+
+
+def _sing_line_v2(y, notes_midi, global_midi, args, seed):
+    """唱腔化 v2：按 bpm 音节时值重排 WORLD 帧 —— 拉伸元音、辅音保持、legato 拼接。
+
+    与 _sing_line 的区别：不再保留 TTS 的原句时值，而是把每个音节的 voiced 元音
+    帧拉伸/压缩到目标拍长（句尾音更长），未 voiced 辅音帧 ≤90ms，句内停顿 ≤40ms，
+    形成"一个字唱够时值、字连着"的唱腔；长音符自动有颤音（沿用 vibrato 参数）。
+    """
+    import pyworld as pw
+
+    rng = random.Random(int(seed))
+    np_rng = np.random.default_rng(int(seed))
+    y = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
+    hop = WORLD_FRAME_MS / 1000.0
+    f0, tpos = pw.harvest(y, SR, f0_floor=float(args.f0_floor),
+                          f0_ceil=float(args.f0_ceil), frame_period=WORLD_FRAME_MS)
+    f0 = np.ascontiguousarray(f0, dtype=np.float64)
+    tpos = np.asarray(tpos, dtype=np.float64)
+    if len(f0) < 6:
+        return None, None
+    sp = pw.cheaptrick(y, f0, tpos, SR)
+    ap = pw.d4c(y, f0, tpos, SR)
+    if int((f0 > 0).sum()) < 8:
+        return None, None
+
+    n_note = max(1, len(notes_midi))
+    bounds = _calc_note_bounds(y, f0, tpos, n_note, args)
+    bf = [max(0, min(int(round(b / hop)), len(f0))) for b in bounds]
+
+    beat = 60.0 / float(args.bpm) if args.bpm and args.bpm > 0 else 0.65
+    scale = max(0.2, min(2.0, float(getattr(args, "beat_scale", 0.75) or 0.75)))
+    tail_beats = max(1.0, float(getattr(args, "tail_beats", 1.8) or 1.8))
+    durs = [beat * scale] * n_note
+    durs[-1] = beat * scale * tail_beats
+    uv_cap_start = max(2, int(round(0.09 / hop)))   # 句首辅音最多 90ms
+    uv_cap_mid = max(2, int(round(0.04 / hop)))     # 字间停顿最多 40ms（legato）
+
+    out_sp, out_ap, out_voiced, out_note, out_orig = [], [], [], [], []
+    for k in range(n_note):
+        a, b = bf[k], bf[k + 1]
+        if b <= a:
+            a = max(0, min(a, len(f0) - 2))
+            b = min(len(f0), a + 2)
+        seg_f0 = f0[a:b]
+        seg_sp = sp[a:b]
+        seg_ap = ap[a:b]
+        target = max(3, int(round(durs[k] / hop)))
+        runs = []
+        start = 0
+        cur = bool(seg_f0[0] > 0)
+        for i in range(1, len(seg_f0)):
+            v = bool(seg_f0[i] > 0)
+            if v != cur:
+                runs.append((start, i, cur))
+                start = i
+                cur = v
+        runs.append((start, len(seg_f0), cur))
+        uv_keep = sum(min(e - s, uv_cap_start if s == 0 else uv_cap_mid)
+                      for s, e, v in runs if not v)
+        v_total = sum(e - s for s, e, v in runs if v)
+        v_new_total = max(2, target - uv_keep)
+        for s, e, v in runs:
+            L = e - s
+            if not v:
+                keep = min(L, uv_cap_start if s == 0 else uv_cap_mid)
+                out_sp.append(seg_sp[s:s + keep])
+                out_ap.append(seg_ap[s:s + keep])
+                out_voiced.append(np.zeros(keep, dtype=bool))
+                out_note.append(np.full(keep, k, dtype=np.int32))
+                out_orig.append(np.zeros(keep, dtype=np.float64))
+            else:
+                newL = max(2, int(round(v_new_total * L / max(1, v_total))))
+                idx = np.linspace(s, e - 1, newL)
+                src = np.arange(s, e, dtype=np.float64)
+                spn = np.empty((newL, sp.shape[1]), dtype=np.float64)
+                apn = np.empty((newL, ap.shape[1]), dtype=np.float64)
+                for j in range(sp.shape[1]):
+                    spn[:, j] = np.interp(idx, src, seg_sp[s:e, j])
+                    apn[:, j] = np.interp(idx, src, seg_ap[s:e, j])
+                out_sp.append(spn)
+                out_ap.append(apn)
+                out_voiced.append(np.ones(newL, dtype=bool))
+                out_note.append(np.full(newL, k, dtype=np.int32))
+                out_orig.append(np.interp(idx, src, seg_f0[s:e]))
+    new_sp = np.vstack(out_sp)
+    new_ap = np.vstack(out_ap)
+    new_voiced = np.concatenate(out_voiced)
+    new_note = np.concatenate(out_note)
+    new_orig = np.concatenate(out_orig)
+    T2 = len(new_sp)
+    if T2 < 8 or int(new_voiced.sum()) < 8:
+        return None, None
+    t2 = np.arange(T2) * hop
+
+    # 新音节边界（秒）
+    note_starts = np.zeros(n_note + 1, dtype=np.float64)
+    for k in range(n_note):
+        idx = np.flatnonzero(new_note == k)
+        if len(idx):
+            note_starts[k] = idx[0] * hop
+            note_starts[k + 1] = (idx[-1] + 1) * hop
+    for k in range(1, n_note + 1):
+        if note_starts[k] <= note_starts[k - 1]:
+            note_starts[k] = note_starts[k - 1] + hop
+    note_starts[-1] = max(note_starts[-1], note_starts[-2] + hop)
+
+    # 目标音高：音符音级 + 原始自然起伏（blend 参数同旧版）
+    blend = max(0.0, min(1.0, float(getattr(args, "blend", 1.0))))
+    mode = getattr(args, "blend_mode", "global")
+    vo = new_orig > 0
+    orig_midi = np.zeros(T2, dtype=np.float64)
+    orig_midi[vo] = 69.0 + 12.0 * np.log2(np.maximum(new_orig[vo], 1e-9) / 440.0)
+    line_orig_med = float(np.median(orig_midi[vo])) if np.any(vo) else float(global_midi)
+    line_tgt_med = float(np.median(np.asarray(notes_midi, dtype=np.float64)))
+    tgt = np.zeros(T2, dtype=np.float64)
+    for k in range(n_note):
+        sel = (new_note == k)
+        if not np.any(sel):
+            continue
+        base = float(notes_midi[k]) + rng.uniform(-0.04, 0.04)
+        vs = sel & vo
+        if not np.any(vs):
+            tgt[sel] = base
+            continue
+        med = float(np.median(orig_midi[vs]))
+        resid = orig_midi[vs] - med
+        if blend >= 0.999:
+            tgt[vs] = base + 0.18 * np.clip(resid, -0.4, 0.4)
+        elif mode == "note":
+            tgt[vs] = base + (1.0 - blend) * np.clip(resid, -1.5, 1.5)
+        else:
+            tgt[vs] = blend * base + (1.0 - blend) * (orig_midi[vs] - line_orig_med + line_tgt_med)
+        tgt[sel & ~vo] = base
+
+    # 滑音（连续 voiced 段内平滑）+ 颤音（新时值下自动长音更明显）+ 微漂移
+    vf2 = np.flatnonzero(new_voiced)
+    runs2 = []
+    st = 0
+    for i in range(1, len(vf2)):
+        if vf2[i] != vf2[i - 1] + 1:
+            runs2.append((st, i))
+            st = i
+    runs2.append((st, len(vf2)))
+    base_v = tgt[vf2].copy()
+    win = max(3, int(round(float(args.glide_ms) / WORLD_FRAME_MS)))
+    for a2, b2 in runs2:
+        if b2 - a2 >= 3:
+            base_v[a2:b2] = _smooth_1d(base_v[a2:b2], win)
+
+    vib_amp = max(0.0, min(2.0, float(args.vibrato))) * (VIBRATO_CENTS / 100.0)
+    if vib_amp > 0:
+        vt = t2[vf2]
+        kk = np.clip(np.searchsorted(note_starts[1:-1], vt, side="right"), 0, n_note - 1)
+        ns_t = note_starts[:-1][kk]
+        ne_t = note_starts[1:][kk]
+        note_len = np.maximum(ne_t - ns_t, 1e-3)
+        ramp_in = np.minimum(0.18, 0.35 * note_len)
+        ramp_out = np.minimum(0.15, 0.30 * note_len)
+        ramp = np.clip((vt - ns_t) / ramp_in, 0.0, 1.0) * \
+            np.clip((ne_t - vt) / ramp_out, 0.0, 1.0)
+        vib = vib_amp * np.sin(2.0 * math.pi * VIBRATO_HZ * vt + rng.uniform(0, 2 * math.pi))
+        base_v = base_v + vib * ramp
+    noise = np_rng.normal(0.0, 1.0, size=len(vf2))
+    drift = _smooth_1d(noise, 41)
+    sd = float(np.std(drift))
+    if sd > 1e-9:
+        base_v = base_v + drift / sd * 0.05
+    base_v = np.clip(base_v, float(global_midi) - 5.0, float(global_midi) + 5.0)
+    base_v = np.where(np.isfinite(base_v), base_v, float(global_midi))
+
+    f0_new = np.zeros(T2, dtype=np.float64)
+    f0_new[vf2] = _midi_to_hz(base_v)
+    f0_new, new_sp, new_ap, note_starts = _apply_tail(f0_new, new_sp, new_ap,
+                                                      np.array(note_starts), args)
+
+    y2 = pw.synthesize(f0_new, new_sp, new_ap, SR, frame_period=WORLD_FRAME_MS)
+    y2 = np.asarray(y2, dtype=np.float64)
+    if len(y2) == 0 or float(np.max(np.abs(y2))) <= 1e-6:
+        return None, None
+
+    # 长音符渐弱（>long_note_min 的音符最后 40% 线性降到 note_fade_db）
+    fade_db = float(getattr(args, "note_fade_db", 0.0) or 0.0)
+    if fade_db < -0.05:
+        depth = 10.0 ** (fade_db / 20.0)
+        long_min = float(getattr(args, "long_note_min", 0.5) or 0.5)
+        for k in range(len(note_starts) - 1):
+            d = note_starts[k + 1] - note_starts[k]
+            if d < long_min:
+                continue
+            s0 = int(round(note_starts[k] * SR))
+            s1 = min(len(y2), int(round(note_starts[k + 1] * SR)))
+            if s1 - s0 < 64:
+                continue
+            fs = s0 + int((s1 - s0) * 0.6)
+            y2[fs:s1] *= np.linspace(1.0, depth, s1 - fs)
+
+    return y2, [float(b) for b in note_starts]
+
+
 def _sing_line(y, notes_midi, global_midi, args, seed):
     """WORLD 清唱化一句：只替换 voiced 帧 f0，音高按 notes_midi 走旋律。失败抛异常。"""
     import pyworld as pw
@@ -597,6 +813,12 @@ def _sing_line(y, notes_midi, global_midi, args, seed):
     f0_new[vf] = _midi_to_hz(smooth)
     # 句尾轻拖音（帧域拉伸 + 末尾下滑）
     f0_new, sp, ap, bounds = _apply_tail(f0_new, sp, ap, bounds, args)
+    # 简单变速对照：整句 WORLD 帧域均匀拉伸（1.0=关）
+    ls = float(getattr(args, "line_stretch", 1.0) or 1.0)
+    if ls > 1.0001:
+        f0_new, sp, ap = _stretch_frames(f0_new, sp, ap, ls)
+        bounds = np.array(bounds, dtype=np.float64) * ls
+        bounds[-1] = len(f0_new) * (WORLD_FRAME_MS / 1000.0)
     y2 = pw.synthesize(f0_new, sp, ap, SR, frame_period=WORLD_FRAME_MS)
     y2 = np.asarray(y2, dtype=np.float64)
     if len(y2) == 0 or float(np.max(np.abs(y2))) <= 1e-6:
@@ -713,7 +935,9 @@ def _melody_pipeline(raws, lines, args):
         try:
             if args.debug_fail_world:
                 raise RuntimeError("debug: world disabled")
-            if getattr(args, "engine", "world") == "librosa":
+            if args.sing_v2:
+                y2, note_bounds = _sing_line_v2(y, targets, global_midi, args, seed_i)
+            elif getattr(args, "engine", "world") == "librosa":
                 y2, note_bounds = _sing_line_librosa(y, targets, global_midi, args, seed_i)
             else:
                 y2, note_bounds = _sing_line(y, targets, global_midi, args, seed_i)
@@ -737,6 +961,9 @@ def _melody_pipeline(raws, lines, args):
                 "engine": getattr(args, "engine", "world"),
                 "tail_stretch": float(getattr(args, "tail_stretch", 1.0)),
                 "tail_fall": float(getattr(args, "tail_fall", 0.0)),
+                "sing_v2": bool(getattr(args, "sing_v2", False)),
+                "beat_scale": float(getattr(args, "beat_scale", 0.0) or 0.0),
+                "line_stretch": float(getattr(args, "line_stretch", 1.0) or 1.0),
             }
             if note_bounds:
                 debug_notes[i]["bounds"] = [round(float(b), 3) for b in note_bounds]
@@ -781,6 +1008,13 @@ def build_parser():
     p.add_argument("--engine", choices=["world", "librosa"], default="world", help=argparse.SUPPRESS)
     p.add_argument("--tail-stretch", type=float, default=1.0, help=argparse.SUPPRESS)
     p.add_argument("--tail-fall", type=float, default=0.0, help=argparse.SUPPRESS)
+    # 唱腔化 v2：按 bpm 音节时值拉伸元音 + legato + 长音颤音/渐弱
+    p.add_argument("--sing-v2", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--beat-scale", type=float, default=0.75, help=argparse.SUPPRESS)
+    p.add_argument("--tail-beats", type=float, default=1.8, help=argparse.SUPPRESS)
+    p.add_argument("--line-stretch", type=float, default=1.0, help=argparse.SUPPRESS)
+    p.add_argument("--note-fade-db", type=float, default=0.0, help=argparse.SUPPRESS)
+    p.add_argument("--long-note-min", type=float, default=0.5, help=argparse.SUPPRESS)
     p.add_argument("--text-lang", default="zh", help=argparse.SUPPRESS)
     p.add_argument("--prompt-lang", default="zh", help=argparse.SUPPRESS)
     p.add_argument("--top-k", type=int, default=DEFAULT_TOP_K, help=argparse.SUPPRESS)
@@ -936,6 +1170,9 @@ def main(argv=None):
         "vibrato": args.vibrato,
         "quantize_ms": args.quantize_ms,
         "engine": getattr(args, "engine", "world"),
+        "sing_v2": bool(getattr(args, "sing_v2", False)),
+        "beat_scale": float(getattr(args, "beat_scale", 0.0) or 0.0),
+        "line_stretch": float(getattr(args, "line_stretch", 1.0) or 1.0),
         "elapsed": round(time.time() - started, 2),
         "lines": timing_lines,
     }

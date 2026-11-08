@@ -170,6 +170,40 @@ def walk_until(tx, ty, timeout=10):
     return False
 
 
+PIER_TILES = [(30, 21), (31, 21), (32, 21), (33, 21), (34, 22), (34, 23), (34, 24), (32, 27), (30, 28)]
+
+
+def fish_from_pier(h, attempts=2):
+    """写死：必须走到海滩栈桥上再钓鱼。"""
+    b = rd()
+    tiles = (b.get("surroundings") or {}).get("Tiles") or []
+    me = tile_of(b)
+    cur = next((x for x in tiles if x["X"] == me[0] and x["Y"] == me[1]), None)
+    if cur and cur.get("IsWater") and cur.get("Passable"):
+        log(f"  已经在栈桥上 {me}")
+        return fish_here(h, attempts)
+    for pt in PIER_TILES:
+        t = next((x for x in tiles if x["X"] == pt[0] and x["Y"] == pt[1]), None)
+        if t is not None and not t.get("Passable"):
+            continue
+        if walk_until(pt[0], pt[1], 20):
+            log(f"  已在栈桥 {pt}")
+            break
+    else:
+        log("  走不到栈桥")
+        return 0
+    return fish_here(h, attempts)
+
+
+def _close_all_menus(timeout=5.0):
+    for _ in range(int(timeout / 0.4)):
+        st = (rd().get("player") or {}).get("fishing") or {}
+        if not st.get("activeMenu") and not st.get("inUse"):
+            return True
+        send({"actionType": "close_menu"}, 0.4)
+    return False
+
+
 def fish_here(h, attempts=3):
     """找水边可站格，走过去，面朝水，真实点击抛竿/钩鱼。"""
     send({"actionType": "player_select_tool", "tool": "fishingrod"}, 0.3)
@@ -188,6 +222,8 @@ def fish_here(h, attempts=3):
     caught = 0
     for i in range(attempts):
         live()
+        send({"actionType": "close_menu"}, 0.4)
+        _close_all_menus()
         send({"actionType": "reset_rod"}, 0.5)
         b = rd()
         tiles = (b.get("surroundings") or {}).get("Tiles") or []
@@ -199,17 +235,35 @@ def fish_here(h, attempts=3):
             for dx, dy in ((0, 1), (0, -1), (1, 0), (-1, 0)):
                 st = next((t for t in tiles if t["X"] == w["X"] + dx and t["Y"] == w["Y"] + dy and t.get("Passable")), None)
                 if st:
-                    spots.append((abs(st["X"] - me[0]) + abs(st["Y"] - me[1]), w, st))
+                    # 相邻水格越多越像栈桥/码头，优先去那钓
+                    water_adj = 0
+                    for ax, ay in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        if any(tt["X"] == st["X"] + ax and tt["Y"] == st["Y"] + ay and tt.get("IsWater") for tt in tiles):
+                            water_adj += 1
+                    spots.append((abs(st["X"] - me[0]) + abs(st["Y"] - me[1]) - water_adj * 3, w, st))
                     break
+        cur_dbg = next((t for t in tiles if t["X"] == me[0] and t["Y"] == me[1]), None)
+        log(f"  [调试] me={me} cur_water={cur_dbg.get('IsWater') if cur_dbg else None} cur_passable={cur_dbg.get('Passable') if cur_dbg else None}")
+        # 已经站在栈桥上：直接朝远处开阔水面抛竿（不要走到水里）
+        cur_tile = next((t for t in tiles if t["X"] == me[0] and t["Y"] == me[1]), None)
+        if cur_tile and cur_tile.get("IsWater") and cur_tile.get("Passable"):
+            open_water = [t for t in tiles if t.get("IsWater") and not t.get("Passable")]
+            open_water.sort(key=lambda t: abs(t["X"] - me[0]) + abs(t["Y"] - me[1]))
+            if open_water:
+                spots.insert(0, (-2, open_water[0], cur_tile))
         spots.sort(key=lambda x: x[0])
+        if spots:
+            log(f"  [调试] 首选水格 {spots[0][1]['X']},{spots[0][1]['Y']} 站位 {spots[0][2]['X']},{spots[0][2]['Y']}")
         if not spots:
             log("  附近没有可站位的水")
             return caught
         done = False
         for dist, w, st in spots[:6]:
             log(f"  试水格 {w['X']},{w['Y']} 站位 {st['X']},{st['Y']}")
-            if not walk_until(st["X"], st["Y"], 8):
-                continue
+            if (st["X"], st["Y"]) != tile_of(rd()):
+                if not walk_until(st["X"], st["Y"], 8):
+                    continue
+            send({"actionType": "select_item", "name": "竹鱼竿"}, 0.35)
             send({"actionType": "player_face_tile", "x": w["X"], "y": w["Y"]}, 0.3)
             b = rd()
             pt2 = tile_of(b)
@@ -224,11 +278,12 @@ def fish_here(h, attempts=3):
             wx = px + ux * 160
             wy = py + uy * 160
             cast = False
-            for scale in (96, 128, 160, 192, 224):
-                _focus_click(h, px + ux * scale, py + uy * scale)
-                time.sleep(0.85)
+            # 用游戏内部抛竿；抛竿后要等 1~3 秒才会有状态，别重复抛（重复会取消）
+            send({"actionType": "fish_begin", "x": w["X"], "y": w["Y"]}, 0.5)
+            for _wait in range(10):
+                time.sleep(0.6)
                 stf = (rd().get("player") or {}).get("fishing") or {}
-                if stf.get("inUse") or stf.get("minigame"):
+                if stf.get("inUse") or stf.get("minigame") or stf.get("nibbling"):
                     cast = True
                     break
             if cast:
@@ -239,44 +294,59 @@ def fish_here(h, attempts=3):
         if not done:
             log("  抛竿失败")
             continue
-        deadline = time.time() + 30
-        hooked = False
-        last_change = time.time()
+        deadline = time.time() + 25
+        hook_sent = False
+        minigame = False
         while time.time() < deadline:
             stf = (rd().get("player") or {}).get("fishing") or {}
             if stf.get("minigame"):
+                minigame = True
                 break
-            if stf.get("nibbling") and not hooked:
-                _focus_click(h, wx, wy)
-                hooked = True
-                last_change = time.time()
-                time.sleep(0.6)
-            if hooked and stf.get("minigame"):
-                break
-            # 鱼竿卡住（inUse 但长时间没咬钩/没小游戏）
-            if stf.get("inUse") and not stf.get("nibbling") and time.time() - last_change > 10:
-                log("  鱼竿疑似卡住，重置")
-                send({"actionType": "close_menu"}, 0.3)
-                send({"actionType": "reset_rod"}, 0.4)
-                break
-            if not stf.get("inUse"):
-                last_change = time.time()
-            time.sleep(0.12)
-        # 钩鱼后等小游戏真正弹出来（最多 8 秒）
-        deadline = time.time() + 8
-        while time.time() < deadline:
-            stf = (rd().get("player") or {}).get("fishing") or {}
-            if stf.get("minigame"):
-                break
-            time.sleep(0.3)
-        stf = (rd().get("player") or {}).get("fishing") or {}
-        if not stf.get("minigame"):
-            log("  咬钩后小游戏没开，重置鱼竿重试")
-            send({"actionType": "close_menu"}, 0.3)
-            send({"actionType": "reset_rod"}, 0.4)
+            if stf.get("nibbling") and not hook_sent:
+                send({"actionType": "fish_hook"}, 0.1)
+                hook_sent = True
+                t1 = time.time() + 1.5
+                while time.time() < t1:
+                    stf = (rd().get("player") or {}).get("fishing") or {}
+                    if stf.get("minigame"):
+                        minigame = True
+                        break
+                    time.sleep(0.15)
+                if not minigame:
+                    send({"actionType": "fish_hook2"}, 0.3)
+            time.sleep(0.15)
+        if not minigame:
+            t2 = time.time() + 6
+            while time.time() < t2:
+                stf = (rd().get("player") or {}).get("fishing") or {}
+                if stf.get("minigame"):
+                    minigame = True
+                    break
+                time.sleep(0.2)
+        if not minigame:
+            log("  没进小游戏，重置鱼竿")
+            send({"actionType": "close_menu"}, 0.25)
+            send({"actionType": "reset_rod"}, 0.3)
             continue
+        # 等补丁自动收鱼（进度拉满后自动关菜单）
+        before = {x["name"]: x["stack"] for x in (rd().get("player") or {}).get("inventory") or [] if x}
+        t3 = time.time() + 12
+        while time.time() < t3:
+            stf = (rd().get("player") or {}).get("fishing") or {}
+            if not stf.get("minigame"):
+                break
+            time.sleep(0.25)
         send({"actionType": "close_menu"}, 0.4)
-        caught += 1
+        time.sleep(0.5)
+        after = {x["name"]: x["stack"] for x in (rd().get("player") or {}).get("inventory") or [] if x}
+        gained = [k for k in after if after[k] > before.get(k, 0)]
+        if gained:
+            caught += 1
+            log(f"  钓到：{gained}")
+            send({"actionType": "collect_debris", "radius": 1}, 0.4)
+        else:
+            log("  小游戏开了但没收到鱼")
+            send({"actionType": "reset_rod"}, 0.3)
         b = rd()
         inv = [x["name"] for x in (b["player"].get("inventory") or []) if x]
         log(f"  第{i+1}次结束，背包={inv}")

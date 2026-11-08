@@ -134,11 +134,16 @@ def mine_batch(max_mined=8):
 def fish_batch(attempts=2):
     try:
         import walk_fish
+        # 背包满了就丢杂物腾位置（否则鱼放不进背包）
+        used = len([x for x in ((nav2.rd() or {}).get("player") or {}).get("inventory") or [] if x])
+        if used >= 11:
+            for nm in ("松果", "树液", "纤维", "晶球"):
+                nav2.send({"actionType": "throw_item", "name": nm}, 0.4)
         fallback.goto_or_warp("Beach")
         h, _ = gameio.game_window()
         if not h:
             return 0
-        n = walk_fish.fish_here(h, attempts)
+        n = walk_fish.fish_from_pier(h, attempts)
         log(f"  钓鱼：尝试 {n} 次，金币 {_money()}")
         return n
     except Exception as ex:

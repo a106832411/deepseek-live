@@ -180,6 +180,9 @@ def walk_until(tx, ty, timeout=12):
                 still = 0
                 last = cur
         unstick()
+    # 最后用逐格贪心走过去（对准直线目标更稳）
+    if step_walk(tx, ty, max_steps=80):
+        return True
     return False
 
 
@@ -266,6 +269,18 @@ def goto_via(waypoints):
     return True
 
 
+def ensure_spawn(loc):
+    """过图后如果站在地图边界，往安全格走几步，避免贴着边缘找不到水/路。"""
+    try:
+        b = rd() or {}
+        t = tile(b)
+        sx, sy = SAFE.get(loc, (20, 20))
+        if t[0] <= 2 or t[1] <= 2 or abs(t[0] - sx) + abs(t[1] - sy) > 40:
+            walk_until(sx, sy, 30)
+    except Exception:
+        pass
+
+
 def hop(target, timeout=30):
     """走到本图通往 target 的出口；一到出口立刻触发过图，不干等。"""
     for attempt in range(3):
@@ -273,6 +288,7 @@ def hop(target, timeout=30):
         b = safe_check()
         cur_loc = b.get("location")
         if cur_loc == target:
+            ensure_spawn(target)
             return True
         # 农舍门口不在 warps 列表里：走到门口再触发进屋
         if cur_loc == "Farm" and target == "FarmHouse":
@@ -298,15 +314,18 @@ def hop(target, timeout=30):
             if not b:
                 continue
             if b.get("location") == target:
+                ensure_spawn(target)
                 return True
             t = tile(b)
             if abs(t[0] - gx) + abs(t[1] - gy) <= 3 and not fired:
                 send({"actionType": "enter_exit", "target": target}, 0.8)
                 fired = True
             if fired and b.get("location") == target:
+                ensure_spawn(target)
                 return True
         b = safe_check()
         if b.get("location") == target:
+            ensure_spawn(target)
             return True
         time.sleep(1.0)
         # 走到出口附近就强制触发（边界出口可能踩不上去）
@@ -518,6 +537,7 @@ def goto(target):
         b = rd() or {}
         cur = b.get("location")
         if cur == target:
+            ensure_spawn(target)
             return True
         alts = [list(p) for p in ALTERNATES.get((cur, target), [])]
         base = route_to(cur, target)
@@ -538,6 +558,7 @@ def goto(target):
                     ok = False
                     break
             if ok and (rd() or {}).get("location") == target:
+                ensure_spawn(target)
                 return True
     return False
 
@@ -554,6 +575,18 @@ def goto_via(waypoints):
     return True
 
 
+def ensure_spawn(loc):
+    """过图后如果站在地图边界，往安全格走几步，避免贴着边缘找不到水/路。"""
+    try:
+        b = rd() or {}
+        t = tile(b)
+        sx, sy = SAFE.get(loc, (20, 20))
+        if t[0] <= 2 or t[1] <= 2 or abs(t[0] - sx) + abs(t[1] - sy) > 40:
+            walk_until(sx, sy, 30)
+    except Exception:
+        pass
+
+
 def hop(target, timeout=30):
     """走到本图通往 target 的出口；一到出口立刻触发过图，不干等。"""
     for attempt in range(3):
@@ -561,6 +594,7 @@ def hop(target, timeout=30):
         b = safe_check()
         cur_loc = b.get("location")
         if cur_loc == target:
+            ensure_spawn(target)
             return True
         # 农舍门口不在 warps 列表里：走到门口再触发进屋
         if cur_loc == "Farm" and target == "FarmHouse":
@@ -586,15 +620,18 @@ def hop(target, timeout=30):
             if not b:
                 continue
             if b.get("location") == target:
+                ensure_spawn(target)
                 return True
             t = tile(b)
             if abs(t[0] - gx) + abs(t[1] - gy) <= 3 and not fired:
                 send({"actionType": "enter_exit", "target": target}, 0.8)
                 fired = True
             if fired and b.get("location") == target:
+                ensure_spawn(target)
                 return True
         b = safe_check()
         if b.get("location") == target:
+            ensure_spawn(target)
             return True
         time.sleep(1.0)
         # 走到出口附近就强制触发（边界出口可能踩不上去）

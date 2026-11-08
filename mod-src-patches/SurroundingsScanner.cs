@@ -95,7 +95,19 @@ namespace StardewMCPBridge
                 try { passable = location.isTilePassable(new xTile.Dimensions.Location(x, y), Game1.viewport); }
                 catch { passable = false; }
             }
-            if (isWater) passable = false;
+            // 水面默认不可走；除非该格在 Buildings 图层上有木板（栈桥/码头）
+            if (isWater)
+            {
+                bool buildingsTile = false;
+                try
+                {
+                    var bl = location.Map.GetLayer("Buildings");
+                    if (bl != null && x >= 0 && y >= 0 && x < bl.LayerWidth && y < bl.LayerHeight)
+                        buildingsTile = bl.Tiles[x, y] != null;
+                }
+                catch { }
+                passable = buildingsTile && passable;
+            }
 
             string terrainType = null;
             string cropName = null;
