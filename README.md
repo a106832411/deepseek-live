@@ -6,7 +6,8 @@
 - **桌面控制台**：Electron 主进程拉起核心服务，渲染层通过 IPC 控制（也可纯网页使用）
 - **实时皮套**：pixi.js + pixi-live2d-display（Cubism 4），说话时自动口型、随机表情
 - **清唱点歌**：弹幕点歌 → AI 用自己的 TTS 声音清唱（抓歌词 → 逐句合成 → WORLD 加旋律 → 串成一首），
-  不播原曲、无版权风险；旧版「播放原曲」保留（`songs.perform=play`），见 [docs/清唱.md](docs/清唱.md)
+  - **真唱引擎（可选）**：`sing.engine=ace` 可切到本地方案——ACE-Step 生成纯人声清唱 + Seed-VC 零样本换成主播音色（无伴奏，旋律每次随机生成），失败自动回退 TTS 清唱。需要本地部署（见 `docs/清唱.md` §6.5），约 3~4 分钟/首。
+不播原曲、无版权风险；旧版「播放原曲」保留（`songs.perform=play`），见 [docs/清唱.md](docs/清唱.md)
 - **OBS 友好**：`/live2d` `/overlay` `/songs` `/subtitle` 透明网页源
 
 ## 目录结构
