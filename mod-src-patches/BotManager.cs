@@ -777,6 +777,34 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "dump_actions":
+                    {
+                        try
+                        {
+                            var locD = Game1.player.currentLocation;
+                            int wD = locD.Map.Layers[0].LayerWidth, hD = locD.Map.Layers[0].LayerHeight;
+                            var parts = new System.Collections.Generic.List<string>();
+                            int cnt = 0;
+                            foreach (var lay in new[] { "Back", "Buildings", "Front", "AlwaysFront" })
+                                for (int y = 0; y < hD && cnt < 60; y++)
+                                    for (int x = 0; x < wD && cnt < 60; x++)
+                                    {
+                                        var a = locD.doesTileHaveProperty(x, y, "Action", lay);
+                                        var ta = locD.doesTileHaveProperty(x, y, "TouchAction", lay);
+                                        if (!string.IsNullOrEmpty(a) || !string.IsNullOrEmpty(ta))
+                                        {
+                                            parts.Add($"{x},{y} {lay} Action='{a}' Touch='{ta}'");
+                                            cnt++;
+                                        }
+                                    }
+                            var names = new System.Collections.Generic.HashSet<string>();
+                            foreach (var kv in locD.Objects.Pairs) { var oo = kv.Value; if (oo != null) names.Add($"{oo.Name}|idx{oo.ParentSheetIndex}|{oo.Type}"); }
+                            this.monitor.Log($"ACTIONS {locD.Name} objs({locD.Objects.Count()}): " + string.Join(" ; ", names), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_actions err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "throw_item":
                     {
                         try
@@ -1101,12 +1129,13 @@ namespace StardewMCPBridge
                             string wt = root.TryGetProperty("target", out var wtEl) ? wtEl.GetString() : "";
                             var wloc = Game1.player.currentLocation;
                             int wx2 = -1, wy2 = -1;
+                            bool foundWarp = false;
                             foreach (var w in wloc.warps)
                             {
                                 if (w.TargetName != null && w.TargetName.IndexOf(wt, StringComparison.OrdinalIgnoreCase) >= 0)
-                                { wx2 = w.X; wy2 = w.Y; break; }
+                                { wx2 = w.X; wy2 = w.Y; foundWarp = true; break; }
                             }
-                            if (wx2 < 0)
+                            if (!foundWarp)
                             {
                                 int ew2 = wloc.Map.Layers[0].LayerWidth, eh2 = wloc.Map.Layers[0].LayerHeight;
                                 for (int yy = 0; yy < eh2 && wx2 < 0; yy++)
@@ -1118,7 +1147,7 @@ namespace StardewMCPBridge
                                         { wx2 = xx; wy2 = yy; break; }
                                     }
                             }
-                            if (wx2 < 0) { this.monitor.Log($"walk_to_target: no exit to {wt} in {wloc.Name}", LogLevel.Warn); break; }
+                            if (!foundWarp && wx2 < 0) { this.monitor.Log($"walk_to_target: no exit to {wt} in {wloc.Name}", LogLevel.Warn); break; }
                             int mapW = wloc.Map.Layers[0].LayerWidth, mapH = wloc.Map.Layers[0].LayerHeight;
                             int pathX = wx2, pathY = wy2;
                             this.pendingNudgeX = 0; this.pendingNudgeY = 0;

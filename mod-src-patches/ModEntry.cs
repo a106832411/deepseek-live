@@ -173,6 +173,36 @@ namespace StardewMCPBridge
             return n;
         }
 
+        private static System.Collections.Generic.List<object> FindStairs(GameLocation loc)
+        {
+            var list = new System.Collections.Generic.List<object>();
+            if (loc == null) return list;
+            try
+            {
+                int w = loc.Map.Layers[0].LayerWidth, h = loc.Map.Layers[0].LayerHeight;
+                for (int y = 0; y < h; y++)
+                    for (int x = 0; x < w; x++)
+                    {
+                        bool hit = false;
+                        foreach (var lay in new[] { "Back", "Buildings", "Front", "AlwaysFront" })
+                        {
+                            var act = loc.doesTileHaveProperty(x, y, "Action", lay);
+                            if (!string.IsNullOrEmpty(act) &&
+                                (act.IndexOf("Ladder", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                 act.IndexOf("Shaft", StringComparison.OrdinalIgnoreCase) >= 0)) { hit = true; break; }
+                        }
+                        if (!hit && loc.Objects.TryGetValue(new Microsoft.Xna.Framework.Vector2(x, y), out var o) && o != null)
+                        {
+                            string on = o.Name ?? "";
+                            if (on.IndexOf("Ladder", StringComparison.OrdinalIgnoreCase) >= 0 || on.IndexOf("Shaft", StringComparison.OrdinalIgnoreCase) >= 0) hit = true;
+                        }
+                        if (hit) list.Add(new { x, y });
+                    }
+            }
+            catch { }
+            return list;
+        }
+
         private static System.Collections.Generic.List<object> CollectExits(GameLocation loc)
         {
             var list = new System.Collections.Generic.List<object>();
@@ -258,6 +288,7 @@ namespace StardewMCPBridge
                     companions = this.botManager.GetBotStatus(),
                     surroundings = SurroundingsScanner.Scan(Game1.player.currentLocation, Game1.player.Tile, 9),
                     exits = CollectExits(Game1.player.currentLocation),
+                    stairs = FindStairs(Game1.player.currentLocation),
                     npcs = Game1.currentLocation?.characters.Select(c => new {
                         name = c.Name,
                         position = new { x = c.Position.X, y = c.Position.Y }

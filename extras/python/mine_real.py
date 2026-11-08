@@ -74,8 +74,29 @@ def find_ladder():
 
 
 def go_down():
-    """找梯子下一层（真实走过去 + 交互）。"""
+    """找梯子下一层：优先用桥接里的全图楼梯坐标，直接走上/交互。"""
     b = nav2.rd() or {}
+    stairs = b.get("stairs") or []
+    if stairs:
+        me = nav2.tile(b)
+        stairs_sorted = sorted(stairs, key=lambda s: abs(int(s["x"]) - me[0]) + abs(int(s["y"]) - me[1]))
+        for st in stairs_sorted[:4]:
+            sx, sy = int(st["x"]), int(st["y"])
+            log(f"  走向楼梯 ({sx},{sy})")
+            for attempt in range(3):
+                nav2.walk_until(sx, sy, 15)
+                time.sleep(0.6)
+                b2 = nav2.rd() or {}
+                if str(b2.get("location")) != str(b.get("location")):
+                    log(f"  下到 {b2.get('location')}")
+                    return True
+                nav2.send({"actionType": "player_interact_at", "x": sx, "y": sy}, 1.0)
+                time.sleep(1.0)
+                b3 = nav2.rd() or {}
+                if str(b3.get("location")) != str(b.get("location")):
+                    log(f"  下到 {b3.get('location')}")
+                    return True
+        log("  桥接楼梯都走不到，退回扫描")
     lad = find_ladder()
     if not lad:
         return False
