@@ -100,6 +100,75 @@ def _unused_old():
     return False
 
 
+def _scan_furnace(b=None):
+    b = b or nav2.rd() or {}
+    tiles = (b.get("surroundings") or {}).get("Tiles") or []
+    return next((t for t in tiles if "熔炉" in str(t.get("ObjectName"))), None)
+
+
+def _walk_farm_and_scan():
+    """在农场走几个点找现成熔炉（家附近 + 之前放过的位置）。"""
+    for (x, y) in ((64, 15), (63, 15), (70, 21), (60, 15)):
+        nav2.walk_until(x, y, 10)
+        f = _scan_furnace()
+        if f:
+            return f
+    for (x, y) in ((62, 18), (66, 18), (66, 12), (62, 12)):
+        nav2.walk_until(x, y, 10)
+        f = _scan_furnace()
+        if f:
+            return f
+    return None
+
+
+def find_existing_furnace():
+    """先看脚边，再在农场范围找；找到返回 tile dict。"""
+    f = _scan_furnace()
+    if f:
+        return f
+    b = nav2.rd() or {}
+    if "Farm" not in str(b.get("location")):
+        return None
+    return _walk_farm_and_scan()
+
+
+def place_furnace_here():
+    me = nav2.tile(rd())
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (2, 0), (0, 2)):
+        nav2.send({"actionType": "place_item_here", "name": "熔炉", "x": me[0] + dx, "y": me[1] + dy}, 1.2)
+        b = rd()
+        tiles = (b.get("surroundings") or {}).get("Tiles") or []
+        f = next((t for t in tiles if "熔炉" in str(t.get("ObjectName"))), None)
+        if f:
+            return f
+        if count("熔炉") == 0:
+            break
+    return _scan_furnace()
+
+
+def smelt_with_furnace(f):
+    """投 5 矿 → 等 40 秒 → 连收 3 次，确认铜锭增加再投下一炉。"""
+    rounds = 0
+    while count("铜矿石") >= 5 and rounds < 10:
+        rounds += 1
+        bars0 = count("铜锭")
+        for _ in range(5):
+            nav2.send({"actionType": "machine_drop_in", "x": f["X"], "y": f["Y"], "item": "铜矿石"}, 0.6)
+        log(f"  第 {rounds} 炉：投 5 铜矿，等 40 秒…")
+        time.sleep(40)
+        before = count("铜矿石")
+        for _ in range(3):
+            nav2.send({"actionType": "machine_collect", "x": f["X"], "y": f["Y"]}, 1.0)
+            time.sleep(1.0)
+            if count("铜锭") > bars0:
+                break
+        log(f"  第 {rounds} 炉：铜锭={count('铜锭')} 剩铜矿={count('铜矿石')}（投矿前 {before}）")
+        if count("铜锭") == bars0:
+            log("  ⚠ 这炉没收到铜锭，可能还在烧/被卡，先停")
+            break
+    log(f"  熔炼结束：铜锭={count('铜锭')}")
+
+
 def run_once():
     log("=== 目标：熔炉（20 铜 + 25 石）===")
     fallback.ensure_ready()
@@ -130,44 +199,28 @@ def run_once():
             if not mine_real.enter_mine_walk():
                 break
     log(f"材料：铜={count('铜矿石')} 石头={count('石头')} 木材={count('木材')}")
-    # 做熔炉
-    if count("铜矿石") >= 5 and count("石头") >= 25:
+    # 熔炉：优先用家里现成的，没有才做
+    if count("铜矿石") >= 5:
         fallback.goto_or_warp("Farm")
-        free_slots()
-        nav2.send({"actionType": "learn_recipe", "name": "Furnace"}, 0.8)
-        nav2.send({"actionType": "craft_item", "item": "Furnace"}, 1.5)
-        log(f"  熔炉数量={count('熔炉')} 石头={count('石头')}")
-        me = nav2.tile(rd())
-        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            nav2.send({"actionType": "place_item_here", "name": "熔炉", "x": me[0] + dx, "y": me[1] + dy}, 1.3)
-            if count("熔炉") == 0:
-                break
-        b = rd()
-        tiles = (b.get("surroundings") or {}).get("Tiles") or []
-        f = next((t for t in tiles if "熔炉" in str(t.get("ObjectName"))), None)
+        f = find_existing_furnace()
         if not f:
-            # 放在脚边找一遍
-            me = nav2.tile(rd())
-            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                nav2.send({"actionType": "place_item_here", "name": "熔炉", "x": me[0] + dx, "y": me[1] + dy}, 1.2)
-                b2 = rd()
-                tiles2 = (b2.get("surroundings") or {}).get("Tiles") or []
-                f = next((t for t in tiles2 if "熔炉" in str(t.get("ObjectName"))), None)
-                if f:
-                    break
+            if count("熔炉") > 0:
+                log("  背包里有熔炉，直接放出来用")
+                f = place_furnace_here()
+            elif count("石头") >= 25 and count("木材") >= 1:
+                log("  家里没有熔炉，做一个")
+                free_slots()
+                nav2.send({"actionType": "learn_recipe", "name": "Furnace"}, 0.8)
+                nav2.send({"actionType": "craft_item", "item": "Furnace"}, 1.5)
+                if count("熔炉") > 0:
+                    f = place_furnace_here()
+            else:
+                log(f"  石头不够做熔炉（石头={count('石头')}）")
         if f:
-            log(f"  熔炉在 ({f['X']},{f['Y']})")
-            rounds = 0
-            while count("铜矿石") >= 5 and rounds < 8:
-                rounds += 1
-                for _ in range(5):
-                    nav2.send({"actionType": "machine_drop_in", "x": f["X"], "y": f["Y"], "item": "铜矿石"}, 0.7)
-                log(f"  第 {rounds} 炉：投 5 铜矿，等 60 秒…")
-                time.sleep(60)
-                nav2.send({"actionType": "machine_collect", "x": f["X"], "y": f["Y"]}, 1.5)
-                time.sleep(1)
-                log(f"  第 {rounds} 炉收完：铜锭={count('铜锭')} 剩余铜矿={count('铜矿石')}")
-            log(f"  熔炼结束：铜锭={count('铜锭')}")
+            log(f"  使用熔炉 ({f['X']},{f['Y']})")
+            smelt_with_furnace(f)
+        else:
+            log("  找不到也做不出熔炉，结束")
     log("=== 结束 ===")
 
 
