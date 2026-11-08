@@ -77,6 +77,10 @@ def go_deeper():
     stairs = b.get("stairs") or []
     if stairs:
         return mine_real.go_down()
+    return mine_real.go_down()
+
+
+def _unused_old():
     # 找对象里的梯子（挖石头后可能掉梯子）
     tiles = (b.get("surroundings") or {}).get("Tiles") or []
     lads = [t for t in tiles if str(t.get("ObjectName") or "").find("梯") >= 0 or str(t.get("ObjectType") or "") == "ladder"]

@@ -93,8 +93,102 @@ def find_ladder():
     return None
 
 
+def _ladder_tile(b=None):
+    """从桥接数据读下一页楼梯的坐标（隐藏石头下面也会给坐标）。"""
+    b = b or nav2.rd() or {}
+    txt = str(b.get("ladderPosText") or "")
+    m = re.search(r"X:(\d+)\s+Y:(\d+)", txt)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2))
+
+
+def descend_via_ladder():
+    """找天然楼梯：楼梯藏在某块石头下面 → 敲开它 → 楼梯出现 → 交互下一层。"""
+    b = nav2.rd() or {}
+    f0 = floor_num(b.get("location"))
+    lad = _ladder_tile(b)
+    if not lad:
+        return False
+    lx, ly = lad
+    log(f"  本层楼梯位置 ({lx},{ly}) spawned={b.get('ladderSpawned')}")
+    for _ in range(25):
+        b = nav2.rd() or {}
+        if floor_num(b.get("location")) > f0:
+            log(f"  下到 {b.get('location')}")
+            return True
+        if b.get("ladderSpawned"):
+            # 楼梯/洞口出现在附近某一格：对自身和四邻交互，直到楼层变大
+            cands = [(lx, ly), (lx, ly + 1), (lx, ly - 1), (lx + 1, ly), (lx - 1, ly)]
+            tiles0 = _tiles(b)
+            # 优先试「不可通行且没有物体」的格子（洞口就是这样）
+            holes = [t for t in tiles0 if not t.get("Passable") and not t.get("ObjectName")
+                     and not t.get("IsWater") and abs(t["X"] - lx) + abs(t["Y"] - ly) <= 2]
+            for h in holes:
+                cands.insert(0, (h["X"], h["Y"]))
+            seen = set()
+            for (cx, cy) in cands:
+                if (cx, cy) in seen:
+                    continue
+                seen.add((cx, cy))
+                bb = nav2.rd() or {}
+                me_now = nav2.tile(bb)
+                # 必须站在洞口旁边才能交互
+                if abs(me_now[0] - cx) + abs(me_now[1] - cy) > 1:
+                    st2 = _stand(bb, cx, cy)
+                    if st2:
+                        nav2.walk_until(st2["X"], st2["Y"], 10)
+                        time.sleep(0.3)
+                nav2.send({"actionType": "player_face_tile", "x": cx, "y": cy}, 0.25)
+                nav2.send({"actionType": "player_interact_at", "x": cx, "y": cy}, 1.0)
+                time.sleep(1.0)
+                bb = nav2.rd() or {}
+                if floor_num(bb.get("location")) > f0:
+                    log(f"  下到 {bb.get('location')}（交互 {cx},{cy}）")
+                    return True
+            return False
+        # 楼梯还没出现：敲它上面那块石头
+        tiles = _tiles(b)
+        rock = _find(b, lx, ly)
+        if rock and rock.get("Breakable"):
+            st = _stand(b, lx, ly)
+            if not st:
+                # 石头被围住 → 先敲挡路的
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    n = _find(b, lx + dx, ly + dy)
+                    if n and n.get("Breakable") and _stand(b, n["X"], n["Y"]):
+                        rock, st = n, _stand(b, n["X"], n["Y"])
+                        break
+            if st and nav2.walk_until(st["X"], st["Y"], 12):
+                nav2.send({"actionType": "player_face_tile", "x": rock["X"], "y": rock["Y"]}, 0.2)
+                nav2.send({"actionType": "select_item", "name": "十字镐"}, 0.25)
+                nav2.send({"actionType": "player_use_tool", "tool": "pickaxe", "x": rock["X"], "y": rock["Y"]}, 0.8)
+                time.sleep(1.0)
+                nav2.send({"actionType": "collect_debris", "radius": 4}, 0.5)
+                continue
+            return False
+        # 那块石头已经没了但楼梯没出现 → 敲附近石头碰概率
+        rocks = [t for t in tiles if t.get("Breakable") and not t.get("Passable")
+                 and t.get("ObjectType") not in ("clump_axe", "clump_pick")]
+        if not rocks:
+            return False
+        me = nav2.tile(b)
+        rocks.sort(key=lambda t: abs(t["X"] - me[0]) + abs(t["Y"] - me[1]))
+        r0 = rocks[0]
+        st = _stand(b, r0["X"], r0["Y"])
+        if st and nav2.walk_until(st["X"], st["Y"], 12):
+            nav2.send({"actionType": "player_face_tile", "x": r0["X"], "y": r0["Y"]}, 0.2)
+            nav2.send({"actionType": "select_item", "name": "十字镐"}, 0.25)
+            nav2.send({"actionType": "player_use_tool", "tool": "pickaxe", "x": r0["X"], "y": r0["Y"]}, 0.8)
+            time.sleep(1.0)
+            nav2.send({"actionType": "collect_debris", "radius": 4}, 0.5)
+    return False
+
+
 def go_down():
-    """找梯子下一层：优先用桥接里的全图楼梯坐标，直接走上/交互。"""
+    """找天然楼梯下一层（不烧石头做楼梯）。"""
+    if descend_via_ladder():
+        return True
     b = nav2.rd() or {}
     stairs = b.get("stairs") or []
     if stairs:

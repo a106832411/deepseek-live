@@ -777,6 +777,63 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "dump_mineshaft":
+                    {
+                        try
+                        {
+                            var locM = Game1.player.currentLocation;
+                            var bt = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var parts = new System.Collections.Generic.List<string>();
+                            for (var t0 = locM.GetType(); t0 != null && t0 != typeof(object); t0 = t0.BaseType)
+                            {
+                                foreach (var f in t0.GetFields(bt))
+                                {
+                                    string fn = f.Name.ToLower();
+                                    if (fn.Contains("ladder") || fn.Contains("stair") || fn.Contains("shaft") || fn.Contains("exit"))
+                                    {
+                                        try { parts.Add($"{t0.Name}.{f.Name}={f.GetValue(locM)}"); } catch { }
+                                    }
+                                }
+                                foreach (var pr in t0.GetProperties(bt))
+                                {
+                                    string pn = pr.Name.ToLower();
+                                    if (pn.Contains("ladder") || pn.Contains("stair") || pn.Contains("shaft") || pn.Contains("exit"))
+                                    {
+                                        try { parts.Add($"{t0.Name}.{pr.Name}={pr.GetValue(locM)}"); } catch { }
+                                    }
+                                }
+                            }
+                            this.monitor.Log("MINESHAFT " + string.Join(" ; ", parts), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_mineshaft err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "dump_tile":
+                    {
+                        try
+                        {
+                            int dx7 = root.GetProperty("x").GetInt32(), dy7 = root.GetProperty("y").GetInt32();
+                            var lc = Game1.player.currentLocation;
+                            var parts = new System.Collections.Generic.List<string>();
+                            foreach (var lay in new[] { "Back", "Buildings", "Front", "AlwaysFront" })
+                            {
+                                var layer = lc.Map.GetLayer(lay);
+                                if (layer == null) continue;
+                                var tl = layer.Tiles[dx7, dy7];
+                                parts.Add($"{lay}:idx={(tl == null ? -1 : tl.TileIndex)}");
+                                if (tl != null)
+                                    foreach (var pk in tl.TileSheet.TileIndexProperties[tl.TileIndex].Keys)
+                                        parts.Add($"{lay}.{pk}='{tl.TileSheet.TileIndexProperties[tl.TileIndex][pk]}'");
+                            }
+                            if (lc.Objects.TryGetValue(new Microsoft.Xna.Framework.Vector2(dx7, dy7), out var o7) && o7 != null)
+                                parts.Add($"OBJ name='{o7.Name}' disp='{o7.DisplayName}' idx={o7.ParentSheetIndex} type={o7.Type}");
+                            this.monitor.Log($"TILE {dx7},{dy7}: " + string.Join(" ; ", parts), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_tile err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "dump_actions":
                     {
                         try

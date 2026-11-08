@@ -106,8 +106,7 @@ def main():
                 fp.run_once()   # 内含做熔炉/烧铜锭
                 continue
             if st["stone"] >= 99:
-                log("  石头够 99，下矿挖铜")
-                fp.use_staircase()
+                log("  下矿找天然楼梯，挖铜")
                 fp.run_once()
             else:
                 log("  石头不够，先挖矿/清农场")

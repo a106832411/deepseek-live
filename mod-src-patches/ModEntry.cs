@@ -173,6 +173,36 @@ namespace StardewMCPBridge
             return n;
         }
 
+        private static object GetMineField(string name)
+        {
+            try
+            {
+                var bt = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                var f = Game1.currentLocation?.GetType().GetField(name, bt);
+                if (f == null) return null;
+                var v = f.GetValue(Game1.currentLocation);
+                return v;
+            }
+            catch { return null; }
+        }
+
+        private static int GetMinePoint(string name, bool x)
+        {
+            try
+            {
+                var bt = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                var f = Game1.currentLocation?.GetType().GetField(name, bt);
+                if (f == null) return -1;
+                var v = f.GetValue(Game1.currentLocation);
+                if (v == null) return -1;
+                var xp = v.GetType().GetProperty("X");
+                var yp = v.GetType().GetProperty("Y");
+                if (xp == null || yp == null) return -1;
+                return (int)((x ? xp.GetValue(v) : yp.GetValue(v)) ?? -1);
+            }
+            catch { return -1; }
+        }
+
         private static System.Collections.Generic.List<object> FindStairs(GameLocation loc)
         {
             var list = new System.Collections.Generic.List<object>();
@@ -237,6 +267,10 @@ namespace StardewMCPBridge
                 {
                     time = Game1.timeOfDay,
                     day = Game1.dayOfMonth,
+                    ladderSpawned = GetMineField("ladderHasSpawned"),
+                    ladderPosText = GetMineField("netTileBeneathLadder")?.ToString(),
+                    ladderX = GetMinePoint("netTileBeneathLadder", true),
+                    ladderY = GetMinePoint("netTileBeneathLadder", false),
                     mapWidth = Game1.currentLocation?.Map?.Layers[0].LayerWidth ?? 0,
                     mapHeight = Game1.currentLocation?.Map?.Layers[0].LayerHeight ?? 0,
                     season = Game1.currentSeason,
