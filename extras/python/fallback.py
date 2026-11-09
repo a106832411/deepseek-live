@@ -34,7 +34,11 @@ def ensure_ready(auto_load=True, tries=3):
                     relaunch_game()
                     break
                 log("兜底：桥接数据过期（可能在标题页），重新加载存档")
-                gameio.load_game()
+                ok = gameio.load_game()
+                if ok:
+                    time.sleep(2)
+                    # 存档已加载：直接认为就绪（下一轮循环会继续校验时间/位置）
+                    return True
                 continue
             return False
         nav2.live()
