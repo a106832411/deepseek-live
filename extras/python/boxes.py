@@ -18,7 +18,7 @@ LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "boxes.lo
 
 CHEST_SPOTS = [(61, 16), (62, 16), (63, 16)]
 # 优先存仓库的杂物（不存工具/武器/食物）
-JUNK = ["石头", "木材", "铜矿石", "煤炭", "晶球", "史莱姆泥", "苔藓", "石英", "树液", "纤维", "松果", "粘土", "硬木"]
+JUNK = ["石头", "木材", "晶球", "史莱姆泥", "苔藓", "树液", "纤维", "松果", "粘土", "硬木"]
 
 
 def log(m):
@@ -70,8 +70,10 @@ def _stand(b, tx, ty):
 def ensure_chest():
     """保证房子门口有一个箱子；没有就用 50 木材做一个放固定位。"""
     b = rd() or {}
-    if "Farm" not in str(b.get("location")):
+    if str(b.get("location")) != "Farm":
         fallback.goto_or_warp("Farm")
+    # 先走到房子门口，保证箱子在扫描范围
+    nav2.walk_until(64, 17, 10)
     ch = find_chest()
     if ch:
         return ch
@@ -116,7 +118,7 @@ def deposit_junk(keep=9):
     if slots_used() < 11:
         return True
     b = rd() or {}
-    if "Farm" not in str(b.get("location")):
+    if str(b.get("location")) != "Farm":
         fallback.goto_or_warp("Farm")
     chest = ensure_chest()
     if not chest:
@@ -139,3 +141,24 @@ def deposit_junk(keep=9):
 
 
 
+
+
+def take_from_chest(name, qty=10):
+    """从家门口箱子取出指定物品（用于取铜矿去烧锭）。"""
+    b = rd() or {}
+    if str(b.get("location")) != "Farm":
+        fallback.goto_or_warp("Farm")
+    chest = ensure_chest()
+    if not chest:
+        return 0
+    open_chest(chest)
+    before = count(name)
+    for _ in range(6):
+        nav2.send({"actionType": "chest_take_named", "x": chest["X"], "y": chest["Y"],
+                   "name": name, "count": qty}, 1.2)
+        time.sleep(0.3)
+        if count(name) >= before + qty:
+            break
+    nav2.send({"actionType": "exit_menu"}, 0.6)
+    log(f"  取箱子：{name} {count(name) - before} 个")
+    return count(name) - before

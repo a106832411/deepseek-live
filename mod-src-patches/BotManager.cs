@@ -958,6 +958,39 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "chest_take_named":
+                    {
+                        try
+                        {
+                            int cxT = root.GetProperty("x").GetInt32(), cyT = root.GetProperty("y").GetInt32();
+                            string nmT = root.TryGetProperty("name", out var nT) ? nT.GetString() : "";
+                            int cntT = root.TryGetProperty("count", out var cT) ? cT.GetInt32() : 999;
+                            var locT = Game1.player.currentLocation;
+                            if (!locT.Objects.TryGetValue(new Microsoft.Xna.Framework.Vector2(cxT, cyT), out var objT) || !(objT is StardewValley.Objects.Chest chT))
+                            { this.monitor.Log("chest_take_named: 目标不是箱子", LogLevel.Warn); break; }
+                            int movedT = 0;
+                            for (int iT = chT.Items.Count - 1; iT >= 0 && movedT < cntT; iT--)
+                            {
+                                var itT = chT.Items[iT];
+                                if (itT == null) continue;
+                                string n2 = itT.DisplayName ?? itT.Name ?? "";
+                                if (!n2.Contains(nmT)) continue;
+                                var copy = itT.getOne();
+                                copy.Stack = 1;
+                                if (Game1.player.addItemToInventoryBool(copy, true))
+                                {
+                                    itT.Stack -= 1;
+                                    if (itT.Stack <= 0) chT.Items[iT] = null;
+                                    movedT++;
+                                }
+                                else break;
+                            }
+                            this.monitor.Log($"chest_take_named: 取出 {movedT} 个 {nmT}", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("chest_take_named err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "chest_store_named":
                     {
                         try

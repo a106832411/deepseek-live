@@ -234,6 +234,15 @@ def place_furnace_here():
 
 def smelt_with_furnace(f):
     """投 5 矿 → 等 40 秒 → 连收 3 次，确认铜锭增加再投下一炉。"""
+    # 铜矿不够就先从家门口箱子里取
+    if count("铜矿石") < 5:
+        try:
+            import boxes
+            have = sum(int(e.get("stack", 0)) for e in (rd().get("chestTotals") or []) if "铜矿石" in str(e.get("name")))
+            if have >= 5:
+                boxes.take_from_chest("铜矿石", min(25, have))
+        except Exception as ex:
+            log(f"  取铜矿失败: {ex}")
     rounds = 0
     while count("铜矿石") >= 5 and rounds < 10:
         rounds += 1
