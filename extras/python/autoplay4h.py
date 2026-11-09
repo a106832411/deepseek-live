@@ -61,29 +61,35 @@ def _dump_stuck(reason):
 
 
 def _watchdog():
+    """卡住判定 v2：位置/游戏时间长时间不变才判定卡死（避免误杀长任务）。"""
+    last = None
+    still = 0
     while True:
-        time.sleep(60)
-        gap = time.time() - LAST_CYCLE[0]
-        # 两个日志任一在更新都算活着（详情日志也会写动作）
+        time.sleep(45)
         try:
-            for lp in (LOG, os.path.join(os.path.dirname(LOG), "autoplay_stdout.log")):
-                if os.path.exists(lp):
-                    gap = min(gap, time.time() - os.path.getmtime(lp))
+            b = nav2.rd() or {}
+            pos = (b.get("location"), (b.get("player") or {}).get("tile", {}).get("x"),
+                   (b.get("player") or {}).get("tile", {}).get("y"),
+                   b.get("day"), b.get("time"))
         except Exception:
-            pass
-        if gap > 900:
-            _dump_stuck(f"no cycle for {int(gap)}s")
-            log(f"⚠ 检测到卡住 {int(gap)} 秒，记录状态并重启自己")
+            continue
+        if pos == last:
+            still += 1
+        else:
+            still = 0
+            last = pos
+        # 连续 7 次（约 5 分钟）位置和游戏时间都没变 → 判定卡死
+        if still >= 7:
+            _dump_stuck(f"frozen {still*45}s at {pos}")
+            log(f"⚠ 检测到卡住（位置/时间 {still*45} 秒没变），记录并重启")
             try:
-                b = nav2.rd() or {}
                 nav2.send({"actionType": "cancel_dialogue"}, 0.3)
-                if "Mine" in str(b.get("location")):
-                    # 卡在矿洞：先离开矿洞，别原地重启又进同一个坑
+                if "Mine" in str((nav2.rd() or {}).get("location")):
                     nav2.send({"actionType": "leave_mine"}, 1.5)
-                    time.sleep(2)
+                    time.sleep(1.5)
             except Exception:
                 pass
-            time.sleep(2)
+            time.sleep(1)
             os._exit(9)
 
 
