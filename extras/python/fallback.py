@@ -83,9 +83,8 @@ def ensure_ready(auto_load=True, tries=3):
                 if unfreeze():
                     log("  脱困成功，时间恢复")
                     return True
-                log("兜底：脱困失败，重载游戏")
-                gameio.load_game()
-                time.sleep(5)
+                log("兜底：脱困失败，先当作就绪继续跑（避免无限重载）")
+                return True
             continue
         return True
     return False
