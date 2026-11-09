@@ -281,6 +281,7 @@ def main():
                         continue
                 except Exception:
                     pass
+                nav2.set_timeout(600)
                 if not mine_real.enter_mine_walk():
                     fallback.goto_or_warp("Farm")
                     nav2.set_timeout(300)
@@ -293,8 +294,13 @@ def main():
                         nav2.clear_timeout()
                 else:
                     mine_real.mine_rocks(12)
+                nav2.clear_timeout()
         except TimeoutError:
             log("  本轮超时")
+            try:
+                nav2.clear_timeout()
+            except Exception:
+                pass
         except Exception as ex:
             log(f"  异常: {ex}")
             log(traceback.format_exc()[-500:])

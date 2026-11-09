@@ -408,8 +408,10 @@ def quick_ladder_try(budget=120):
     tiles = _tiles(b)
     cands = []
     for t in tiles:
+        if lx <= 1 or ly <= 1:
+            return False  # 楼梯坐标异常（0,0 之类），别乱试
         d = abs(t["X"] - lx) + abs(t["Y"] - ly)
-        if d > 6:
+        if d > 6 or t["X"] <= 1 or t["Y"] <= 1 or t["X"] >= 18 or t["Y"] >= 18:
             continue
         if (t["X"], t["Y"]) == (lx, ly):
             continue
@@ -418,6 +420,10 @@ def quick_ladder_try(budget=120):
     cands.sort(key=lambda x: x[0])
     log(f"  先快速试附近 {len(cands)} 格")
     for _i, (_d, t) in enumerate(cands[:40]):
+        try:
+            nav2.check_timeout()
+        except Exception:
+            raise
         if time.time() - t0 > budget:
             break
         cx, cy = t["X"], t["Y"]
@@ -452,6 +458,7 @@ def sweep_floor_for_ladder(budget=180):
     visited = set()
     log(f"  开始全图巡逻找楼梯…（排除上楼梯子 {up_lad}）")
     while time.time() - t0 < budget:
+        nav2.check_timeout()
         b = nav2.rd() or {}
         if floor_num(b.get("location")) > f0:
             log(f"  下到 {b.get('location')}（巡逻）")
@@ -461,6 +468,7 @@ def sweep_floor_for_ladder(budget=180):
         me = nav2.tile(b)
         tiles = _tiles(b)
         passables = [t for t in tiles if t.get("Passable") and not t.get("IsWater")
+                     and 2 <= t["X"] <= 17 and 2 <= t["Y"] <= 17
                      and (t["X"], t["Y"]) not in excluded]
         passables.sort(key=lambda t: abs(t["X"] - me[0]) + abs(t["Y"] - me[1]))
         moved = False
