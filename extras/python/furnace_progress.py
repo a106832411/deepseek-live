@@ -268,6 +268,13 @@ def run_once():
     log("=== 目标：熔炉（20 铜 + 25 石）===")
     fallback.ensure_ready()
     nav2.live()
+    # 起步层（1层）今天不可用 → 直接返回，交给上层去干别的
+    _entry_loc = str(rd().get("location"))
+    if "Mine" in _entry_loc and mine_real._is_no_ladder(1):
+        log("  起步层不可用，直接返回")
+        nav2.send({"actionType": "leave_mine"}, 1.5)
+        time.sleep(2)
+        return
     # 已在矿洞但该层今天确认没楼梯 → 立刻离开，别挖
     _loc = str(rd().get("location"))
     if "Mine" in _loc:
