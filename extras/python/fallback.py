@@ -148,9 +148,13 @@ def relaunch_game():
     for attempt in range(2):
         log(f"兜底：重启游戏（第 {attempt+1} 次）")
         import subprocess as _sp
-        subprocess.Popen([exe], cwd=game,
-                         stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
-                         creationflags=getattr(_sp, "DETACHED_PROCESS", 0))
+        # 用 PowerShell Start-Process 启动（与手动启动等价，Popen+DETACHED 在此环境会秒退）
+        try:
+            _sp.run(["powershell", "-NoProfile", "-Command",
+                     f"Start-Process -FilePath '{exe}' -WorkingDirectory '{game}'"],
+                    capture_output=True, text=True, timeout=30)
+        except Exception as _e:
+            log(f"  启动命令失败: {_e}")
         # 先等进程起来
         time.sleep(8)
         if not _game_process_alive():
