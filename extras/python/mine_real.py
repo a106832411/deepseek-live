@@ -349,6 +349,34 @@ def descend_via_ladder_v2():
         log("  90 秒没出楼梯，这层跳过")
         _mark_no_ladder(f0)
         return False
+    # 阶段一点五：截图识别洞口/梯子（视觉方案）
+    try:
+        import vision_ladder
+        holes = vision_ladder.locate_holes(threshold=0.88)
+        for (tx, ty, score, kind) in holes[:5]:
+            if not (0 <= tx <= 19 and 0 <= ty <= 19):
+                continue
+            log(f"  截图识别到{kind} ({tx},{ty}) 置信度={score:.2f}")
+            nav2.send({"actionType": "cancel_dialogue"}, 0.2)
+            st = _stand(nav2.rd() or {}, tx, ty)
+            if st:
+                nav2.walk_until(st["X"], st["Y"], 10)
+            nav2.send({"actionType": "player_face_tile", "x": tx, "y": ty}, 0.2)
+            nav2.send({"actionType": "player_interact_at", "x": tx, "y": ty}, 0.8)
+            time.sleep(0.8)
+            b3 = nav2.rd() or {}
+            if floor_num(b3.get("location")) > f0:
+                log(f"  下到 {b3.get('location')}（截图洞口 {tx},{ty}）")
+                return True
+            nav2.send({"actionType": "step_tile", "x": tx, "y": ty}, 0.8)
+            time.sleep(1.2)
+            b4 = nav2.rd() or {}
+            if floor_num(b4.get("location")) > f0:
+                log(f"  下到 {b4.get('location')}（踩洞口 {tx},{ty}）")
+                return True
+    except Exception as ex:
+        log(f"  截图识别失败: {ex}")
+
     # 阶段二：先快速试附近，再全图巡逻
     if quick_ladder_try(120):
         return True
