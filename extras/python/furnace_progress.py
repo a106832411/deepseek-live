@@ -101,9 +101,9 @@ def _unused_old():
 
 
 # 房子门口固定机器位置（别到处放）
-FURNACE_SPOTS = [(63, 15), (65, 15), (66, 15)]
-CHEST_SPOTS = [(62, 16), (63, 16), (64, 16)]
-HOUSE_DOOR = (64, 15)
+FURNACE_SPOTS = [(65, 16), (66, 16), (67, 16)]
+CHEST_SPOTS = [(61, 16), (62, 16), (63, 16)]
+HOUSE_DOOR = (64, 15)  # 门口保持空
 
 
 def _tile_obj(b, x, y):

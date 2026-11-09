@@ -16,7 +16,7 @@ import nav2
 
 LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "boxes.log")
 
-CHEST_SPOTS = [(62, 16), (63, 16), (64, 16)]
+CHEST_SPOTS = [(61, 16), (62, 16), (63, 16)]
 # 优先存仓库的杂物（不存工具/武器/食物）
 JUNK = ["石头", "木材", "铜矿石", "煤炭", "晶球", "史莱姆泥", "苔藓", "石英", "树液", "纤维", "松果", "粘土", "硬木"]
 
