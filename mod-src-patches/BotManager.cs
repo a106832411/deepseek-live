@@ -1776,6 +1776,231 @@ namespace StardewMCPBridge
                         catch (Exception ex) { this.monitor.Log("next_mine_level err: " + ex.Message, LogLevel.Warn); }
                         break;
                     }
+                case "ship_item":
+                    {
+                        try
+                        {
+                            string nmS = root.TryGetProperty("name", out var nS) ? nS.GetString() : "";
+                            int cntS = root.TryGetProperty("count", out var cS) ? cS.GetInt32() : 1;
+                            var farmS = Game1.getFarm();
+                            StardewValley.Objects.Chest binS = null;
+                            object bldS = null;
+                            var bfS = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            foreach (var bdS in farmS.buildings)
+                            {
+                                string tS = bdS.buildingType?.Value ?? "";
+                                if (!tS.Contains("Shipping")) continue;
+                                bldS = bdS;
+                                var gm = bdS.GetType().GetMethod("GetBuildingChest", bfS);
+                                if (gm != null)
+                                {
+                                    foreach (var key in new[] { "", "Shipping Bin", "ShippingBin", "Bin" })
+                                    {
+                                        try { binS = gm.Invoke(bdS, new object[] { key }) as StardewValley.Objects.Chest; } catch { binS = null; }
+                                        if (binS != null) break;
+                                    }
+                                }
+                                break;
+                            }
+                            if (binS == null) { this.monitor.Log("ship_item: 找不到发货箱（building）", LogLevel.Warn); break; }
+                            int movedS = 0;
+                            for (int iS = Game1.player.Items.Count - 1; iS >= 0 && movedS < cntS; iS--)
+                            {
+                                var itS = Game1.player.Items[iS];
+                                if (itS == null) continue;
+                                string d9 = itS.DisplayName ?? itS.Name ?? "";
+                                if (!d9.Contains(nmS)) continue;
+                                itS.Stack -= 1;
+                                var one = itS.getOne();
+                                one.Stack = 1;
+                                binS.Items.Add(one);
+                                if (itS.Stack <= 0) Game1.player.Items[iS] = null;
+                                movedS++;
+                            }
+                            this.monitor.Log($"ship_item: 发货 {movedS} 个 {nmS}（箱内共 {binS.Items.Count} 件）", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("ship_item err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "dump_shipping":
+                    {
+                        try
+                        {
+                            var farmD = Game1.getFarm();
+                            var partsD = new System.Collections.Generic.List<string>();
+                            foreach (var kv in farmD.Objects.Pairs)
+                            {
+                                if (kv.Value is StardewValley.Objects.Chest chD)
+                                {
+                                    string dnD = (chD.DisplayName ?? chD.Name ?? "").ToLower();
+                                    if (dnD.Contains("shipping") || dnD.Contains("发货") || dnD.Contains("装载"))
+                                    {
+                                        partsD.Add($"bin@{kv.Key.X},{kv.Key.Y}");
+                                        foreach (var itD in chD.Items)
+                                            if (itD != null) partsD.Add($"{itD.DisplayName ?? itD.Name}x{itD.Stack}");
+                                    }
+                                }
+                            }
+                            this.monitor.Log("SHIPPING " + string.Join(" | ", partsD), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_shipping err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                case "dump_farm_objects":
+                    {
+                        try
+                        {
+                            var farmO = Game1.getFarm();
+                            var namesO = new System.Collections.Generic.HashSet<string>();
+                            foreach (var kv in farmO.Objects.Pairs)
+                            {
+                                var o = kv.Value;
+                                if (o == null) continue;
+                                namesO.Add($"{o.Name}|{o.DisplayName}|{o.Type}|{o.GetType().Name}|idx{o.ParentSheetIndex}");
+                            }
+                            this.monitor.Log("FARMOBJ " + string.Join(" ; ", namesO), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_farm_objects err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                case "dump_buildings":
+                    {
+                        try
+                        {
+                            var farmB = Game1.getFarm();
+                            var partsB = new System.Collections.Generic.List<string>();
+                            foreach (var bd in farmB.buildings)
+                            {
+                                string tB = bd.buildingType?.Value ?? bd.GetType().Name;
+                                partsB.Add($"bld:{tB}@{bd.tileX},{bd.tileY}");
+                                var bfB = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                                foreach (var mi in bd.GetType().GetMethods(bfB))
+                                    if (mi.Name.ToLower().Contains("chest")) partsB.Add("  m:" + mi.Name + "(" + string.Join(",", System.Array.ConvertAll(mi.GetParameters(), pp => pp.ParameterType.Name)) + ")");
+                                foreach (var pr in bd.GetType().GetProperties(bfB))
+                                    if (pr.Name.ToLower().Contains("chest")) partsB.Add("  p:" + pr.Name);
+                            }
+                            this.monitor.Log("BLD " + string.Join(" | ", partsB), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_buildings err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                case "ship_item2":
+                    {
+                        try
+                        {
+                            string nmS = root.TryGetProperty("name", out var nS) ? nS.GetString() : "";
+                            int cntS = root.TryGetProperty("count", out var cS) ? cS.GetInt32() : 1;
+                            var farmS = Game1.getFarm();
+                            var bfS = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var partsS = new System.Collections.Generic.List<string>();
+                            StardewValley.Objects.Chest binS = null;
+                            foreach (var mName in new[] { "getShippingBin", "GetShippingBin", "getShippingChest" })
+                            {
+                                var mi = farmS.GetType().GetMethod(mName, bfS);
+                                if (mi == null) continue;
+                                try
+                                {
+                                    var args = System.Array.ConvertAll(mi.GetParameters(), pp => (object)Game1.player);
+                                    binS = mi.Invoke(farmS, args.Length == 0 ? null : args) as StardewValley.Objects.Chest;
+                                    partsS.Add(mName + "=" + (binS != null));
+                                }
+                                catch (Exception e1) { partsS.Add(mName + "Err:" + e1.Message); }
+                                if (binS != null) break;
+                            }
+                            if (binS == null)
+                            {
+                                var fldC = farmS.GetType().GetField("shippingBin", bfS);
+                                if (fldC != null) binS = fldC.GetValue(farmS) as StardewValley.Objects.Chest;
+                                partsS.Add("field=" + (binS != null));
+                            }
+                            if (binS == null) { this.monitor.Log("ship_item2: 没找到发货箱 " + string.Join(";", partsS), LogLevel.Warn); break; }
+                            int movedS = 0;
+                            for (int iS = Game1.player.Items.Count - 1; iS >= 0 && movedS < cntS; iS--)
+                            {
+                                var itS = Game1.player.Items[iS];
+                                if (itS == null) continue;
+                                string d9 = itS.DisplayName ?? itS.Name ?? "";
+                                if (!d9.Contains(nmS)) continue;
+                                itS.Stack -= 1;
+                                var one = itS.getOne();
+                                one.Stack = 1;
+                                binS.Items.Add(one);
+                                if (itS.Stack <= 0) Game1.player.Items[iS] = null;
+                                movedS++;
+                            }
+                            this.monitor.Log($"ship_item2: 发货 {movedS} 个 {nmS}（箱内 {binS.Items.Count} 件）", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("ship_item2 err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                case "open_bin":
+                    {
+                        try
+                        {
+                            var farmO = Game1.getFarm();
+                            var bfO = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var partsO = new System.Collections.Generic.List<string>();
+                            foreach (var bdO in farmO.buildings)
+                            {
+                                string tO = bdO.buildingType?.Value ?? "";
+                                if (!tO.Contains("Shipping")) continue;
+                                var pmO = bdO.GetType().GetMethod("PerformBuildingChestAction", bfO);
+                                var gmO = bdO.GetType().GetMethod("GetBuildingChest", bfO);
+                                foreach (var key in new[] { "", "Shipping Bin", "ShippingBin" })
+                                {
+                                    try { pmO?.Invoke(bdO, new object[] { key, Game1.player }); partsO.Add("perform(" + key + ")=ok"); } catch (Exception e1) { partsO.Add("perform(" + key + ")Err:" + e1.Message); }
+                                    try { var chO = gmO?.Invoke(bdO, new object[] { key }) as StardewValley.Objects.Chest; partsO.Add("chest(" + key + ")=" + (chO != null) + (chO != null ? "#" + chO.Items.Count : "")); } catch { }
+                                }
+                                break;
+                            }
+                            partsO.Add("menu=" + (Game1.activeClickableMenu?.GetType().Name ?? "none"));
+                            this.monitor.Log("open_bin: " + string.Join(" ; ", partsO), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("open_bin err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                case "bin_data":
+                    {
+                        try
+                        {
+                            var farmB = Game1.getFarm();
+                            var bfB = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var partsB = new System.Collections.Generic.List<string>();
+                            foreach (var bdB in farmB.buildings)
+                            {
+                                string tB = bdB.buildingType?.Value ?? "";
+                                if (!tB.Contains("Shipping")) continue;
+                                var gmB = bdB.GetType().GetMethod("GetBuildingChestData", bfB);
+                                foreach (var key in new[] { "", "Shipping Bin", "ShippingBin", tB })
+                                {
+                                    try
+                                    {
+                                        var res = gmB?.Invoke(bdB, new object[] { key });
+                                        partsB.Add($"data({key})={(res == null ? "null" : res.GetType().Name)}");
+                                        if (res is StardewValley.Objects.Chest chB)
+                                        {
+                                            int movedB = 0;
+                                            for (int iB = Game1.player.Items.Count - 1; iB >= 0 && movedB < 5; iB--)
+                                            {
+                                                var itB = Game1.player.Items[iB];
+                                                if (itB == null || !((itB.DisplayName ?? itB.Name ?? "").Contains("石头"))) continue;
+                                                itB.Stack -= 1; var oneB = itB.getOne(); oneB.Stack = 1; chB.Items.Add(oneB);
+                                                if (itB.Stack <= 0) Game1.player.Items[iB] = null;
+                                                movedB++;
+                                            }
+                                            partsB.Add($"shippedTo({key})={movedB},binItems={chB.Items.Count}");
+                                        }
+                                    }
+                                    catch (Exception eB) { partsB.Add($"data({key})Err:{eB.Message}"); }
+                                }
+                                break;
+                            }
+                            this.monitor.Log("bin_data: " + string.Join(" ; ", partsB), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("bin_data err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
                 case "player_use_tool":
                     if (root.TryGetProperty("tool", out var put) && root.TryGetProperty("x", out var pux) && root.TryGetProperty("y", out var puy))
                     {
