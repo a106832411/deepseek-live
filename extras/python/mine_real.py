@@ -110,7 +110,14 @@ def enter_mine_walk():
             log("  直走不通，改走：镇上绕路")
             if not nav2.goto_via(["BusStop", "Town", "Mountain"]):
                 if not nav2.goto_via(["Forest", "Town", "Mountain"]):
-                    log("  ⚠ 到不了山上，进不了矿")
+                    log("  ⚠ 到不了山上，应急传送到山脚")
+                    try:
+                        import fallback as _fb
+                        _fb.goto_or_warp("Mountain")
+                    except Exception as _ex:
+                        log(f"  传送失败: {_ex}")
+                    if "Mountain" in str((nav2.rd() or {}).get("location")):
+                        log("  已到山脚，继续进矿")
                     return False
     # 矿洞入口在山上 (54,4) 附近的洞口
     b = nav2.rd() or {}

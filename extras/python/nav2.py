@@ -358,6 +358,15 @@ def hop(target, timeout=30):
         avoid_npc()          # 先试着绕开挡路的宠物/NPC
         broke = break_obstacles(gx, gy, 18)
         log(f"  过图失败（loc={b.get('location')} tile={tile(b)}），清了 {broke} 个障碍，重试 {attempt+1}/3")
+        # 连续失败：直接应急传送到目标地图安全点（避免卡死在出口格上）
+        if attempt >= 1 and target in SAFE:
+            sx, sy = SAFE[target]
+            log(f"  连续过图失败，应急传送到 {target} {sx},{sy}")
+            send({"actionType": "player_warp", "location": target, "x": sx, "y": sy}, 1.5)
+            time.sleep(2)
+            if (rd() or {}).get("location") == target:
+                ensure_spawn(target)
+                return True
     return False
 
 
@@ -671,6 +680,15 @@ def hop(target, timeout=30):
         avoid_npc()          # 先试着绕开挡路的宠物/NPC
         broke = break_obstacles(gx, gy, 18)
         log(f"  过图失败（loc={b.get('location')} tile={tile(b)}），清了 {broke} 个障碍，重试 {attempt+1}/3")
+        # 连续失败：直接应急传送到目标地图安全点（避免卡死在出口格上）
+        if attempt >= 1 and target in SAFE:
+            sx, sy = SAFE[target]
+            log(f"  连续过图失败，应急传送到 {target} {sx},{sy}")
+            send({"actionType": "player_warp", "location": target, "x": sx, "y": sy}, 1.5)
+            time.sleep(2)
+            if (rd() or {}).get("location") == target:
+                ensure_spawn(target)
+                return True
     return False
 
 
