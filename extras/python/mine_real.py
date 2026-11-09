@@ -500,6 +500,7 @@ def mine_rocks(max_rocks=5):
     h, _ = gameio.game_window()
     mined = 0
     _skip = set()
+    _tries = {}
     for _ in range(max_rocks * 12):
         if mined >= max_rocks:
             break
@@ -593,7 +594,13 @@ def mine_rocks(max_rocks=5):
             time.sleep(1.5)
             nav2.send({"actionType": "collect_debris", "radius": 4}, 0.6)
         else:
-            log(f"  {target['X']},{target['Y']} 还没碎，再敲")
+            key = (target["X"], target["Y"])
+            _tries[key] = _tries.get(key, 0) + 1
+            if _tries[key] >= 3:
+                _skip.add(key)
+                log(f"  {target['X']},{target['Y']} 敲了3次没碎，跳过")
+            else:
+                log(f"  {target['X']},{target['Y']} 还没碎，再敲")
     log(f"  挖矿完成：{mined} 块，金币 {((nav2.rd() or {}).get('player') or {}).get('money')}")
     return mined
 
