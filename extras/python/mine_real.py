@@ -286,6 +286,30 @@ def descend_via_ladder():
     return False
 
 
+def fight_nearest(max_swings=10):
+    """打最近的怪：挥武器直到怪死了/走远/血量太低。返回是否还在战斗。"""
+    for i in range(max_swings):
+        b = nav2.rd() or {}
+        hp = int(b.get("health") or 100)
+        mons = b.get("monsters") or []
+        me = nav2.tile(b)
+        near = [m for m in mons if abs(m.get("x", 0) - me[0]) + abs(m.get("y", 0) - me[1]) <= 3]
+        if not near:
+            return False
+        if hp < 35:
+            log(f"  血量低（{hp}），先撤退")
+            return True
+        # 走到怪旁边再挥
+        m = near[0]
+        tx, ty = int(m.get("x", 0)), int(m.get("y", 0))
+        st = _stand(b, tx, ty)
+        if st and nav2.tile(nav2.rd()) != (st["X"], st["Y"]):
+            nav2.walk_until(st["X"], st["Y"], 10)
+        nav2.send({"actionType": "attack"}, 0.55)
+        time.sleep(0.25)
+    return True
+
+
 def descend_via_ladder_v2():
     """可靠找下一层：①敲石头让楼梯出现 ②全图巡逻交互直到下楼。"""
     b = nav2.rd() or {}
@@ -535,6 +559,17 @@ def mine_rocks(max_rocks=5):
         if "Mine" not in str(b.get("location")):
             log("  不在矿里，停止挖矿")
             break
+        # 有怪先打
+        try:
+            if (b.get("monsters") or []):
+                me0 = nav2.tile(b)
+                near0 = [m for m in b.get("monsters") if abs(m.get("x", 0) - me0[0]) + abs(m.get("y", 0) - me0[1]) <= 3]
+                if near0:
+                    log(f"  有 {len(near0)} 只怪，先打")
+                    fight_nearest(6)
+                    b = nav2.rd() or {}
+        except Exception:
+            pass
         tiles = _tiles(b)
         targets = []
         for t in tiles:

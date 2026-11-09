@@ -353,6 +353,13 @@ namespace StardewMCPBridge
                     surroundings = SurroundingsScanner.Scan(Game1.player.currentLocation, Game1.player.Tile, 9),
                     exits = CollectExits(Game1.player.currentLocation),
                     stairs = FindStairs(Game1.player.currentLocation),
+                    monsters = Game1.currentLocation?.characters
+                        .Where(c => c.IsMonster)
+                        .Select(c => new { name = c.Name, x = (int)c.Tile.X, y = (int)c.Tile.Y,
+                                           health = (c as StardewValley.Monsters.Monster)?.Health ?? 0 })
+                        .ToList(),
+                    health = Game1.player.health,
+                    maxHealth = Game1.player.maxHealth,
                     npcs = Game1.currentLocation?.characters.Select(c => new {
                         name = c.Name,
                         position = new { x = c.Position.X, y = c.Position.Y }

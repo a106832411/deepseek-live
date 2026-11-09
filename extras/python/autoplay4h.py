@@ -180,6 +180,19 @@ def main():
                 log("  游戏没就绪，等 30 秒")
                 time.sleep(30)
                 continue
+            # 血量低 → 先离开矿洞休整
+            try:
+                _b = nav2.rd() or {}
+                _hp = int(_b.get("health") or 100)
+                if _hp < 35 and "Mine" in str(_b.get("location")):
+                    log(f"  血量低（{_hp}），离开矿洞休整")
+                    nav2.send({"actionType": "leave_mine"}, 1.5)
+                    time.sleep(2)
+                    fallback.goto_or_warp("Farm")
+                    time.sleep(20)
+                    continue
+            except Exception:
+                pass
             # 存档防回滚：检测到回滚就恢复备份并重进
             try:
                 if fallback.check_rollback():
