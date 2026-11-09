@@ -169,6 +169,8 @@ def main():
     cycle = 0
     mine_fail = 0
     last_gain = (0, 0)
+    same_loc_count = 0
+    last_loc = None
     while time.time() - START < DURATION:
         cycle += 1
         LAST_CYCLE[0] = time.time()
@@ -202,6 +204,19 @@ def main():
             else:
                 stuck = 0
             last = cur
+
+            # 走路卡死检测：连续 3 轮都在同一张图 → 应急传送到安全点
+            if last_loc == st["loc"]:
+                same_loc_count += 1
+            else:
+                same_loc_count = 0
+                last_loc = st["loc"]
+            if same_loc_count >= 3:
+                safe = (nav2.SAFE or {}).get(st["loc"])
+                if safe:
+                    log(f"  连续 {same_loc_count} 轮卡在 {st['loc']}，应急传送到 {safe}")
+                    nav2.send({"actionType": "player_warp", "location": st["loc"], "x": safe[0], "y": safe[1]}, 1.5)
+                same_loc_count = 0
 
             # 矿洞卡住检测：连续 3 轮没收获就离开矿洞去干农场活
             gain = (st["stone"], st["copper"])
