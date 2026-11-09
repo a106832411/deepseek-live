@@ -190,8 +190,6 @@ def descend_via_ladder():
     scored = []
     for t in tiles:
         d = abs(t["X"] - lx) + abs(t["Y"] - ly)
-        if d > 6:
-            continue
         score = d
         if not t.get("Passable"):
             score -= 3  # 洞口/楼梯通常不可通行
@@ -201,13 +199,24 @@ def descend_via_ladder():
     scored.sort(key=lambda x: x[0])
     tried = set()
     talked_tiles = set()
-    for _idx, (_score, t) in enumerate(scored[:26]):
+    for _idx, (_score, t) in enumerate(scored[:40]):
         cx, cy = t["X"], t["Y"]
         if (cx, cy) in tried or (cx, cy) in talked_tiles:
             continue
         tried.add((cx, cy))
         if _idx % 3 == 0:
-            log(f"  找楼梯进度 {_idx+1}/26（当前 {cx},{cy}）")
+            log(f"  找楼梯进度 {_idx+1}/40（当前 {cx},{cy}）")
+        # 先让 mod 精确调用 checkAction（对楼梯格最有效）
+        if not t.get("ObjectName"):
+            st3 = _stand(nav2.rd() or {}, cx, cy)
+            if st3:
+                nav2.walk_until(st3["X"], st3["Y"], 8)
+            nav2.send({"actionType": "descend_ladder", "x": cx, "y": cy}, 0.9)
+            time.sleep(0.6)
+            b9 = nav2.rd() or {}
+            if floor_num(b9.get("location")) > f0:
+                log(f"  下到 {b9.get('location')}（checkAction {cx},{cy}）")
+                return True
         if _interact_tile(cx, cy):
             talked_tiles.add((cx, cy))
             continue
