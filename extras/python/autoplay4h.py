@@ -10,6 +10,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import boxes
 import fallback
 import furnace_progress as fp
 import guard
@@ -150,6 +151,12 @@ def main():
                 time.sleep(30)
                 continue
             nav2.send({"actionType": "cancel_dialogue"}, 0.3)
+            # 背包快满 → 先存箱子
+            try:
+                if boxes.slots_used() >= 11:
+                    boxes.deposit_junk()
+            except Exception as ex:
+                log(f"  存箱子失败: {ex}")
             st = state()
             log(f"[{cycle}] {st['loc']} day={st['day']} {st['time']} 金={st['money']} 石={st['stone']} 铜={st['copper']} 木={st['wood']} 铜锭={st['bars']} 熔炉={st['furnace']}")
 

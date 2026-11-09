@@ -1076,6 +1076,44 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "find_ladder_tiles":
+                    {
+                        try
+                        {
+                            var locL = Game1.player.currentLocation;
+                            var blL = locL.Map.GetLayer("Buildings");
+                            int wL = locL.Map.Layers[0].LayerWidth, hL = locL.Map.Layers[0].LayerHeight;
+                            var partsL = new System.Collections.Generic.List<string>();
+                            // 已知的“上楼梯子”位置（tileBeneathLadder），要排除
+                            int upX = -1, upY = -1;
+                            var btL = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var fL = locL.GetType().GetField("netTileBeneathLadder", btL);
+                            if (fL != null)
+                            {
+                                var nvL = fL.GetValue(locL);
+                                var vpL = nvL?.GetType().GetProperty("Value");
+                                if (vpL != null)
+                                {
+                                    var vvL = vpL.GetValue(nvL);
+                                    if (vvL is Microsoft.Xna.Framework.Vector2 v2L) { upX = (int)v2L.X; upY = (int)v2L.Y; }
+                                }
+                            }
+                            if (blL != null)
+                                for (int yy = 0; yy < hL; yy++)
+                                    for (int xx = 0; xx < wL; xx++)
+                                    {
+                                        var tl = blL.Tiles[xx, yy];
+                                        if (tl == null) continue;
+                                        int idx = tl.TileIndex;
+                                        if (idx >= 172 && idx <= 178)
+                                            partsL.Add($"{xx},{yy}:idx{idx}");
+                                    }
+                            this.monitor.Log($"LADDERTILES {locL.Name} up=({upX},{upY}): " + string.Join(" ; ", partsL), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("find_ladder_tiles err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "find_ladder_obj":
                     {
                         try
@@ -2111,14 +2149,27 @@ namespace StardewMCPBridge
                         if (pit == null) { this.monitor.Log($"place_item: no item {pn}", LogLevel.Warn); break; }
                         int dir = Game1.player.FacingDirection;
                         var ptile = Game1.player.Tile;
+                        var plac = Game1.player.currentLocation;
+                        int tx = -999, ty = -999;
+                        if (root.TryGetProperty("x", out var pxEl) && root.TryGetProperty("y", out var pyEl))
+                        { tx = pxEl.GetInt32(); ty = pyEl.GetInt32(); }
                         int ox = 0, oy = 0;
                         if (dir == 0) oy = -1; else if (dir == 1) ox = 1; else if (dir == 2) oy = 1; else ox = -1;
-                        var ptgt = new Microsoft.Xna.Framework.Vector2((ptile.X + ox) * 64f, (ptile.Y + oy) * 64f);
-                        var plac = Game1.player.currentLocation;
+                        var cands = new System.Collections.Generic.List<Microsoft.Xna.Framework.Point>();
+                        if (tx != -999) cands.Add(new Microsoft.Xna.Framework.Point(tx, ty));
+                        cands.Add(new Microsoft.Xna.Framework.Point((int)ptile.X + ox, (int)ptile.Y + oy));
+                        foreach (var d in new[] { (0, 1), (0, -1), (1, 0), (-1, 0), (1, 1), (-1, -1), (1, -1), (-1, 1) })
+                            cands.Add(new Microsoft.Xna.Framework.Point((int)ptile.X + d.Item1, (int)ptile.Y + d.Item2));
                         bool placed = false;
-                        try { placed = (pit as StardewValley.Object)?.placementAction(plac, (int)ptgt.X, (int)ptgt.Y, Game1.player) ?? false; } catch (Exception ex) { this.monitor.Log("place err: " + ex.Message, LogLevel.Warn); }
+                        Microsoft.Xna.Framework.Point used = default;
+                        foreach (var c in cands)
+                        {
+                            try { placed = (pit as StardewValley.Object)?.placementAction(plac, c.X * 64, c.Y * 64, Game1.player) ?? false; }
+                            catch (Exception ex) { this.monitor.Log("place err: " + ex.Message, LogLevel.Warn); placed = false; }
+                            if (placed) { used = c; break; }
+                        }
                         if (placed) { Game1.player.removeItemFromInventory(pit); }
-                        this.monitor.Log($"place_item {pn} placed={placed} at {(ptile.X + ox)},{(ptile.Y + oy)}", LogLevel.Info);
+                        this.monitor.Log($"place_item {pn} placed={placed} at {(placed ? used.X + "," + used.Y : "none")}", LogLevel.Info);
                         break;
                     }
 

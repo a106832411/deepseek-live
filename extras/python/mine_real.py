@@ -236,6 +236,44 @@ def descend_via_ladder():
     return False
 
 
+def descend_via_ladder_v2():
+    """可靠找下一层：①敲石头让楼梯出现 ②全图巡逻交互直到下楼。"""
+    b = nav2.rd() or {}
+    f0 = floor_num(b.get("location"))
+    if f0 < 0:
+        return False
+    t0 = time.time()
+    log(f"  找楼梯（spawned={b.get('ladderSpawned')}）")
+    # 阶段一：敲石头直到楼梯出现
+    while time.time() - t0 < 200 and not b.get("ladderSpawned"):
+        tiles = _tiles(b)
+        rocks = [t for t in tiles if t.get("Breakable") and not t.get("Passable")
+                 and t.get("ObjectType") not in ("clump_axe", "clump_pick")]
+        if not rocks:
+            log("  本层石头清完楼梯还没出现，换层")
+            return False
+        lad = _ladder_tile(b)
+        if lad:
+            rocks.sort(key=lambda t: abs(t["X"] - lad[0]) + abs(t["Y"] - lad[1]))
+        else:
+            me = nav2.tile(b)
+            rocks.sort(key=lambda t: abs(t["X"] - me[0]) + abs(t["Y"] - me[1]))
+        if not _break_rock_at(rocks[0]):
+            time.sleep(0.5)
+        b = nav2.rd() or {}
+        if floor_num(b.get("location")) > f0:
+            return True
+    if not b.get("ladderSpawned"):
+        log("  楼梯没出现，先离开这层")
+        return False
+    # 阶段二：全图巡逻 + 交互
+    return sweep_floor_for_ladder(420)
+
+
+def descend_via_ladder():
+    return descend_via_ladder_v2()
+
+
 def go_down():
     """找天然楼梯下一层（不烧石头做楼梯）。"""
     if descend_via_ladder():
@@ -292,6 +330,68 @@ def _explore_step():
     for t in cands[:3]:
         if nav2.walk_until(t["X"], t["Y"], 10):
             return True
+    return False
+
+
+def sweep_floor_for_ladder(budget=420):
+    """全图巡逻找下一层：走到每个可走格子，对自身和四邻 callAction，直到下楼。
+
+    这是最笨但最可靠的办法——楼梯一定在某个格子上，走过去交互必然触发。
+    """
+    t0 = time.time()
+    b0 = nav2.rd() or {}
+    f0 = floor_num(b0.get("location"))
+    up_lad = _ladder_tile(b0)  # 上楼梯子，别碰（会提示离开矿井）
+    excluded = set()
+    if up_lad:
+        excluded.add((up_lad[0], up_lad[1]))
+    visited = set()
+    log(f"  开始全图巡逻找楼梯…（排除上楼梯子 {up_lad}）")
+    while time.time() - t0 < budget:
+        b = nav2.rd() or {}
+        if floor_num(b.get("location")) > f0:
+            log(f"  下到 {b.get('location')}（巡逻）")
+            return True
+        if "Mine" not in str(b.get("location")):
+            return False
+        me = nav2.tile(b)
+        tiles = _tiles(b)
+        passables = [t for t in tiles if t.get("Passable") and not t.get("IsWater")
+                     and (t["X"], t["Y"]) not in excluded]
+        passables.sort(key=lambda t: abs(t["X"] - me[0]) + abs(t["Y"] - me[1]))
+        moved = False
+        for t in passables:
+            if (t["X"], t["Y"]) in visited:
+                continue
+            visited.add((t["X"], t["Y"]))
+            if not nav2.walk_until(t["X"], t["Y"], 10):
+                continue
+            moved = True
+            # 站上去后：先对自身交互，再对四邻交互（mod 精确 checkAction）
+            for (cx, cy) in ((t["X"], t["Y"]),
+                             (t["X"], t["Y"] - 1), (t["X"], t["Y"] + 1),
+                             (t["X"] - 1, t["Y"]), (t["X"] + 1, t["Y"])):
+                if (cx, cy) in excluded:
+                    continue
+                nav2.send({"actionType": "descend_ladder", "x": cx, "y": cy}, 0.6)
+                time.sleep(0.25)
+                b2 = nav2.rd() or {}
+                if floor_num(b2.get("location")) > f0:
+                    log(f"  下到 {b2.get('location')}（巡逻交互 {cx},{cy}）")
+                    return True
+            nav2.send({"actionType": "cancel_dialogue"}, 0.2)
+            break
+        if not moved:
+            # 附近都走过了，往没去过的方向走
+            far = [t for t in passables if (t["X"], t["Y"]) not in visited]
+            if not far:
+                break
+            far.sort(key=lambda t: -(abs(t["X"] - me[0]) + abs(t["Y"] - me[1])))
+            for t in far[:3]:
+                if nav2.walk_until(t["X"], t["Y"], 10):
+                    visited.add((t["X"], t["Y"]))
+                    break
+    log(f"  巡逻 {int(time.time()-t0)} 秒没找到楼梯")
     return False
 
 
