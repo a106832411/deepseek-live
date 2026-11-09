@@ -265,6 +265,22 @@ def main():
                 fp.run_once()
             else:
                 log("  石头不够，先挖矿/清农场")
+                # 今天矿洞起步层不可用 → 别反复进矿，改干农场活
+                try:
+                    if mine_real._is_no_ladder(1):
+                        log("  今天第1层不可用，改清农场")
+                        fallback.goto_or_warp("Farm")
+                        nav2.set_timeout(240)
+                        try:
+                            nav2.break_obstacles(64, 15, 10)
+                            nav2.cut_grass(3)
+                        except TimeoutError:
+                            pass
+                        finally:
+                            nav2.clear_timeout()
+                        continue
+                except Exception:
+                    pass
                 if not mine_real.enter_mine_walk():
                     fallback.goto_or_warp("Farm")
                     nav2.set_timeout(300)
