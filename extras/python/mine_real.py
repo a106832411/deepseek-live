@@ -407,6 +407,11 @@ def quick_ladder_try(budget=120):
     lx, ly = lad
     tiles = _tiles(b)
     cands = []
+    # 优先：Buildings 图层 170~180 = 梯子/洞口贴图
+    for t in tiles:
+        bi = t.get("BuildingIdx")
+        if isinstance(bi, int) and 168 <= bi <= 182:
+            cands.append((0, t))
     for t in tiles:
         if lx <= 1 or ly <= 1:
             return False  # 楼梯坐标异常（0,0 之类），别乱试
