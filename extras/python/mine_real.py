@@ -565,7 +565,9 @@ def mine_rocks(max_rocks=5):
         try:
             if (b.get("monsters") or []):
                 me0 = nav2.tile(b)
-                near0 = [m for m in b.get("monsters") if abs(m.get("x", 0) - me0[0]) + abs(m.get("y", 0) - me0[1]) <= 3]
+                near0 = [m for m in b.get("monsters")
+                         if 0 <= int(m.get("x", -1)) <= 19 and 0 <= int(m.get("y", -1)) <= 19
+                         and abs(m.get("x", 0) - me0[0]) + abs(m.get("y", 0) - me0[1]) <= 6]
                 if near0:
                     log(f"  有 {len(near0)} 只怪，先打")
                     fight_nearest(6)
