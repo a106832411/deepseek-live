@@ -326,7 +326,11 @@ def descend_via_ladder_v2():
     # 阶段二：先快速试附近，再全图巡逻
     if quick_ladder_try(120):
         return True
-    return sweep_floor_for_ladder(180)
+    if sweep_floor_for_ladder(180):
+        return True
+    # 这层今天找不到楼梯 → 记住，别再反复进
+    _mark_no_ladder(f0)
+    return False
 
 
 def descend_via_ladder():
