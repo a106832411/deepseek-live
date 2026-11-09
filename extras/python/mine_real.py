@@ -486,11 +486,20 @@ def sweep_floor_for_ladder(budget=180):
                 if (cx, cy) in excluded:
                     continue
                 nav2.send({"actionType": "descend_ladder", "x": cx, "y": cy}, 0.6)
-                time.sleep(0.25)
+                time.sleep(0.2)
                 b2 = nav2.rd() or {}
                 if floor_num(b2.get("location")) > f0:
                     log(f"  下到 {b2.get('location')}（巡逻交互 {cx},{cy}）")
                     return True
+                # 再试真实交互（历史上成功多靠这个）
+                nav2.send({"actionType": "player_face_tile", "x": cx, "y": cy}, 0.2)
+                nav2.send({"actionType": "player_interact_at", "x": cx, "y": cy}, 0.7)
+                time.sleep(0.5)
+                b3 = nav2.rd() or {}
+                if floor_num(b3.get("location")) > f0:
+                    log(f"  下到 {b3.get('location')}（交互 {cx},{cy}）")
+                    return True
+                nav2.send({"actionType": "cancel_dialogue"}, 0.2)
             nav2.send({"actionType": "cancel_dialogue"}, 0.2)
             break
         if not moved:
