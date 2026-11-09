@@ -112,6 +112,7 @@ def _interact_tile(cx, cy):
         if st:
             nav2.walk_until(st["X"], st["Y"], 10)
             time.sleep(0.2)
+    nav2.send({"actionType": "cancel_dialogue"}, 0.25)
     nav2.send({"actionType": "player_face_tile", "x": cx, "y": cy}, 0.2)
     nav2.send({"actionType": "player_interact_at", "x": cx, "y": cy}, 0.7)
     time.sleep(0.5)
@@ -145,6 +146,17 @@ def descend_via_ladder():
         return False
     lx, ly = lad
     log(f"  本层楼梯位置 ({lx},{ly}) spawned={b.get('ladderSpawned')}")
+
+    # 先试游戏自己的下楼入口（checkAction / enterMineShaft）
+    if b.get("ladderSpawned"):
+        for _try in range(3):
+            nav2.send({"actionType": "cancel_dialogue"}, 0.3)
+            nav2.send({"actionType": "descend_ladder"}, 1.2)
+            time.sleep(1.5)
+            b2 = nav2.rd() or {}
+            if floor_num(b2.get("location")) > f0:
+                log(f"  下到 {b2.get('location')}（游戏入口）")
+                return True
 
     # 阶段 1：让楼梯出现（敲藏楼梯那块石头，不行就敲附近其他石头）
     for round_i in range(18):
@@ -188,12 +200,17 @@ def descend_via_ladder():
         scored.append((score, t))
     scored.sort(key=lambda x: x[0])
     tried = set()
-    for _score, t in scored[:26]:
+    talked_tiles = set()
+    for _idx, (_score, t) in enumerate(scored[:26]):
         cx, cy = t["X"], t["Y"]
-        if (cx, cy) in tried:
+        if (cx, cy) in tried or (cx, cy) in talked_tiles:
             continue
         tried.add((cx, cy))
-        _interact_tile(cx, cy)
+        if _idx % 3 == 0:
+            log(f"  找楼梯进度 {_idx+1}/26（当前 {cx},{cy}）")
+        if _interact_tile(cx, cy):
+            talked_tiles.add((cx, cy))
+            continue
         b2 = nav2.rd() or {}
         if floor_num(b2.get("location")) > f0:
             log(f"  下到 {b2.get('location')}（交互 {cx},{cy}）")

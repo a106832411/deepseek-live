@@ -64,11 +64,23 @@ def _watchdog():
     while True:
         time.sleep(60)
         gap = time.time() - LAST_CYCLE[0]
-        if gap > 600:
+        # 两个日志任一在更新都算活着（详情日志也会写动作）
+        try:
+            for lp in (LOG, os.path.join(os.path.dirname(LOG), "autoplay_stdout.log")):
+                if os.path.exists(lp):
+                    gap = min(gap, time.time() - os.path.getmtime(lp))
+        except Exception:
+            pass
+        if gap > 900:
             _dump_stuck(f"no cycle for {int(gap)}s")
             log(f"⚠ 检测到卡住 {int(gap)} 秒，记录状态并重启自己")
             try:
+                b = nav2.rd() or {}
                 nav2.send({"actionType": "cancel_dialogue"}, 0.3)
+                if "Mine" in str(b.get("location")):
+                    # 卡在矿洞：先离开矿洞，别原地重启又进同一个坑
+                    nav2.send({"actionType": "leave_mine"}, 1.5)
+                    time.sleep(2)
             except Exception:
                 pass
             time.sleep(2)

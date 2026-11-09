@@ -794,6 +794,35 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "dump_mineshaft_all":
+                    {
+                        try
+                        {
+                            var locA = Game1.player.currentLocation;
+                            var btA = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var partsA = new System.Collections.Generic.List<string>();
+                            for (var tA = locA.GetType(); tA != null && tA != typeof(object); tA = tA.BaseType)
+                            {
+                                foreach (var fA in tA.GetFields(btA))
+                                {
+                                    try
+                                    {
+                                        var vA = fA.GetValue(locA);
+                                        if (vA == null) continue;
+                                        if (vA is Microsoft.Xna.Framework.Vector2 || vA is Microsoft.Xna.Framework.Point
+                                            || vA.GetType().Name.Contains("Point") || vA.GetType().Name.Contains("Vector2")
+                                            || vA.GetType().Name.Contains("NetVector2") || vA.GetType().Name.Contains("NetPoint"))
+                                            partsA.Add($"{tA.Name}.{fA.Name}={vA}");
+                                    }
+                                    catch { }
+                                }
+                            }
+                            this.monitor.Log("MINEALL " + string.Join(" ; ", partsA), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_mineshaft_all err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "dump_mineshaft":
                     {
                         try
@@ -983,6 +1012,167 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "ensure_ladder":
+                    {
+                        try
+                        {
+                            var locE = Game1.player.currentLocation;
+                            var btE = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var sfE = locE.GetType().GetField("ladderHasSpawned", btE);
+                            bool spE = sfE != null && (bool)(sfE.GetValue(locE) ?? false);
+                            var partsE = new System.Collections.Generic.List<string>();
+                            partsE.Add("spawnedBefore=" + spE);
+                            if (!spE)
+                            {
+                                int pxE = (int)Game1.player.Tile.X, pyE = (int)Game1.player.Tile.Y;
+                                Microsoft.Xna.Framework.Point? spot = null;
+                                if (root.TryGetProperty("x", out var xe) && root.TryGetProperty("y", out var ye))
+                                    spot = new Microsoft.Xna.Framework.Point(xe.GetInt32(), ye.GetInt32());
+                                if (spot == null)
+                                {
+                                    for (int r = 1; r <= 6 && spot == null; r++)
+                                        for (int dx = -r; dx <= r && spot == null; dx++)
+                                            for (int dy = -r; dy <= r && spot == null; dy++)
+                                            {
+                                                int xx = pxE + dx, yy = pyE + dy;
+                                                if (xx < 1 || yy < 1) continue;
+                                                try
+                                                {
+                                                    var vpos = new Microsoft.Xna.Framework.Vector2(xx, yy);
+                                                    if (locE.Objects.ContainsKey(vpos)) continue;
+                                                    if (locE.isWaterTile(xx, yy)) continue;
+                                                    if (!locE.isTilePassable(new xTile.Dimensions.Location(xx, yy), Game1.viewport)) continue;
+                                                }
+                                                catch { continue; }
+                                                spot = new Microsoft.Xna.Framework.Point(xx, yy);
+                                            }
+                                }
+                                partsE.Add("spot=" + spot);
+                                if (spot != null)
+                                {
+                                    var dld = locE.GetType().GetMethod("doCreateLadderDown", btE);
+                                    if (dld != null)
+                                    {
+                                        try { dld.Invoke(locE, new object[] { spot.Value, true }); partsE.Add("doCreateLadderDown=ok"); }
+                                        catch (Exception ex) { partsE.Add("doErr=" + ex.Message); }
+                                    }
+                                    else
+                                    {
+                                        var cld = locE.GetType().GetMethod("createLadderDown", btE);
+                                        if (cld != null)
+                                        {
+                                            try { cld.Invoke(locE, new object[] { spot.Value.X, spot.Value.Y, true }); partsE.Add("createLadderDown=ok"); }
+                                            catch (Exception ex) { partsE.Add("createErr=" + ex.Message); }
+                                        }
+                                        else partsE.Add("no_method");
+                                    }
+                                }
+                            }
+                            var sf2 = locE.GetType().GetField("ladderHasSpawned", btE);
+                            partsE.Add("spawnedAfter=" + (sf2 != null ? sf2.GetValue(locE) : "?"));
+                            this.monitor.Log("ensure_ladder: " + string.Join(" ; ", partsE), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("ensure_ladder err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "find_ladder_obj":
+                    {
+                        try
+                        {
+                            var locF = Game1.player.currentLocation;
+                            var partsF = new System.Collections.Generic.List<string>();
+                            foreach (var kv in locF.Objects.Pairs)
+                            {
+                                var o = kv.Value;
+                                if (o == null) continue;
+                                string nm = o.Name ?? "";
+                                int idx = o.ParentSheetIndex;
+                                if (nm.IndexOf("ladder", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || nm.IndexOf("shaft", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || idx == 173 || idx == 174 || idx == 175 || idx == 751)
+                                    partsF.Add($"{kv.Key.X},{kv.Key.Y}:{nm}|idx{idx}|{o.Type}");
+                            }
+                            this.monitor.Log($"LADDEROBJ {locF.Name}: " + string.Join(" ; ", partsF), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("find_ladder_obj err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "descend_ladder":
+                    {
+                        try
+                        {
+                            var locD = Game1.player.currentLocation;
+                            var bt = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            int f0 = -1;
+                            var nm = locD.Name;
+                            if (nm.StartsWith("UndergroundMine") && int.TryParse(nm.Substring("UndergroundMine".Length), out int fl)) f0 = fl;
+                            var parts = new System.Collections.Generic.List<string>();
+                            // 1) 找到本层楼梯坐标（netTileBeneathLadder）
+                            Microsoft.Xna.Framework.Vector2? lad = null;
+                            var fld = locD.GetType().GetField("netTileBeneathLadder", bt);
+                            if (fld != null)
+                            {
+                                var nv = fld.GetValue(locD);
+                                if (nv != null)
+                                {
+                                    var valProp = nv.GetType().GetProperty("Value");
+                                    if (valProp != null)
+                                    {
+                                        var vv = valProp.GetValue(nv);
+                                        if (vv is Microsoft.Xna.Framework.Vector2 v2) lad = v2;
+                                        else if (vv != null)
+                                        {
+                                            int vx = (int)(vv.GetType().GetProperty("X")?.GetValue(vv) ?? -1);
+                                            int vy = (int)(vv.GetType().GetProperty("Y")?.GetValue(vv) ?? -1);
+                                            if (vx >= 0) lad = new Microsoft.Xna.Framework.Vector2(vx, vy);
+                                        }
+                                    }
+                                }
+                            }
+                            // 允许外部指定要尝试的格子（Buildings 174 = 梯子/洞口）
+                            if (root.TryGetProperty("x", out var rqx) && root.TryGetProperty("y", out var rqy))
+                                lad = new Microsoft.Xna.Framework.Vector2(rqx.GetInt32(), rqy.GetInt32());
+                            bool spawned = false;
+                            var sf = locD.GetType().GetField("ladderHasSpawned", bt);
+                            if (sf != null) spawned = (bool)(sf.GetValue(locD) ?? false);
+                            parts.Add($"floor={f0} ladder={lad} spawned={spawned}");
+                            // 2) 直接调用 checkAction（等同于玩家站在楼梯旁交互）
+                            if (lad.HasValue)
+                            {
+                                var ca = locD.GetType().GetMethod("checkAction", bt);
+                                if (ca != null)
+                                {
+                                    try
+                                    {
+                                        var locObj = Activator.CreateInstance(typeof(xTile.Dimensions.Location), (int)lad.Value.X, (int)lad.Value.Y);
+                                        var args = new object[] { locObj, Game1.viewport, Game1.player };
+                                        var res = ca.Invoke(locD, args);
+                                        parts.Add($"checkAction={res}");
+                                    }
+                                    catch (Exception ex1) { parts.Add("checkActionErr=" + ex1.Message); }
+                                }
+                            }
+                            // 3) 只有显式要求 fallback 时才用 enterMineShaft（默认走 checkAction 的正常楼梯逻辑）
+                            bool wantFallback = root.TryGetProperty("fallback", out var fbEl) && fbEl.GetBoolean();
+                            string locAfter = Game1.player.currentLocation.Name;
+                            if (wantFallback && locAfter == nm)
+                            {
+                                var em = locD.GetType().GetMethod("enterMineShaft", bt);
+                                if (em != null)
+                                {
+                                    try { em.Invoke(locD, null); parts.Add("enterMineShaft=ok"); }
+                                    catch (Exception ex2) { parts.Add("enterMineShaftErr=" + ex2.Message); }
+                                }
+                                else parts.Add("enterMineShaft=missing");
+                            }
+                            this.monitor.Log("descend_ladder: " + string.Join(" ; ", parts) + $" -> now={Game1.player.currentLocation.Name}", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("descend_ladder err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
                 case "pick_object_at":
                     {
                         try
@@ -1043,6 +1233,14 @@ namespace StardewMCPBridge
                             catch { }
 
                             try { Game1.activeClickableMenu = null; } catch { }
+                            try { Game1.eventUp = false; } catch { }
+                            try
+                            {
+                                var evProp = typeof(StardewValley.GameLocation).GetProperty("currentEvent",
+                                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                                if (evProp != null && evProp.CanWrite) evProp.SetValue(Game1.currentLocation, null);
+                            }
+                            catch { }
                             try { Game1.player.UsingTool = false; Game1.player.canMove = true; } catch { }
                             this.monitor.Log("cancel_dialogue done", LogLevel.Info);
                         }

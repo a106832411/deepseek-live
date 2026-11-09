@@ -96,6 +96,14 @@ namespace StardewMCPBridge
                 catch { passable = false; }
             }
             // 水面默认不可走；除非该格在 Buildings 图层上有木板（栈桥/码头）
+            int buildingIdx = -1;
+            try
+            {
+                var bl0 = location.Map.GetLayer("Buildings");
+                var bt0 = bl0?.Tiles[x, y];
+                if (bt0 != null) buildingIdx = bt0.TileIndex;
+            }
+            catch { }
             if (isWater)
             {
                 bool buildingsTile = false;
@@ -216,6 +224,7 @@ namespace StardewMCPBridge
                 X = x,
                 Y = y,
                 Passable = passable,
+                BuildingIdx = buildingIdx,
                 IsWater = isWater,
                 Terrain = terrainType,
                 CropName = cropName,
@@ -287,6 +296,7 @@ namespace StardewMCPBridge
         public int X { get; set; }
         public int Y { get; set; }
         public bool Passable { get; set; }
+        public int BuildingIdx { get; set; } = -1;
         public bool IsWater { get; set; }
         public string Terrain { get; set; }
         public string CropName { get; set; }
