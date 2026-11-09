@@ -102,12 +102,20 @@ def cnt(part):
     return sum(int(i.get("stack", 1)) for i in (rd().get("player", {}).get("inventory") or []) if i and part in str(i.get("name")))
 
 
+def _chest_count(part):
+    b = nav2.rd() or {}
+    return sum(int(e.get("stack", 0)) for e in b.get("chestTotals") or []
+               if part in str(e.get("name") or ""))
+
+
 def state():
     b = rd()
     return {
         "loc": b.get("location"), "day": b.get("day"), "time": b.get("time"),
         "money": (b.get("player") or {}).get("money"),
-        "stone": cnt("石头"), "copper": cnt("铜矿石"), "wood": cnt("木材"),
+        "stone": cnt("石头") + _chest_count("石头"),
+        "copper": cnt("铜矿石") + _chest_count("铜矿石"),
+        "wood": cnt("木材") + _chest_count("木材"),
         "bars": cnt("铜锭"), "furnace": cnt("熔炉"),
     }
 
@@ -129,8 +137,28 @@ def go_home_sleep():
     return rd().get("day") != day0
 
 
+def backup_save():
+    """启动前把存档备份一份，避免再出现存档回滚。"""
+    import shutil
+    saves = os.path.join(os.environ.get("APPDATA", ""), "StardewValley", "Saves")
+    dst = os.path.join(os.path.dirname(LOG), "save_backup_" + time.strftime("%Y%m%d_%H%M%S"))
+    try:
+        os.makedirs(dst, exist_ok=True)
+        for d in os.listdir(saves):
+            src = os.path.join(saves, d)
+            if os.path.isdir(src):
+                shutil.copytree(src, os.path.join(dst, d), dirs_exist_ok=True)
+        log(f"  已备份存档 -> {dst}")
+        return dst
+    except Exception as ex:
+        log(f"  备份存档失败: {ex}")
+        return None
+
+
 def main():
     log(f"=== 4 小时自动开始（计划 {DURATION//3600} 小时）===")
+    backup_save()
+    _start_state = None
     try:
         import threading
         threading.Thread(target=_watchdog, daemon=True).start()
@@ -158,6 +186,8 @@ def main():
             except Exception as ex:
                 log(f"  存箱子失败: {ex}")
             st = state()
+            if _start_state is None:
+                _start_state = st
             log(f"[{cycle}] {st['loc']} day={st['day']} {st['time']} 金={st['money']} 石={st['stone']} 铜={st['copper']} 木={st['wood']} 铜锭={st['bars']} 熔炉={st['furnace']}")
 
             cur = (st["loc"], st["time"], st["day"])
@@ -234,7 +264,16 @@ def main():
             except Exception:
                 pass
         time.sleep(4)
-    log(f"=== 结束：{state()} ===")
+    end = state()
+    log(f"=== 结束：{end} ===")
+    try:
+        seasons = ["spring", "summer", "fall", "winter"]
+        if _start_state and end.get("day") is not None:
+            si, ei = seasons.index(_start_state.get("season", "spring")), seasons.index(end.get("season", "spring"))
+            if (ei, end.get("day", 0)) < (si, _start_state.get("day", 0)):
+                log(f"  ⚠ 警告：天数倒退了（{_start_state.get('season')} {_start_state.get('day')} -> {end.get('season')} {end.get('day')}），可能有存档回滚")
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

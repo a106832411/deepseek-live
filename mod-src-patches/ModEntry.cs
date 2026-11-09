@@ -203,6 +203,31 @@ namespace StardewMCPBridge
             catch { return -1; }
         }
 
+        private static System.Collections.Generic.List<object> CollectChestTotals(GameLocation loc)
+        {
+            var list = new System.Collections.Generic.List<object>();
+            try
+            {
+                if (loc == null) return list;
+                var totals = new System.Collections.Generic.Dictionary<string, int>();
+                foreach (var kv in loc.Objects.Pairs)
+                {
+                    if (kv.Value is not StardewValley.Objects.Chest ch) continue;
+                    foreach (var it in ch.Items)
+                    {
+                        if (it == null) continue;
+                        string nm = it.DisplayName ?? it.Name ?? "";
+                        int stack = it.Stack;
+                        if (!totals.ContainsKey(nm)) totals[nm] = 0;
+                        totals[nm] += stack;
+                    }
+                }
+                foreach (var kv in totals) list.Add(new { name = kv.Key, stack = kv.Value });
+            }
+            catch { }
+            return list;
+        }
+
         private static System.Collections.Generic.List<object> FindStairs(GameLocation loc)
         {
             var list = new System.Collections.Generic.List<object>();
@@ -272,6 +297,7 @@ namespace StardewMCPBridge
                     ladderPosText = GetMineField("netTileBeneathLadder")?.ToString(),
                     ladderX = GetMinePoint("netTileBeneathLadder", true),
                     ladderY = GetMinePoint("netTileBeneathLadder", false),
+                    chestTotals = CollectChestTotals(Game1.currentLocation),
                     mapWidth = Game1.currentLocation?.Map?.Layers[0].LayerWidth ?? 0,
                     mapHeight = Game1.currentLocation?.Map?.Layers[0].LayerHeight ?? 0,
                     season = Game1.currentSeason,

@@ -245,7 +245,7 @@ def descend_via_ladder_v2():
     t0 = time.time()
     log(f"  找楼梯（spawned={b.get('ladderSpawned')}）")
     # 阶段一：敲石头直到楼梯出现
-    while time.time() - t0 < 200 and not b.get("ladderSpawned"):
+    while time.time() - t0 < 90 and not b.get("ladderSpawned"):
         tiles = _tiles(b)
         rocks = [t for t in tiles if t.get("Breakable") and not t.get("Passable")
                  and t.get("ObjectType") not in ("clump_axe", "clump_pick")]
@@ -264,7 +264,7 @@ def descend_via_ladder_v2():
         if floor_num(b.get("location")) > f0:
             return True
     if not b.get("ladderSpawned"):
-        log("  楼梯没出现，先离开这层")
+        log("  90 秒没出楼梯，这层跳过")
         return False
     # 阶段二：全图巡逻 + 交互
     return sweep_floor_for_ladder(420)
