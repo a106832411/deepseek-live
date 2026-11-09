@@ -14,6 +14,7 @@ namespace StardewMCPBridge
     public class ModEntry : Mod
     {
         private string bridgePath;
+        private DateTime lastSyncErrorLog = DateTime.MinValue;
         private string actionDir;
         private BotManager botManager;
         private Texture2D companion1Portrait;
@@ -362,17 +363,36 @@ namespace StardewMCPBridge
                 string json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
                 // Atomic write with retries (reader/AV may lock the file)
                 string tmpPath = this.bridgePath + ".tmp";
-                for (int attempt = 0; attempt < 4; attempt++)
+                bool wrote = false;
+                for (int attempt = 0; attempt < 12; attempt++)
                 {
                     try
                     {
                         File.WriteAllText(tmpPath, json);
                         File.Move(tmpPath, this.bridgePath, true);
+                        wrote = true;
                         break;
                     }
                     catch (IOException)
                     {
-                        System.Threading.Thread.Sleep(40 * (attempt + 1));
+                        System.Threading.Thread.Sleep(30 * (attempt + 1));
+                    }
+                }
+                if (!wrote)
+                {
+                    // 最后兜底：直接覆盖写
+                    try
+                    {
+                        File.WriteAllText(this.bridgePath, json);
+                        wrote = true;
+                    }
+                    catch (Exception ex2)
+                    {
+                        if ((DateTime.UtcNow - this.lastSyncErrorLog).TotalSeconds > 30)
+                        {
+                            this.lastSyncErrorLog = DateTime.UtcNow;
+                            this.Monitor.Log("Bridge Sync Error: " + ex2.Message, LogLevel.Warn);
+                        }
                     }
                 }
             }
