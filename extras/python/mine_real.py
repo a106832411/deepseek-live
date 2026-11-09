@@ -293,7 +293,9 @@ def fight_nearest(max_swings=10):
         hp = int(b.get("health") or 100)
         mons = b.get("monsters") or []
         me = nav2.tile(b)
-        near = [m for m in mons if abs(m.get("x", 0) - me[0]) + abs(m.get("y", 0) - me[1]) <= 3]
+        near = [m for m in mons
+                if 0 <= int(m.get("x", -1)) <= 19 and 0 <= int(m.get("y", -1)) <= 19
+                and abs(m.get("x", 0) - me[0]) + abs(m.get("y", 0) - me[1]) <= 6]
         if not near:
             return False
         if hp < 35:
