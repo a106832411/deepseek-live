@@ -68,7 +68,7 @@ def ensure_ready(auto_load=True, tries=3):
             continue
         # 时间是否在走：冻结就强力恢复，两次还不行就重载游戏
         t0 = b.get("time", 0)
-        time.sleep(3)
+        time.sleep(7)
         b2 = nav2.rd() or {}
         if b2.get("time", 0) == t0:
             nav2.send({"actionType": "force_unpause"}, 0.5)
