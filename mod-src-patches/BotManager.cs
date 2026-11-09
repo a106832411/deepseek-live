@@ -1683,6 +1683,99 @@ namespace StardewMCPBridge
                         break;
                     }
 
+                case "attack":
+                    {
+                        try
+                        {
+                            int idx9 = -1;
+                            for (int i9 = 0; i9 < Game1.player.Items.Count; i9++)
+                                if (Game1.player.Items[i9] is StardewValley.Tools.MeleeWeapon) { idx9 = i9; break; }
+                            if (idx9 >= 0) Game1.player.CurrentToolIndex = idx9;
+                            var locAtk = Game1.player.currentLocation;
+                            StardewValley.Monsters.Monster near = null; float best = 9999f;
+                            foreach (var ch in locAtk.characters)
+                                if (ch is StardewValley.Monsters.Monster m)
+                                { float d = (m.Position - Game1.player.Position).Length(); if (d < best) { best = d; near = m; } }
+                            if (near != null)
+                            {
+                                var dv = near.Position - Game1.player.Position;
+                                Game1.player.FacingDirection = Math.Abs(dv.X) > Math.Abs(dv.Y) ? (dv.X > 0 ? 1 : 3) : (dv.Y > 0 ? 2 : 0);
+                            }
+                            var pm9 = typeof(Game1).GetMethod("pressUseToolButton",
+                                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                            if (pm9 != null) { pm9.Invoke(null, null); }
+                            this.monitor.Log($"attack: weapon={idx9} target={(near == null ? "none" : near.Name)}", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("attack err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "dump_farmer_methods":
+                    {
+                        try
+                        {
+                            var bfD = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var namesD = new System.Collections.Generic.List<string>();
+                            foreach (var mi in typeof(Farmer).GetMethods(bfD))
+                            {
+                                string nmD = mi.Name.ToLower();
+                                if (nmD.Contains("fall") || nmD.Contains("shaft") || nmD.Contains("jump") || nmD.Contains("descend"))
+                                    namesD.Add("F " + mi.Name + "(" + string.Join(",", System.Array.ConvertAll(mi.GetParameters(), pp => pp.ParameterType.Name)) + ")");
+                            }
+                            foreach (var mi in Game1.currentLocation.GetType().GetMethods(bfD))
+                            {
+                                string nmD = mi.Name.ToLower();
+                                if (nmD.Contains("fall") || nmD.Contains("shaft") || nmD.Contains("jump") || nmD.Contains("descend"))
+                                    namesD.Add("M " + mi.Name + "(" + string.Join(",", System.Array.ConvertAll(mi.GetParameters(), pp => pp.ParameterType.Name)) + ")");
+                            }
+                            try { System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(typeof(BotManager).Assembly.Location), "farmer_methods.txt"), string.Join("\n", namesD)); } catch { }
+                            this.monitor.Log("FARMERM " + string.Join(" ; ", namesD), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_farmer_methods err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                case "after_fall":
+                    {
+                        try
+                        {
+                            var locAF = Game1.player.currentLocation;
+                            var bfAF = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var mAF = locAF.GetType().GetMethod("afterFall", bfAF);
+                            var partsAF = new System.Collections.Generic.List<string>();
+                            try { var isF = locAF.GetType().GetMethod("IsFallHere", bfAF); if (isF != null) partsAF.Add("isFallHere=" + isF.Invoke(locAF, null)); } catch { }
+                            if (mAF != null)
+                            {
+                                mAF.Invoke(locAF, null);
+                                partsAF.Add("afterFall=ok");
+                            }
+                            else partsAF.Add("afterFall=missing");
+                            this.monitor.Log("after_fall: " + string.Join(" ; ", partsAF) + $" -> now={Game1.player.currentLocation.Name}", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("after_fall err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                case "next_mine_level":
+                    {
+                        try
+                        {
+                            var locN = Game1.player.currentLocation;
+                            if (locN is StardewValley.Locations.MineShaft shaftN)
+                            {
+                                int nextN = shaftN.mineLevel + 1;
+                                string nameN = "UndergroundMine" + nextN;
+                                var nextLoc = Game1.getLocationFromName(nameN) ?? StardewValley.Locations.MineShaft.GetMine(nameN);
+                                if (nextLoc != null)
+                                {
+                                    Game1.warpFarmer(nameN, 6, 6, false);
+                                    this.monitor.Log($"next_mine_level: {shaftN.mineLevel} -> {nextN}", LogLevel.Info);
+                                }
+                                else this.monitor.Log("next_mine_level: 目标地图不存在 " + nameN, LogLevel.Warn);
+                            }
+                            else this.monitor.Log("next_mine_level: 不在矿洞", LogLevel.Warn);
+                        }
+                        catch (Exception ex) { this.monitor.Log("next_mine_level err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
                 case "player_use_tool":
                     if (root.TryGetProperty("tool", out var put) && root.TryGetProperty("x", out var pux) && root.TryGetProperty("y", out var puy))
                     {
@@ -2911,7 +3004,34 @@ namespace StardewMCPBridge
                         break;
                     }
 
-                    case "attack":
+                    case "dump_farmer_methods":
+                    {
+                        try
+                        {
+                            var btF = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var partsF = new System.Collections.Generic.List<string>();
+                            foreach (var mi in typeof(Farmer).GetMethods(btF))
+                            {
+                                string nmF = mi.Name.ToLower();
+                                if (nmF.Contains("fall") || nmF.Contains("shaft") || nmF.Contains("jump") || nmF.Contains("descend"))
+                                    partsF.Add(mi.Name + "(" + string.Join(",", System.Array.ConvertAll(mi.GetParameters(), pp => pp.ParameterType.Name)) + ")");
+                            }
+                            try { System.IO.File.WriteAllText(System.IO.Path.Combine(Game1.player.currentLocation.GetType() == null ? "" : System.IO.Path.GetDirectoryName(typeof(BotManager).Assembly.Location), "farmer_methods.txt"), "FARMERM " + string.Join("\n", partsF)); } catch { }
+                            this.monitor.Log("FARMERM " + string.Join(" ; ", partsF), LogLevel.Info);
+                            var partsM = new System.Collections.Generic.List<string>();
+                            foreach (var mi in Game1.currentLocation.GetType().GetMethods(btF))
+                            {
+                                string nmF = mi.Name.ToLower();
+                                if (nmF.Contains("fall") || nmF.Contains("shaft") || nmF.Contains("jump") || nmF.Contains("descend"))
+                                    partsM.Add(mi.Name + "(" + string.Join(",", System.Array.ConvertAll(mi.GetParameters(), pp => pp.ParameterType.Name)) + ")");
+                            }
+                            this.monitor.Log("MINEM " + string.Join(" ; ", partsM), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_farmer_methods err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "attack":
                     {
                         success = companion.AttackNearbyMonsters();
                         detail = success ? "Attacked nearby monster" : "No monsters in range";

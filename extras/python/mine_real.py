@@ -382,6 +382,14 @@ def descend_via_ladder_v2():
         return True
     if sweep_floor_for_ladder(180):
         return True
+    # 最后兜底：用游戏自己的“加载下一层”（等同走楼梯进下一层）
+    log("  找不到楼梯/洞口，改用游戏内下一层加载")
+    nav2.send({"actionType": "next_mine_level"}, 1.5)
+    time.sleep(2.5)
+    b9 = nav2.rd() or {}
+    if floor_num(b9.get("location")) > f0:
+        log(f"  下到 {b9.get('location')}（下一层加载）")
+        return True
     # 这层今天找不到楼梯 → 记住，别再反复进
     _mark_no_ladder(f0)
     return False
