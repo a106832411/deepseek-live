@@ -281,7 +281,15 @@ def run_once():
             log("进不了矿，退出")
             return
     for floor_try in range(12):
-        log(f"[第 {floor_try+1} 层/轮] {rd().get('location')} 石头={count('石头')} 铜={count('铜矿石')}")
+        _locnow = str(rd().get("location"))
+        _flnow = mine_real.floor_num(_locnow)
+        # 每轮开始都检查无梯记忆（否则会在同一层反复挖）
+        if _flnow > 0 and mine_real._is_no_ladder(_flnow):
+            log(f"  第 {_flnow} 层今天不可用，离开")
+            nav2.send({"actionType": "leave_mine"}, 1.5)
+            time.sleep(2)
+            continue
+        log(f"[第 {floor_try+1} 层/轮] {_locnow} 石头={count('石头')} 铜={count('铜矿石')}")
         mine_real.mine_rocks(40)
         log(f"  挖完：石头={count('石头')} 铜={count('铜矿石')}")
         if count("铜矿石") >= 20 and count("石头") >= 25:
