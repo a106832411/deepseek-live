@@ -53,7 +53,8 @@ def _tiles():
 
 def find_chest():
     for t in _tiles():
-        if "箱子" in str(t.get("ObjectName") or "") or "Chest" in str(t.get("ObjectName") or ""):
+        nm = str(t.get("ObjectName") or "")
+        if "箱" in nm or "Chest" in nm:
             return t
     return None
 
@@ -122,15 +123,19 @@ def deposit_junk(keep=9):
         return False
     open_chest(chest)
     moved = 0
-    for name in JUNK:
-        while slots_used() > keep and count(name) > 0:
-            nav2.send({"actionType": "chest_store_named", "name": name}, 0.8)
-            time.sleep(0.2)
-            moved += 1
-            if moved > 30:
-                break
+    for _ in range(6):
         if slots_used() <= keep:
             break
+        before = slots_used()
+        nav2.send({"actionType": "chest_store_named", "x": chest["X"], "y": chest["Y"],
+                   "names": JUNK}, 1.6)
+        time.sleep(0.5)
+        moved += 1
+        if slots_used() >= before:
+            break
     nav2.send({"actionType": "exit_menu"}, 0.6)
-    log(f"  存箱子：{moved} 次，格子 {slots_used()}/12")
+    log(f"  存箱子：{moved} 批，格子 {slots_used()}")
     return slots_used() <= 11
+
+
+
