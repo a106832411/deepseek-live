@@ -5,6 +5,7 @@
     fallback.ensure_ready()
     fallback.goto_or_warp("Mountain")
 """
+import json
 import os
 import time
 
@@ -260,3 +261,93 @@ if __name__ == "__main__":
     print("goto Mountain:", goto_or_warp("Mountain"))
     b = nav2.rd()
     log(f"现在 {b.get('location')} {nav2.tile(b)}")
+
+
+# ---------- 存档防回滚 ----------
+SAVES_DIR = os.path.join(os.environ.get("APPDATA", ""), "StardewValley", "Saves")
+MARKER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "save_marker.json")
+_SEASONS = ["spring", "summer", "fall", "winter"]
+
+
+def _day_index(b):
+    try:
+        si = _SEASONS.index(str(b.get("season") or "spring"))
+    except ValueError:
+        si = 0
+    return si * 28 + int(b.get("day") or 0)
+
+
+def read_marker():
+    try:
+        with open(MARKER_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def write_marker(b=None):
+    b = b or nav2.rd() or {}
+    if not b:
+        return
+    try:
+        with open(MARKER_FILE, "w", encoding="utf-8") as f:
+            json.dump({"season": b.get("season"), "day": b.get("day"),
+                       "time": b.get("time"), "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                       "index": _day_index(b)}, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def newest_backup():
+    """找最新的一份运行前备份（logs/save_backup_*）。"""
+    import glob
+    pats = sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "save_backup_*")),
+                  key=lambda p: os.path.getmtime(p), reverse=True)
+    return pats[0] if pats else None
+
+
+def restore_backup(backup_dir):
+    """把备份的存档目录复制回 Saves（需要游戏已关闭）。"""
+    import shutil
+    if not backup_dir or not os.path.isdir(backup_dir):
+        return False
+    try:
+        for d in os.listdir(backup_dir):
+            src = os.path.join(backup_dir, d)
+            if not os.path.isdir(src):
+                continue
+            dst = os.path.join(SAVES_DIR, d)
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        log(f"  已从备份恢复存档: {backup_dir}")
+        return True
+    except Exception as ex:
+        log(f"  恢复存档失败: {ex}")
+        return False
+
+
+def check_rollback(auto_restore=True):
+    """检测存档是否回滚；回滚则恢复最新备份并重进游戏。"""
+    marker = read_marker()
+    b = nav2.rd() or {}
+    if not marker or not b:
+        return False
+    cur = _day_index(b)
+    if cur >= int(marker.get("index") or 0):
+        return False
+    log(f"  ⚠ 检测到存档回滚：现在 {b.get('season')} {b.get('day')}，之前记录 {marker.get('season')} {marker.get('day')}")
+    if not auto_restore:
+        return True
+    bk = newest_backup()
+    import subprocess
+    game = r"E:\steam\steamapps\common\Stardew Valley"
+    try:
+        for name in ("Stardew Valley", "StardewModdingAPI"):
+            subprocess.run(["taskkill", "/IM", name + ".exe", "/F"], capture_output=True)
+        time.sleep(4)
+        if restore_backup(bk):
+            log("  存档已恢复，重启游戏")
+            relaunch_game()
+            return True
+    except Exception as ex:
+        log(f"  回滚处理失败: {ex}")
+    return False

@@ -180,6 +180,14 @@ def main():
                 log("  游戏没就绪，等 30 秒")
                 time.sleep(30)
                 continue
+            # 存档防回滚：检测到回滚就恢复备份并重进
+            try:
+                if fallback.check_rollback():
+                    time.sleep(5)
+                    continue
+                fallback.write_marker()
+            except Exception as ex:
+                log(f"  存档检查失败: {ex}")
             nav2.send({"actionType": "cancel_dialogue"}, 0.3)
             # 背包快满 → 先存箱子
             try:
