@@ -12,6 +12,49 @@ import nav2
 
 log = nav2.log
 
+import json
+import os
+
+NO_LADDER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "no_ladder_floors.json")
+_DAY_SEQ = ["spring", "summer", "fall", "winter"]
+
+
+def _day_key(b=None):
+    b = b or nav2.rd() or {}
+    try:
+        si = _DAY_SEQ.index(str(b.get("season") or "spring"))
+    except ValueError:
+        si = 0
+    return f"{si}-{b.get('day')}"
+
+
+def _load_no_ladder():
+    try:
+        with open(NO_LADDER_FILE, encoding="utf-8") as f:
+            return set(json.load(f))
+    except Exception:
+        return set()
+
+
+def _save_no_ladder(keys):
+    try:
+        with open(NO_LADDER_FILE, "w", encoding="utf-8") as f:
+            json.dump(sorted(keys), f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def _mark_no_ladder(floor):
+    keys = _load_no_ladder()
+    keys.add(f"{_day_key()}#{floor}")
+    _save_no_ladder(keys)
+    log(f"  记住：{_day_key()} 第 {floor} 层没楼梯")
+
+
+def _is_no_ladder(floor):
+    return f"{_day_key()}#{floor}" in _load_no_ladder()
+
+
 
 import re
 
@@ -242,6 +285,11 @@ def descend_via_ladder_v2():
     f0 = floor_num(b.get("location"))
     if f0 < 0:
         return False
+    if _is_no_ladder(f0):
+        log(f"  这层今天已确认没楼梯，直接走")
+        nav2.send({"actionType": "leave_mine"}, 1.5)
+        time.sleep(2)
+        return False
     t0 = time.time()
     log(f"  找楼梯（spawned={b.get('ladderSpawned')}）")
     # 阶段一：敲石头直到楼梯出现
@@ -251,6 +299,7 @@ def descend_via_ladder_v2():
                  and t.get("ObjectType") not in ("clump_axe", "clump_pick")]
         if not rocks:
             log("  本层石头清完楼梯还没出现，换层")
+            _mark_no_ladder(f0)
             return False
         lad = _ladder_tile(b)
         if lad:
@@ -265,9 +314,12 @@ def descend_via_ladder_v2():
             return True
     if not b.get("ladderSpawned"):
         log("  90 秒没出楼梯，这层跳过")
+        _mark_no_ladder(f0)
         return False
-    # 阶段二：全图巡逻 + 交互
-    return sweep_floor_for_ladder(420)
+    # 阶段二：先快速试附近，再全图巡逻
+    if quick_ladder_try(120):
+        return True
+    return sweep_floor_for_ladder(180)
 
 
 def descend_via_ladder():
@@ -333,7 +385,48 @@ def _explore_step():
     return False
 
 
-def sweep_floor_for_ladder(budget=420):
+def quick_ladder_try(budget=120):
+    """先快速试上楼梯子附近的格子（多数楼层楼梯就在附近）。"""
+    t0 = time.time()
+    b = nav2.rd() or {}
+    f0 = floor_num(b.get("location"))
+    lad = _ladder_tile(b)
+    if not lad:
+        return False
+    lx, ly = lad
+    tiles = _tiles(b)
+    cands = []
+    for t in tiles:
+        d = abs(t["X"] - lx) + abs(t["Y"] - ly)
+        if d > 6:
+            continue
+        if (t["X"], t["Y"]) == (lx, ly):
+            continue
+        if not t.get("ObjectName"):
+            cands.append((d, t))
+    cands.sort(key=lambda x: x[0])
+    log(f"  先快速试附近 {len(cands)} 格")
+    for _i, (_d, t) in enumerate(cands[:40]):
+        if time.time() - t0 > budget:
+            break
+        cx, cy = t["X"], t["Y"]
+        st = _stand(nav2.rd() or {}, cx, cy)
+        if t.get("Passable"):
+            nav2.walk_until(cx, cy, 6)
+        elif st:
+            nav2.walk_until(st["X"], st["Y"], 6)
+        nav2.send({"actionType": "cancel_dialogue"}, 0.2)
+        nav2.send({"actionType": "descend_ladder", "x": cx, "y": cy}, 0.7)
+        time.sleep(0.35)
+        b2 = nav2.rd() or {}
+        if floor_num(b2.get("location")) > f0:
+            log(f"  下到 {b2.get('location')}（快速试 {cx},{cy}）")
+            return True
+    log("  附近没有，改全图巡逻")
+    return False
+
+
+def sweep_floor_for_ladder(budget=180):
     """全图巡逻找下一层：走到每个可走格子，对自身和四邻 callAction，直到下楼。
 
     这是最笨但最可靠的办法——楼梯一定在某个格子上，走过去交互必然触发。
