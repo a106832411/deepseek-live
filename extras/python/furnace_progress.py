@@ -303,6 +303,17 @@ def run_once():
                 break
     log(f"材料：铜={count('铜矿石')} 石头={count('石头')} 木材={count('木材')}")
     # 熔炉：优先用家里现成的，没有才做
+    # 背包铜矿不够先看箱子
+    if count("铜矿石") < 5:
+        try:
+            import boxes
+            chest_copper = sum(int(e.get("stack", 0)) for e in (rd().get("chestTotals") or []) if "铜矿石" in str(e.get("name")))
+            if chest_copper >= 5:
+                log(f"  从箱子取铜矿再烧（箱里 {chest_copper}）")
+                fallback.goto_or_warp("Farm")
+                boxes.take_from_chest("铜矿石", min(25, chest_copper))
+        except Exception as ex:
+            log(f"  取铜矿失败: {ex}")
     if count("铜矿石") >= 5:
         fallback.goto_or_warp("Farm")
         f = find_existing_furnace()
