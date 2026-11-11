@@ -133,3 +133,8 @@ fairseq：**不用装**。唱歌工坊自带 `compat/fairseq` shim（用 torchau
   一首 4 分钟的歌约 6~8 分钟，完全可以接受。
 - WSL GPU 保留给 demucs / 未来修好 RVC 时再用；鲸live 和唱歌工坊默认配置已切到 `mode=local, device=cpu:0`。
 - 复现环境：torch 2.8.0+rocm6.4、ROCm 6.4、WSL 3.0.5、驱动 32.0.32015.7029；如果以后升级 torch/ROCm 可以再试 GPU RVC。
+
+- 也试过换 torch 版本：**torch 2.7.1+rocm6.3 在 WSL 里 `torch.cuda.is_available()=False`**
+  （ROCm 6.3 的 wheel 与系统 ROCm 6.4 运行时不匹配，连 GPU 都看不到，RVC 自动退回 CPU）。
+  说明能看见 GPU 的组合是 **torch 2.8.0+rocm6.4 + LD_PRELOAD 系统 hsa 运行时**；
+  RVC 的段错误是这套组合下更深层的 DXG 问题，不是版本能轻易绕过的。
