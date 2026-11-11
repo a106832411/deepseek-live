@@ -94,12 +94,32 @@ def main(argv):
     for k in ("voices_file", "out_dir", "work_dir"):
         if cfg.get(k):
             cfg[k] = to_wsl(cfg[k])
+    # voices.json 里的 pth/index 也是 Windows 路径：生成一份 /mnt 化副本
+    voices = cfg.get("voices_file")
+    if voices:
+        try:
+            with open(voices, encoding="utf-8-sig") as f:
+                voices_data = json.load(f)
+            fixed = {}
+            for name, v in (voices_data or {}).items():
+                v = v or {}
+                fixed[name] = {"pth": to_wsl(v.get("pth", "")), "index": to_wsl(v.get("index", ""))}
+            vfd, vtmp = tempfile.mkstemp(prefix="song-studio-wsl-voices-", suffix=".json")
+            os.close(vfd)
+            with open(vtmp, "w", encoding="utf-8") as f:
+                json.dump(fixed, f, ensure_ascii=False, indent=2)
+            cfg["voices_file"] = to_wsl(vtmp)
+            tmp_voices = vtmp
+            log("声线表已转 /mnt 路径: " + vtmp)
+        except Exception as e:
+            log("警告：转 voices.json 失败（按原路径试）: " + str(e))
     # 保底：cuda 设备
     if not cfg.get("device"):
         cfg["device"] = "cuda:0"
 
     fd, tmp_cfg = tempfile.mkstemp(prefix="song-studio-wsl-", suffix=".json")
     os.close(fd)
+    tmp_voices = None
     with open(tmp_cfg, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
 
@@ -120,8 +140,13 @@ def main(argv):
                 "--config", to_wsl(tmp_cfg)]
     cmd_args += passthrough
 
-    wsl_cmd = ["wsl.exe", "-d", distro, "-u", user, "--",
-               "env", "PYTHONPATH=" + compat, py] + cmd_args
+    wsl_cmd = ["wsl.exe", "-d", distro, "-u", user, "--", "env"]
+    if os.environ.get("SONG_WSL_DXG", "1") != "0":
+        wsl_cmd.append("HSA_ENABLE_DXG_DETECTION=1")
+    ld_preload = os.environ.get("SONG_WSL_LD_PRELOAD", "/opt/rocm/lib/libhsa-runtime64.so.1")
+    if ld_preload:
+        wsl_cmd.append("LD_PRELOAD=" + ld_preload)
+    wsl_cmd += ["PYTHONPATH=" + compat, py] + cmd_args
 
     log("输入: " + str(inp) + "  → " + to_wsl(inp))
     log("声线: " + str(voice))

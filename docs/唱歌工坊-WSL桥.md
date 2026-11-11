@@ -1,4 +1,4 @@
-# 唱歌工坊跑 WSL GPU：桥接方案
+﻿# 唱歌工坊跑 WSL GPU：桥接方案
 
 > 目标：DSH 插件 **唱歌工坊（dsh-song-studio）** 的「做歌」按钮，实际用 **WSL 里的 ROCm python + RX 7900 GRE** 跑
 > demucs 分离 + RVC 换声，而不是 Windows 上那套 CPU 环境。
@@ -50,6 +50,8 @@ bridge.py 支持的环境变量：
 | `SONG_WSL_PYTHON` | `/opt/rvc/bin/python` | WSL 里的 python |
 | `SONG_WSL_COMPAT` | `/opt/rvc/compat` | fairseq shim（免装 fairseq） |
 | `SONG_WSL_COVER` | `/mnt/d/.../extras/python/song-cover/cover.py` | WSL 里的流水线脚本 |
+| `SONG_WSL_DXG` | `1` | 加 `HSA_ENABLE_DXG_DETECTION=1`（WSL 必须，否则 torch 看不到 GPU） |
+| `SONG_WSL_LD_PRELOAD` | `/opt/rocm/lib/libhsa-runtime64.so.1` | 用系统 WSL 版 HSA 运行时顶掉 torch 自带的（关键！） |
 | `SONG_WSL_PRINT_ONLY` | 空 | `1` = 只打印命令不执行（自检） |
 
 ## 配到唱歌工坊里
@@ -83,3 +85,4 @@ tools\song-studio-wsl\song-studio-wsl.exe `
 
 鲸live 侧已经内置同样的 WSL 调用（`sing.engine="rvc"`，`sing.rvc.mode="wsl"`），
 不需要这个 exe；桥只是给插件 UI 用的。
+

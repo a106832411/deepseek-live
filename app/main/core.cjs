@@ -1341,6 +1341,9 @@ function rvcSettings() {
     user: String(pick(cfg.user, 'root')),
     pythonWsl: String(pick(cfg.python_wsl, '/opt/rvc/bin/python')),
     compatWsl: String(pick(cfg.compat_wsl, '/opt/rvc/compat')),
+    // WSL 里 torch 自带的 libhsa 看不到 DXG，必须用系统 ROCm 的 hsa 运行时 + DXG 探测开关
+    ldPreload: String(pick(cfg.ld_preload, '/opt/rocm/lib/libhsa-runtime64.so.1')),
+    dxg: pick(cfg.dxg, 1) !== 0 && pick(cfg.dxg, 1) !== false,
     python: String(pick(cfg.python, '')),
     voicesFile: String(pick(cfg.voices_file, '')),
     voice: String(pick(cfg.voice, '')),
@@ -1382,7 +1385,10 @@ function spawnRvcPython(cfg, argv, timeoutMs) {
     let env = null;
     if (cfg.mode === 'wsl') {
       file = 'wsl.exe';
-      args = ['-d', cfg.distro, '-u', cfg.user, '--', 'env', 'PYTHONPATH=' + cfg.compatWsl, cfg.pythonWsl]
+      const envPairs = ['PYTHONPATH=' + cfg.compatWsl];
+      if (cfg.dxg) envPairs.push('HSA_ENABLE_DXG_DETECTION=1');
+      if (cfg.ldPreload) envPairs.push('LD_PRELOAD=' + cfg.ldPreload);
+      args = ['-d', cfg.distro, '-u', cfg.user, '--', 'env'].concat(envPairs, [cfg.pythonWsl])
         .concat(argv.map(winToWslPath));
     } else {
       file = cfg.python || 'python';
@@ -1421,6 +1427,27 @@ function rvcMp3ToWav(cfg, mp3, wav) {
   });
 }
 
+/** voices.json 里存的是 Windows 路径，WSL 里打不开；生成一份 pth/index 转成 /mnt/... 的副本 */
+function rvcVoicesForWsl(cfg, dir, stamp) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(cfg.voicesFile, 'utf8').replace(/^\uFEFF/, ''));
+    const out = {};
+    for (const name of Object.keys(raw || {})) {
+      const v = raw[name] || {};
+      out[name] = {
+        pth: winToWslPath(v.pth || ''),
+        index: winToWslPath(v.index || '')
+      };
+    }
+    const p = path.join(dir, `${stamp}_voices.wsl.json`);
+    fs.writeFileSync(p, JSON.stringify(out, null, 2), 'utf8');
+    return p;
+  } catch (e) {
+    log('真唱RVC：转 voices.json 失败（按原路径试）: ' + e.message);
+    return cfg.voicesFile;
+  }
+}
+
 async function prepareRvc(item) {
   const cfg = rvcSettings();
   const why = rvcUnavailableReason(cfg);
@@ -1452,7 +1479,7 @@ async function prepareRvc(item) {
     }
     fs.writeFileSync(cfgPath, JSON.stringify({
       ffmpeg: wsl ? '/usr/bin/ffmpeg' : (cfg.ffmpeg || 'ffmpeg'),
-      voices_file: wsl ? winToWslPath(cfg.voicesFile) : cfg.voicesFile,
+      voices_file: wsl ? winToWslPath(rvcVoicesForWsl(cfg, dir, stamp)) : cfg.voicesFile,
       demucs_model: cfg.demucsModel,
       work_dir: wsl ? winToWslPath(workDir) : workDir,
       out_dir: wsl ? winToWslPath(outDir) : outDir,
@@ -1465,7 +1492,10 @@ async function prepareRvc(item) {
     if (cfg.dryRun) {
       // 自检用：只打印将要执行的命令，不真的跑（可验证 WSL/本地路径拼得对不对）
       const preview = cfg.mode === 'wsl'
-        ? ['wsl.exe', '-d', cfg.distro, '-u', cfg.user, '--', 'env', 'PYTHONPATH=' + cfg.compatWsl, cfg.pythonWsl].concat(argv.map(winToWslPath))
+        ? ['wsl.exe', '-d', cfg.distro, '-u', cfg.user, '--', 'env', 'PYTHONPATH=' + cfg.compatWsl]
+          .concat(cfg.dxg ? ['HSA_ENABLE_DXG_DETECTION=1'] : [])
+          .concat(cfg.ldPreload ? ['LD_PRELOAD=' + cfg.ldPreload] : [])
+          .concat([cfg.pythonWsl]).concat(argv.map(winToWslPath))
         : [cfg.python || 'python'].concat(argv);
       log('真唱RVC 自检（dry_run，不执行）: ' + preview.map((x) => (/\s/.test(x) ? '"' + x + '"' : x)).join(' '));
       return null;

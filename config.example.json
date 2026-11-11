@@ -148,7 +148,9 @@
       "cover_script": "",
       "input": "",
       "dry_run": false,
-      "keep": false
+      "keep": false,
+      "ld_preload": "/opt/rocm/lib/libhsa-runtime64.so.1",
+      "dxg": 1
     }
   },
   "obs": {
