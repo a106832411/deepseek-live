@@ -3,7 +3,41 @@
  * 只实现控制台需要的：连接 / 请求 / 建场景 / 建浏览器源
  */
 const crypto = require('crypto');
+const fs = require('fs');
 const net = require('net');
+const path = require('path');
+
+// ---------------- 完整直播预设的图片素材路径 ----------------
+// 两张图随包放在 仓库根/assets/obs/ 下（源码运行直接读；打包后由 electron-builder
+// 的 asarUnpack 解到 resources/app.asar.unpacked/assets/obs/）。
+// 源码运行时 ROOT = 仓库根（obs.cjs 的 ../..）；打包后 ROOT = app.asar。
+const ROOT = path.resolve(__dirname, '..', '..');
+const PACKED = /app\.asar/i.test(__dirname);
+
+// 历史遗留的本机绝对路径：只作兜底（本机还没重新打包、或有人删了 assets/obs 里的图时仍能用）
+const LEGACY_PRESET_ASSETS = {
+  'bg3_星空鲸海.png':
+    'D:/文档/deepseek-harness/default-workspace/whaletalk/assemble/ai_bg/1080x1920/bg3_星空鲸海.png',
+  '叠加层_竖屏_文字_v2.png':
+    'D:/文档/deepseek-harness/default-workspace/whaletalk/assemble/叠加层_竖屏_文字_v2.png'
+};
+
+/**
+ * 解析完整直播预设里图片源的运行时真实路径。
+ * OBS 的 image_source 只吃真实文件路径：asar 里的文件（/app.asar/assets/...）OBS 读不到，
+ * 所以打包后走 app.asar.unpacked（electron-builder.yml 的 asarUnpack: assets/obs/**）。
+ * @param {string} name assets/obs/ 下的文件名
+ * @returns {string} 优先返回随包路径；随包路径不存在时退回旧的本机绝对路径；都不存在则返回预期路径
+ */
+function presetAsset(name) {
+  const bundled = PACKED
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'obs', name) // 打包后：resources/app.asar.unpacked/assets/obs/
+    : path.join(ROOT, 'assets', 'obs', name); // 源码运行：仓库根/assets/obs/
+  if (fs.existsSync(bundled)) return bundled;
+  const legacy = LEGACY_PRESET_ASSETS[name];
+  if (legacy && fs.existsSync(legacy)) return legacy; // 兜底：旧的 D 盘绝对路径还在就用它
+  return bundled; // 都不存在时返回随包路径，上层会提示「图片不存在」
+}
 
 const OP = { HELLO: 0, IDENTIFY: 1, IDENTIFIED: 2, REIDENTIFY: 3, EVENT: 5, REQUEST: 6, RESPONSE: 7 };
 
@@ -279,9 +313,9 @@ function presetSources(preset, W, H, api) {
 
   // 完整直播：复刻旧版「AI主播直播间-竖屏」布局（1080x1920 基准）
   const base = [
-    { name: '背景板', kind: 'image', file: 'D:/文档/deepseek-harness/default-workspace/whaletalk/assemble/ai_bg/1080x1920/bg3_星空鲸海.png', w: 1080, h: 1920, x: 0, y: 0 },
+    { name: '背景板', kind: 'image', file: presetAsset('bg3_星空鲸海.png'), w: 1080, h: 1920, x: 0, y: 0 },
     { name: '游戏画面', kind: 'browser', url: 'http://127.0.0.1:9800/cam', iw: 800, ih: 600, w: 1080, h: 810, x: 0, y: 190 },
-    { name: '文字叠加', kind: 'image', file: 'D:/文档/deepseek-harness/default-workspace/whaletalk/assemble/叠加层_竖屏_文字_v2.png', w: 1080, h: 1920, x: -5, y: 0 },
+    { name: '文字叠加', kind: 'image', file: presetAsset('叠加层_竖屏_文字_v2.png'), w: 1080, h: 1920, x: -5, y: 0 },
     { name: '皮套', kind: 'browser', url: '/live2d?scale=0.95', iw: 1080, ih: 1080, w: 324, h: 324, x: 745, y: 1500 },
     { name: '本场数据', kind: 'text', text: '本场数据', w: 234, h: 126, x: 640, y: 950 },
     { name: '歌单', kind: 'browser', url: '/songs', iw: 432, ih: 422, w: 268, h: 262, x: 575, y: 1050 },
@@ -428,7 +462,7 @@ async function setupScene(opts) {
     for (const spec of sources) {
       const title = spec.kind === 'browser' ? (spec.url || '') : spec.kind === 'image' ? (spec.file || '') : (spec.text || '');
       try {
-        if (spec.kind === 'image' && spec.file && !require('fs').existsSync(spec.file)) {
+        if (spec.kind === 'image' && spec.file && !fs.existsSync(spec.file)) {
           say('跳过 ' + spec.name + '：图片不存在 ' + spec.file);
           continue;
         }
@@ -472,4 +506,4 @@ async function probe(opts) {
   }
 }
 
-module.exports = { ObsClient, setupScene, probe, layoutFor };
+module.exports = { ObsClient, setupScene, probe, layoutFor, presetAsset };

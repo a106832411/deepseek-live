@@ -45,9 +45,12 @@ files:
 
 # Python 脚本 / 内置抖音中继都必须从真实文件路径 spawn，asar 里的路径外部进程打不开
 # 打包后会落到 resources/app.asar.unpacked/extras/{python,douyin}/**
+# assets/obs/**：完整直播预设的两张图（背景板/文字叠加）由 OBS 的 image_source 读，
+# OBS 是外部进程，只能读真实文件路径，asar 里的路径读不到，所以必须 unpack
 asarUnpack:
   - extras/python/**
   - extras/douyin/**
+  - assets/obs/**
 
 # 生产依赖里没有原生模块（core.cjs 零 npm 依赖），跳过 rebuild，省时间
 npmRebuild: false
