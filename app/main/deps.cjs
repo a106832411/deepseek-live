@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 运行环境检测 / 一键启动（TTS · OBS · Ollama · Python · 真唱引擎）
  *
  * 零 npm 依赖：只用 net / fs / os / path / child_process。
@@ -249,11 +249,13 @@ async function probe(settings) {
     svc({
       key: 'douyin', name: '抖音弹幕中继（Chrome 抓弹幕）', icon: '📺', ok: douyinOk,
       startable: !!douyinStart, managed: CHILDREN.has('douyin'),
-      detail: douyinOk
-        ? `中继在跑${dj.ingestAgo !== null && dj.ingestAgo !== undefined ? `，最近一条事件 ${dj.ingestAgo}s 前` : ''}${dj.lastCount ? `（上次 ${dj.lastCount} 个事件）` : ''}`
-        : (dj.heartbeatAgo !== null && dj.heartbeatAgo !== undefined
-          ? `中继进程还在（心跳 ${dj.heartbeatAgo}s 前），但最近没收到弹幕`
-          : '中继没在跑'),
+      detail: dj.active
+        ? `中继在跑（心跳 ${dj.heartbeatAgo}s 前${dj.ingestAgo !== null && dj.ingestAgo !== undefined ? `，最近事件 ${dj.ingestAgo}s 前` : ''}）${dj.lastCount ? ` · 上批 ${dj.lastCount} 个事件` : ''}`
+        : (douyinOk
+          ? `最近收到事件 ${dj.ingestAgo}s 前（没心跳：可能是外部中继；内置中继没在跑）`
+          : (dj.heartbeatAgo !== null && dj.heartbeatAgo !== undefined
+            ? `中继进程心跳已停（最后 ${dj.heartbeatAgo}s 前），也没新事件`
+            : '中继没在跑')),
       hint: '点一键启动会开一个静音 Chrome 抓直播间聊天 DOM；首次要扫码登录，登录状态会存下来',
       command: douyinStart ? douyinStart.cmd : ''
     }),
