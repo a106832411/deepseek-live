@@ -34,11 +34,32 @@ const LOG_DIR = path.join(DATA_ROOT, 'logs');
 try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch (e) {}
 
 let LOG_TAG = '';
+// app.log 轮转：超过 5MB 就滚成 app.log.1，避免长期挂机把盘写满
+const LOG_MAX_BYTES = 5 * 1024 * 1024;
+let _logBytes = -1;
+function _logFile() { return path.join(LOG_DIR, 'app.log'); }
+function _logSize() {
+  if (_logBytes >= 0) return _logBytes;
+  try { _logBytes = fs.statSync(_logFile()).size; } catch (e) { _logBytes = 0; }
+  return _logBytes;
+}
+function _rotateLogIfNeeded(addBytes) {
+  const size = _logSize() + addBytes;
+  if (size <= LOG_MAX_BYTES) { _logBytes = size; return; }
+  try {
+    const f = _logFile();
+    try { fs.renameSync(f + '.1', f + '.2'); } catch (e) {}
+    fs.renameSync(f, f + '.1');
+  } catch (e) {}
+  _logBytes = 0;
+}
+
 function log(msg) {
   const line = `[${new Date().toISOString().slice(11, 19)}]${LOG_TAG ? ' ' + LOG_TAG : ''} ${msg}`;
   console.log(line);
   try {
-    fs.appendFileSync(path.join(LOG_DIR, 'app.log'), line + '\n');
+    _rotateLogIfNeeded(Buffer.byteLength(line) + 1);
+    fs.appendFileSync(_logFile(), line + '\n');
   } catch (e) {}
 }
 

@@ -21,8 +21,11 @@
  *   --profile <目录>  Chrome profile 目录（默认 %LOCALAPPDATA%\jinglive-douyin-profile，登录一次后复用）
  *   --chrome <路径>   Chrome 可执行文件（默认自动找）
  *   --match <子串>    调试用：页面 URL 里包含这个子串就接管（默认匹配 live.douyin.com）
+ *   --dedupe-sec <秒> 本地去重窗口（默认 120 秒；同类型+同人+同内容在这段时间内只报一次）
  *   --keep-chrome     退出时不关闭 Chrome
  *   --once            只跑一轮抓取就退出（调试用）
+ *
+ * 断线自愈：直播间页面刷新/导航、CDP 连接断开会自动重连；Chrome 被关掉会自动重新拉起（最多 5 次）。
  *
  * 注意：连上后**不要按 F5**（刷新会重建页面，中继会自动重新注入，但旧的已读标记会丢，可能重播几条）；
  *      Chrome 窗口不要关，关了中继就没画面可读了（脚本会提示）。
@@ -447,11 +450,13 @@ async function waitForPage(timeoutMs = 90000) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------------- 主流程 ----------------
-let seenEvents = new Map();   // 本地再去重一层（id/文本，10 分钟）
+// 本地去重窗口：默认 2 分钟（以前 10 分钟会把"同一个人重复刷 666"整段吞掉）
+const DEDUPE_MS = Math.max(30000, Number(arg('dedupe-sec', 120)) * 1000);
+let seenEvents = new Map();   // 本地再去重一层（同类型+同人+同内容）
 function localDedupe(list) {
   const out = [];
   const now = Date.now();
-  for (const [k, t] of seenEvents) if (now - t > 600000) seenEvents.delete(k);
+  for (const [k, t] of seenEvents) if (now - t > DEDUPE_MS) seenEvents.delete(k);
   for (const ev of list) {
     const key = ev.type + '|' + (ev.name || '') + '|' + (ev.text || ev.gift || '') + '|' + (ev.num || '');
     if (seenEvents.has(key)) continue;
@@ -477,7 +482,24 @@ async function post(pathname, body) {
 }
 
 let chromeChild = null;
-let stats = { recv: 0, sent: 0, errors: 0 };
+let chromeExited = false;
+let stats = { recv: 0, sent: 0, errors: 0, reconnects: 0, chromeRestarts: 0 };
+
+/** 连上浏览器调试端口，返回 { ws, cdp }（页面刷新/重开都走这个函数重连） */
+async function attachBrowser(waitMs = 90000) {
+  const page = await waitForPage(waitMs);
+  const ws = new MiniWS();
+  await ws.connect(page.webSocketDebuggerUrl);
+  const cdp = new CDP(ws);
+  await cdp.send('Runtime.enable');
+  return { ws, cdp, page };
+}
+
+function launchRelayChrome() {
+  chromeChild = launchChrome();
+  chromeExited = false;
+  if (chromeChild) chromeChild.once('exit', () => { chromeExited = true; });
+}
 
 async function main() {
   log('==============================');
@@ -485,6 +507,7 @@ async function main() {
   log('==============================');
   log(`直播间：${ROOM_URL}`);
   log(`鲸live：${API}`);
+  log(`本地去重窗口：${Math.round(DEDUPE_MS / 1000)}s`);
   try {
     await fetchJson(API + '/api/health', 3000);
   } catch (e) {
@@ -492,16 +515,8 @@ async function main() {
     process.exit(2);
   }
 
-  chromeChild = launchChrome();
+  launchRelayChrome();
   log('等直播间页面加载…（首次打开要登录的话，在弹出的 Chrome 里扫码登录，登录状态会存在 profile 里）');
-  const page = await waitForPage();
-  log('页面已就绪：' + page.url);
-
-  const ws = new MiniWS();
-  await ws.connect(page.webSocketDebuggerUrl);
-  const cdp = new CDP(ws);
-  await cdp.send('Runtime.enable');
-  log('已连上浏览器调试端口');
 
   // 标记抖音已连接
   try { await post('/api/douyin/connect', {}); } catch (e) {}
@@ -511,13 +526,14 @@ async function main() {
   }, 15000);
   post('/api/douyin/heartbeat', {}).catch(() => {});
 
+  let link = null;
   let running = true;
   const stop = () => {
     if (!running) return;
     running = false;
     clearInterval(heartbeat);
-    log(`退出：收到 ${stats.recv} 条原始消息，推送 ${stats.sent} 个事件，错误 ${stats.errors}`);
-    try { ws.close(); } catch (e) {}
+    log(`退出：收到 ${stats.recv} 条原始消息，推送 ${stats.sent} 个事件，错误 ${stats.errors}，重连 ${stats.reconnects} 次`);
+    try { link && link.ws.close(); } catch (e) {}
     if (!KEEP_CHROME && chromeChild && chromeChild.pid) {
       // 只关我们自己开的那个 Chrome（按 profile 匹配，别关用户自己的窗口）
       try {
@@ -531,16 +547,38 @@ async function main() {
   process.on('SIGTERM', stop);
 
   let lastPrint = Date.now();
-  const t0 = Date.now();
+  // 一次 evaluate 里完成：确保采集脚本在 + 取走新消息
+  const expr = `(() => { const r = (${collector.toString()})(); return r === 'hooked' ? '[]' : r; })()`;
+
   while (running) {
-    if (!ONCE && Date.now() - t0 > 0 && chromeChild && chromeChild.exitCode !== null) {
-      log('Chrome 已退出，中继停止（直播间窗口关了？）');
-      break;
+    // ① Chrome 被关了/崩了：重新拉起（最多 5 次，别无限重启）
+    if (chromeExited) {
+      if (stats.chromeRestarts >= 5) {
+        log('Chrome 连续退出 5 次，中继放弃（检查一下直播间页面/浏览器）');
+        break;
+      }
+      stats.chromeRestarts++;
+      log(`Chrome 已退出，第 ${stats.chromeRestarts} 次重新拉起…`);
+      link = null;
+      launchRelayChrome();
+      await sleep(1500);
+      continue;
+    }
+    // ② 没连上/断开了：连（页面刷新、导航、CDP 掉线都会走到这里）
+    if (!link) {
+      try {
+        log(stats.reconnects ? '重新连接浏览器…' : '连接浏览器…');
+        link = await attachBrowser(stats.reconnects ? 60000 : 90000);
+        log('已连上浏览器调试端口' + (stats.reconnects ? `（第 ${stats.reconnects} 次重连）` : ''));
+      } catch (e) {
+        stats.errors++;
+        log('连接失败：' + e.message + '，3 秒后重试');
+        await sleep(3000);
+        continue;
+      }
     }
     try {
-      // 一次 evaluate 里完成：确保采集脚本在 + 取走新消息
-      const expr = `(() => { const r = (${collector.toString()})(); return r === 'hooked' ? '[]' : r; })()`;
-      const raw = await cdp.eval(expr, 15000);
+      const raw = await link.cdp.eval(expr, 15000);
       let recs = [];
       try { recs = JSON.parse(raw || '[]'); } catch (e) {}
       if (recs && recs.length) {
@@ -564,14 +602,19 @@ async function main() {
       }
     } catch (e) {
       stats.errors++;
-      if (String(e.message).includes('CDP 已断开') || String(e.message).includes('断开')) {
-        log('浏览器连接断开（页面刷新/关闭？），中继退出');
-        break;
+      const msg = String(e.message || e);
+      if (/断开|closed|超时|CDP/.test(msg)) {
+        stats.reconnects++;
+        log('浏览器连接断开（页面刷新/关闭？），准备重连：' + msg);
+        try { link.ws.close(); } catch (err) {}
+        link = null;
+        await sleep(1500);
+        continue;
       }
     }
     if (Date.now() - lastPrint > 60000) {
       lastPrint = Date.now();
-      log(`运行中：收到 ${stats.recv} 条，推送 ${stats.sent} 个事件，错误 ${stats.errors}`);
+      log(`运行中：收到 ${stats.recv} 条，推送 ${stats.sent} 个事件，错误 ${stats.errors}，重连 ${stats.reconnects} 次`);
     }
     if (ONCE) { await sleep(1500); stop(); return; }
     await sleep(800);

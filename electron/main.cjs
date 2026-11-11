@@ -15,6 +15,7 @@ const { registerIpc } = require('../app/main/ipc.cjs');
 const PORT = core.resolvePort(Number(process.env.DEEPLIVE_PORT || process.env.WT_PORT || 0) || undefined);
 process.env.WT_BASE = 'http://127.0.0.1:' + PORT;
 let win = null;
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1440,
@@ -40,24 +41,41 @@ function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+  win.on('closed', () => { win = null; });
 }
 
-app.whenReady().then(() => {
-  // 去掉默认系统菜单栏（File/Edit/View...）
-  Menu.setApplicationMenu(null);
-  // 1) 核心服务（HTTP + WS + AI + TTS + 点歌），供 OBS / 中继 / 外部脚本使用
-  //    端口被占用时核心会自动 +1 顺延，所以窗口要等真正监听成功再开（否则 IPC 基址会错）
-  core.start(PORT, (actualPort) => {
-    process.env.WT_BASE = 'http://127.0.0.1:' + actualPort;
-    // 2) IPC 桥：Vue 控制台直接控制核心（不经过 HTTP）
-    registerIpc(core);
-    createWindow();
+/**
+ * 单实例锁：双击第二次时不另起一套服务（否则 8788 被占会顺延到 8789，两套状态/OBS 源会分裂），
+ * 而是把已经开着的窗口叫到前面来。
+ */
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
   });
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+  app.whenReady().then(() => {
+    // 去掉默认系统菜单栏（File/Edit/View...）
+    Menu.setApplicationMenu(null);
+    // 1) 核心服务（HTTP + WS + AI + TTS + 点歌），供 OBS / 中继 / 外部脚本使用
+    //    端口被占用时核心会自动 +1 顺延，所以窗口要等真正监听成功再开（否则 IPC 基址会错）
+    core.start(PORT, (actualPort) => {
+      process.env.WT_BASE = 'http://127.0.0.1:' + actualPort;
+      // 2) IPC 桥：Vue 控制台直接控制核心（不经过 HTTP）
+      registerIpc(core);
+      createWindow();
+    });
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+  });
+}

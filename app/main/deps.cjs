@@ -138,9 +138,11 @@ function detectOllamaExe() {
   ]);
 }
 
-/** Python 是否可用 + 版本（跑一次 --version，最多 4 秒）。 */
+/** Python 是否可用 + 版本（跑一次 --version，最多 4 秒）。结果缓存 60 秒，避免每次探测都 spawn。 */
+const _PY_CACHE = { at: 0, key: '', val: null };
 function pythonInfo(pythonPath) {
   let exe = pythonPath || 'python';
+  if (_PY_CACHE.val && _PY_CACHE.key === exe && Date.now() - _PY_CACHE.at < 60000) return _PY_CACHE.val;
   // 'python' 这类裸命令，用 where 解析成真实路径（面板上好看也好排查）
   if (!/[\\/]/.test(exe)) {
     try {
@@ -149,14 +151,19 @@ function pythonInfo(pythonPath) {
       if (first) exe = first;
     } catch (e) {}
   }
+  let result;
   try {
     const r = spawnSync(exe, ['--version'], { timeout: 4000, windowsHide: true, encoding: 'utf8' });
     const out = String((r.stdout || '') + (r.stderr || '')).trim();
-    if (r.status === 0 && /Python\s+\d/i.test(out)) return { ok: true, path: exe, version: out.split(/\r?\n/)[0] };
-    return { ok: false, path: exe, version: out || ('exit ' + r.status) };
+    if (r.status === 0 && /Python\s+\d/i.test(out)) result = { ok: true, path: exe, version: out.split(/\r?\n/)[0] };
+    else result = { ok: false, path: exe, version: out || ('exit ' + r.status) };
   } catch (e) {
-    return { ok: false, path: exe, version: String(e.message || e) };
+    result = { ok: false, path: exe, version: String(e.message || e) };
   }
+  _PY_CACHE.at = Date.now();
+  _PY_CACHE.key = exe;
+  _PY_CACHE.val = result;
+  return result;
 }
 
 // ---------------- 启动命令解析 ----------------
