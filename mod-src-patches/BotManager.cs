@@ -2821,7 +2821,25 @@ case "shop_click_sell":
                         catch (Exception ex) { this.monitor.Log("harvest_crop err: " + ex.Message, LogLevel.Warn); }
                         break;
                     }
-                case "player_use_tool":
+                case "fix_sprite":
+                    {
+                        try
+                        {
+                            var pS = Game1.player;
+                            var partsS = new System.Collections.Generic.List<string>();
+                            partsS.Add($"frame={pS.FarmerSprite.CurrentFrame} hat={pS.hat} shirt={pS.shirt} pants={pS.pants}");
+                            partsS.Add($"items shirt={(pS.shirtItem != null)} pants={(pS.pantsItem != null)}");
+                            var fr = pS.FarmerSprite.CurrentFrame;
+                            if (fr < 0 || fr > 200) { pS.FarmerSprite.CurrentFrame = 0; partsS.Add("resetFrame"); }
+                            if (!Game1.player.canMove) { Game1.player.canMove = true; partsS.Add("canMove"); }
+                            if (Game1.player.UsingTool) { Game1.player.UsingTool = false; partsS.Add("usingTool"); }
+                            this.monitor.Log("fix_sprite: " + string.Join(" ; ", partsS), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("fix_sprite err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+case "player_use_tool":
                     if (root.TryGetProperty("tool", out var put) && root.TryGetProperty("x", out var pux) && root.TryGetProperty("y", out var puy))
                     {
                         var want = put.GetString().ToLower();

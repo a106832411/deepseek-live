@@ -126,7 +126,7 @@ def clear_grass_near(x, y):
     time.sleep(0.25)
 
 
-PLOT = [(x, y) for y in range(19, 23) for x in range(62, 67)]
+PLOT = [(x, y) for y in range(18, 24) for x in range(58, 66)]
 
 
 def plant(max_plant=6):
@@ -211,9 +211,8 @@ def do_farm(max_plant=8):
     if str(rd().get("season")) == "winter":
         log("  冬天不种地")
         return
-    buy_seeds(rd().get("season"), 15)
+    buy_seeds(rd().get("season"), 20)
     harvest()
-    water()
     plant(max_plant)
     sell_crops()
 
