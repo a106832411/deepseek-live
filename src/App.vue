@@ -146,8 +146,12 @@ function normalize(c) {
   c.ai = c.ai || {};
   if (c.ai.temperature == null) c.ai.temperature = 0.8;
   if (c.ai.max_chars == null) c.ai.max_chars = 20;
+  if (c.ai.memory == null) c.ai.memory = 6;
+  if (c.ai.context == null) c.ai.context = 3;
   c.tts = c.tts || {};
   if (c.tts.speed == null) c.tts.speed = 0.95;
+  if (c.tts.queue_max == null) c.tts.queue_max = 3;
+  if (c.tts.stale_ms == null) c.tts.stale_ms = 15000;
   if (c.tts.sample_steps == null) c.tts.sample_steps = 32;
   if (c.tts.top_k == null) c.tts.top_k = 20;
   if (c.tts.temperature == null) c.tts.temperature = 1.0;
@@ -785,6 +789,11 @@ onUnmounted(() => {
                 <label class="field"><span>回复字数上限</span><input type="number" v-model.number="cfg.ai.max_chars" @input="markDirty" /></label>
                 <label class="field"><span>温度</span><input type="number" step="0.1" v-model.number="cfg.ai.temperature" @input="markDirty" /></label>
               </div>
+              <div class="row2">
+                <label class="field"><span>短期记忆（轮）</span><input type="number" min="0" v-model.number="cfg.ai.memory" @input="markDirty" /></label>
+                <label class="field"><span>事件上下文（条）</span><input type="number" min="0" v-model.number="cfg.ai.context" @input="markDirty" /></label>
+              </div>
+              <div class="hint">记忆：记住最近几轮对话（0 = 不记，每句独立）；事件上下文：把最近几条弹幕/礼物也塞给 AI，接话更自然</div>
               <label class="field"><span>人设（system prompt）</span><textarea v-model="cfg.persona.system" @input="markDirty"></textarea></label>
             </section>
 
@@ -800,6 +809,11 @@ onUnmounted(() => {
                 <label class="field"><span>温度</span><input type="number" step="0.1" v-model.number="cfg.tts.temperature" @input="markDirty" /></label>
               </div>
               <label class="check"><input type="checkbox" v-model="cfg.tts.auto_play" @change="markDirty" /> 合成后自动播放</label>
+              <div class="row2">
+                <label class="field"><span>排队上限（句）</span><input type="number" min="1" v-model.number="cfg.tts.queue_max" @input="markDirty" /></label>
+                <label class="field"><span>过期丢弃（毫秒）</span><input type="number" min="1000" step="1000" v-model.number="cfg.tts.stale_ms" @input="markDirty" /></label>
+              </div>
+              <div class="hint">弹幕刷屏时防止话越积越多：超过排队上限就丢新话，排队超过「过期丢弃」时长就不说了（默认 3 句 / 15 秒）</div>
             </section>
 
             <section class="card">

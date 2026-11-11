@@ -99,6 +99,8 @@ function applyEnv(c) {
   str('DEEPLIVE_AI_KEY', ['ai', 'openai_key']);
   num('DEEPLIVE_AI_MAX_CHARS', ['ai', 'max_chars']);
   num('DEEPLIVE_AI_TEMPERATURE', ['ai', 'temperature']);
+  num('DEEPLIVE_AI_MEMORY', ['ai', 'memory']);
+  num('DEEPLIVE_AI_CONTEXT', ['ai', 'context']);
   str('DEEPLIVE_PERSONA', ['persona', 'system']);
 
   str('DEEPLIVE_TTS_URL', ['tts', 'api_url']);
@@ -110,6 +112,8 @@ function applyEnv(c) {
   num('DEEPLIVE_TTS_TEMPERATURE', ['tts', 'temperature']);
   num('DEEPLIVE_TTS_REP', ['tts', 'repetition_penalty']);
   bool('DEEPLIVE_TTS_AUTO_PLAY', ['tts', 'auto_play']);
+  num('DEEPLIVE_TTS_QUEUE_MAX', ['tts', 'queue_max']);
+  num('DEEPLIVE_TTS_STALE_MS', ['tts', 'stale_ms']);
 
   str('DEEPLIVE_DOUYIN_MODE', ['douyin', 'mode']);
   str('DEEPLIVE_DOUYIN_RID', ['douyin', 'web_rid']);
@@ -163,10 +167,10 @@ const CONFIG_PATH = process.env.WT_CONFIG || path.join(DATA_ROOT, 'config.json')
 const DEFAULT_CONFIG = {
   platform: 'douyin',
   douyin: { mode: 'relay', web_rid: '447058766923' },
-  ai: { backend: 'openai', openai_base: 'https://api.deepseek.com/v1', openai_model: 'deepseek-chat', openai_key: '', thinking: 'off', max_chars: 20 },
+  ai: { backend: 'openai', openai_base: 'https://api.deepseek.com/v1', openai_model: 'deepseek-chat', openai_key: '', thinking: 'off', max_chars: 20, memory: 6, context: 3 },
   persona: { system: '你是直播间里的虚拟主播小深，说话自然简洁。' },
   // prompt_text 必须和参考音逐字一致，否则 GPT-SoVITS 会念得又平又假
-  tts: { api_url: 'http://127.0.0.1:9881', ref_audio: '', prompt_text: '梁山在上，今天大白饭也要变得美味呀。', speed: 1.0, sample_steps: 32, top_k: 30, temperature: 1.3, repetition_penalty: 1.1, auto_play: true },
+  tts: { api_url: 'http://127.0.0.1:9881', ref_audio: '', prompt_text: '梁山在上，今天大白饭也要变得美味呀。', speed: 1.0, sample_steps: 32, top_k: 30, temperature: 1.3, repetition_penalty: 1.1, auto_play: true, queue_max: 3, stale_ms: 15000 },
   obs: { host: '127.0.0.1', port: 4455, password: '', scene: '鲸live直播', bgColor: '0b0c0e' },
   // 皮套：模型文件放在 public/live2d/models/ 下（每套一个子目录 + *.model3.json），控制台可切换
   live2d: { model: '/live2d/models/avatar/c_0120.model3.json', scale: 0.92 },
@@ -280,6 +284,7 @@ const state = {
   history: [],
   agents: new Set(),
   ttsQueue: Promise.resolve(),
+  speechPending: 0,
   speaking: false,
   playback: null,
   song: { current: null, queue: [], seen: {}, playing: false, skip: false, skipUntil: 0, inflight: 0 }
@@ -382,6 +387,35 @@ function httpPostJson(url, obj, headers = {}, timeout = 30000) {
 }
 
 // ---------------- AI ----------------
+/** 取最近几条直播事件，拼成给 AI 的上下文（让主播接得上话）。 */
+function aiContextLines(n) {
+  const out = [];
+  const evs = state.recent.filter((x) => x.kind === 'event').slice(0, Math.max(0, n));
+  for (const x of evs) {
+    const who = x.name || '观众';
+    const what = x.text || '';
+    if (what) out.push(`${who}：${what}`);
+  }
+  return out;
+}
+
+/** 按标点把超长回复截断，别在半个词/句子中间断掉。 */
+function cutAtPunctuation(text, max) {
+  const s = String(text || '');
+  const n = Math.max(1, Number(max) || 20);
+  if (s.length <= n) return s;
+  const head = s.slice(0, n + 1);
+  const m = /[，。！？；、,.!?;\s～~…]/g;
+  let last = -1;
+  let r;
+  while ((r = m.exec(head))) {
+    if (r.index > 0) last = r.index;
+    if (r.index >= n) break;
+  }
+  if (last >= Math.floor(n * 0.5)) return s.slice(0, last + 1).trim();
+  return s.slice(0, n).trim();
+}
+
 async function aiReply(event, extraPrompt) {
   const ai = config.ai || {};
   if (!ai.openai_key) return null;
@@ -394,10 +428,28 @@ async function aiReply(event, extraPrompt) {
   else if (event.type === 'gift') user = `观众「${event.name}」送出礼物「${event.gift}」${event.num > 1 ? ' x' + event.num : ''}，感谢他（她）。`;
   else user = `观众「${event.name}」说：${event.text}`;
   if (extraPrompt) user += ' ' + extraPrompt;
+
+  // 组装 messages：system + 最近事件上下文 + 短期记忆 + 本条
+  const msgs = [{ role: 'system', content: sys }];
+  const mk = (v, def) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : def;
+  };
+  const ctxN = mk(ai.context, 3);
+  const memTurns = mk(ai.memory, 6);
+  if (ctxN > 0) {
+    const ctx = aiContextLines(ctxN);
+    if (ctx.length) msgs.push({ role: 'system', content: '【最近直播动态（从新到旧）】\n' + ctx.map((x, i) => `${i + 1}. ${x}`).join('\n') });
+  }
+  if (memTurns > 0 && state.history.length) {
+    for (const h of state.history.slice(-memTurns * 2)) msgs.push(h);
+  }
+  msgs.push({ role: 'user', content: user });
+
   try {
     const r = await httpPostJson((ai.openai_base || 'https://api.deepseek.com/v1').replace(/\/$/, '') + '/chat/completions', {
       model: ai.openai_model || 'deepseek-chat',
-      messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
+      messages: msgs,
       max_tokens: 120,
       temperature: ai.temperature === undefined ? 0.8 : ai.temperature
     }, { Authorization: 'Bearer ' + ai.openai_key }, 30000);
@@ -406,8 +458,15 @@ async function aiReply(event, extraPrompt) {
     let text = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
     text = text.replace(/\s+/g, ' ').trim();
     const max = Number(ai.max_chars) || 20;
-    if (text.length > max) text = text.slice(0, max);
-    return text || null;
+    text = cutAtPunctuation(text, max);
+    if (!text) return null;
+    // 记进短期记忆（只留最近 40 条消息，防止无限增长）
+    if (memTurns > 0) {
+      state.history.push({ role: 'user', content: user });
+      state.history.push({ role: 'assistant', content: text });
+      if (state.history.length > 40) state.history = state.history.slice(-40);
+    }
+    return text;
   } catch (e) {
     log('AI 调用异常: ' + e.message);
     return null;
@@ -422,6 +481,88 @@ function pythonPath() {
   ];
   for (const c of cands) { try { if (c === 'python' || fs.existsSync(c)) return c; } catch (e) {} }
   return 'python';
+}
+
+/**
+ * 解析 WAV（PCM 8/16/24/32bit 或 float32）→ 时长 + 音量包络（给 Live2D 做真口型）。
+ * 返回 { duration(秒), frameMs, sampleRate, envelope:[0..1] }；解析失败返回 null。
+ */
+function wavEnvelope(buf, opt = {}) {
+  try {
+    if (!buf || buf.length < 44) return null;
+    if (buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') return null;
+    let off = 12;
+    let fmt = null;
+    let data = null;
+    while (off + 8 <= buf.length) {
+      const id = buf.toString('ascii', off, off + 4);
+      const size = buf.readUInt32LE(off + 4);
+      const body = off + 8;
+      if (id === 'fmt ' && body + 16 <= buf.length) {
+        fmt = {
+          audioFormat: buf.readUInt16LE(body),
+          channels: buf.readUInt16LE(body + 2) || 1,
+          sampleRate: buf.readUInt32LE(body + 4) || 32000,
+          bitsPerSample: buf.readUInt16LE(body + 14) || 16
+        };
+      } else if (id === 'data') {
+        data = buf.slice(body, Math.min(buf.length, body + size));
+      }
+      off = body + size + (size % 2);
+    }
+    if (!fmt || !data || !data.length) return null;
+    const { audioFormat, channels, sampleRate, bitsPerSample } = fmt;
+    const bytesPerSample = Math.max(1, bitsPerSample / 8);
+    const frameBytes = bytesPerSample * channels;
+    const totalFrames = Math.floor(data.length / frameBytes);
+    if (!totalFrames) return null;
+    const duration = totalFrames / sampleRate;
+    const frameMs = Number(opt.frameMs) || 30;
+    const perFrame = Math.max(1, Math.round((sampleRate * frameMs) / 1000));
+    // 抽音量包络（RMS）；超长时自动降采样
+    let vals = [];
+    const readSample = (pos) => {
+      if (audioFormat === 3 && bitsPerSample === 32) return data.readFloatLE(pos);
+      if (audioFormat !== 1) return 0;
+      if (bitsPerSample === 8) return (data.readUInt8(pos) - 128) / 128;
+      if (bitsPerSample === 16) return data.readInt16LE(pos) / 32768;
+      if (bitsPerSample === 24) {
+        let x = data[pos] | (data[pos + 1] << 8) | (data[pos + 2] << 16);
+        if (x & 0x800000) x -= 0x1000000;
+        return x / 8388608;
+      }
+      if (bitsPerSample === 32) return data.readInt32LE(pos) / 2147483648;
+      return 0;
+    };
+    for (let f = 0; f < totalFrames; f += perFrame) {
+      const end = Math.min(totalFrames, f + perFrame);
+      let sum = 0;
+      let n = 0;
+      for (let i = f; i < end; i++) {
+        for (let c = 0; c < channels; c++) {
+          const pos = i * frameBytes + c * bytesPerSample;
+          if (pos + bytesPerSample > data.length) continue;
+          const v = readSample(pos) || 0;
+          sum += v * v;
+          n++;
+        }
+      }
+      vals.push(Math.sqrt(sum / Math.max(1, n)));
+    }
+    // 帧太多就两两平均（控制 WS 体积；10 秒语音 30ms 帧约 330 个，够用）
+    while (vals.length > 600) {
+      const next = [];
+      for (let i = 0; i < vals.length; i += 2) next.push((vals[i] + (vals[i + 1] || vals[i])) / 2);
+      vals = next;
+    }
+    // 归一化到 0..1（按 95 分位，避免个别爆音把整体压扁）
+    const sorted = vals.slice().sort((a, b) => a - b);
+    const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] || 1;
+    const envelope = vals.map((v) => Math.min(1, Math.round((v / (p95 || 1)) * 100) / 100));
+    return { duration: Math.round(duration * 1000) / 1000, frameMs, sampleRate, envelope };
+  } catch (e) {
+    return null;
+  }
 }
 
 function playWavHandle(file) {
@@ -496,6 +637,13 @@ async function ttsSpeak(text) {
     if (r.status === 200 && r.body.length > 1000) {
       const file = path.join(os.tmpdir(), 'wt_' + Date.now() + '.wav');
       fs.writeFileSync(file, r.body);
+      // 真口型：把音频时长 + 音量包络推给皮套页（播放前发，客户端按时间轴驱动 ParamMouthOpenY）
+      try {
+        const env = wavEnvelope(r.body);
+        if (env && env.envelope.length) {
+          wsBroadcast({ kind: 'speak_audio', text, duration: env.duration, frameMs: env.frameMs, envelope: env.envelope, t: Date.now() });
+        }
+      } catch (e) {}
       if (tts.auto_play !== false) await playWav(file);
       try { fs.unlinkSync(file); } catch (e) {}
     } else {
@@ -509,8 +657,39 @@ async function ttsSpeak(text) {
   }
 }
 
+/**
+ * 排队说一句话（和清唱共用一条音频链，保证不抢喇叭）。
+ * 防积压：队列上限 tts.queue_max（默认 3），超了丢新话；
+ *         每条执行前检查是否已经等太久（tts.stale_ms，默认 15 秒），过时就不说了。
+ */
 function enqueueSpeech(text) {
-  state.ttsQueue = state.ttsQueue.then(() => ttsSpeak(text)).catch(() => {});
+  const t = String(text || '').trim();
+  if (!t) return Promise.resolve();
+  const ttsCfg = config.tts || {};
+  const cap = Math.max(1, Number(ttsCfg.queue_max) || 3);
+  const staleMs = Math.max(1000, Number(ttsCfg.stale_ms) || 15000);
+  const pending = state.speechPending || 0;
+  if (pending >= cap) {
+    log(`TTS 队列已满（${pending}/${cap}），丢掉: ${t.slice(0, 20)}`);
+    wsBroadcast({ kind: 'tts_drop', text: t, t: Date.now() });
+    return Promise.resolve();
+  }
+  state.speechPending = pending + 1;
+  const queuedAt = Date.now();
+  const task = async () => {
+    try {
+      const waited = Date.now() - queuedAt;
+      if (waited > staleMs) {
+        log(`TTS 陈旧跳过（等了 ${Math.round(waited / 1000)}s）: ${t.slice(0, 20)}`);
+        wsBroadcast({ kind: 'tts_drop', text: t, stale: true, t: Date.now() });
+        return;
+      }
+      await ttsSpeak(t);
+    } finally {
+      state.speechPending = Math.max(0, (state.speechPending || 1) - 1);
+    }
+  };
+  state.ttsQueue = state.ttsQueue.then(task).catch(() => {});
   return state.ttsQueue;
 }
 
@@ -1506,6 +1685,7 @@ async function route(req, res) {
   }
   if (p === '/api/session/start') {
     state.started = true; state.startedAt = Date.now();
+    state.history = [];   // 新一场：清掉上一场的短期记忆
     log('会话开始');
     wsBroadcast({ kind: 'status', running: true, t: Date.now() });
     return json(res, { ok: true, active: true });
@@ -1863,6 +2043,7 @@ module.exports = {
   start,
   resolvePort,
   envOf,
+  wavEnvelope,
   obsProbe,
   obsSetup,
   depsStatus,
@@ -1890,7 +2071,7 @@ module.exports = {
     state.stats = { enter: 0, danmaku: 0, gift: 0, follow: 0, like: 0, say: 0 };
     return state.stats;
   },
-  startSession() { state.started = true; state.startedAt = Date.now(); wsBroadcast({ kind: 'status', running: true }); return { ok: true }; },
+  startSession() { state.started = true; state.startedAt = Date.now(); state.history = []; wsBroadcast({ kind: 'status', running: true }); return { ok: true }; },
   stopSession() { state.started = false; wsBroadcast({ kind: 'status', running: false }); return { ok: true }; },
   say(text) { enqueueSpeech(text); return { ok: true }; },
   testEvent(ev) { handleEvent(ev); return { ok: true }; },

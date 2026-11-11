@@ -7,6 +7,8 @@
   "ai": {
     "backend": "openai",
     "max_chars": 20,
+    "memory": 6,
+    "context": 3,
     "openai_key": "sk-替换成你的DeepSeekKey",
     "openai_base": "https://api.deepseek.com/v1",
     "openai_model": "deepseek-chat"
@@ -22,6 +24,8 @@
     "temperature": 1.3,
     "sample_steps": 32,
     "auto_play": true,
+    "queue_max": 3,
+    "stale_ms": 15000,
     "prompt_text": "这里填参考音频里说的那句话（必须逐字一致）",
     "repetition_penalty": 1.1
   },
