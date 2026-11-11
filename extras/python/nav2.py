@@ -9,10 +9,47 @@ MARK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "ne
 _MARKED = set()
 
 
+_TOOL_CACHE = [0.0, {}]  # [时间戳, {工具名: 等级}]：1 秒 TTL，别每格扫描都读 138KB JSON
+
+
+def _tool_levels():
+    """读 bridge 快照里的工具等级；1 秒 TTL 缓存。读不到返回空 dict。"""
+    now = time.time()
+    if _TOOL_CACHE[1] and now - _TOOL_CACHE[0] < 1.0:
+        return _TOOL_CACHE[1]
+    levels = {}
+    for t in ((rd() or {}).get("player") or {}).get("tools") or []:
+        try:
+            levels[str(t.get("name"))] = int(t.get("level", 0))
+        except Exception:
+            pass
+    if levels:  # 读空了不缓存，下次重读（游戏刚启动时快照可能还没写）
+        _TOOL_CACHE[0] = now
+        _TOOL_CACHE[1] = levels
+    return levels
+
+
+def _tool_level(cands, exclude=()):
+    """按名字关键字找工具等级；找不到返回 None（读不到快照/没有这件工具）。"""
+    for name, lvl in _tool_levels().items():
+        low = str(name).lower()
+        if any(k in low for k in exclude):  # 「Pickaxe」也含 axe，斧头要排除掉
+            continue
+        if any(k in low for k in cands):
+            return lvl
+    return None
+
+
 def needs_upgrade(obj_type=None):
-    """大树桩/大圆木/巨石：要升级斧头/镐子才能清。"""
+    """大树桩/大圆木/巨石：按当前工具等级动态判定（镐子/斧头 <2 级才算要升级）。"""
     ot = (obj_type or "").lower()
-    return ot in ("clump_axe", "clump_pick")
+    if ot == "clump_pick":
+        lvl = _tool_level(("十字镐", "pickaxe"))
+        return True if lvl is None else lvl < 2  # 读不到等级时按老逻辑当需要
+    if ot == "clump_axe":
+        lvl = _tool_level(("斧头", "axe"), exclude=("pickaxe",))
+        return True if lvl is None else lvl < 2
+    return False
 
 
 def mark_needs_upgrade(x, y, location, reason):

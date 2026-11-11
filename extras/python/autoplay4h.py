@@ -191,6 +191,14 @@ def main():
                     log(f"  卖资源后 金币={_st1.get('money')} 石头={_st1.get('stone')} 木材={_st1.get('wood')}")
             except Exception as ex:
                 log(f"  卖东西失败: {ex}")
+            # 巨石挖不动 → 卖石头凑钱升级十字镐（升到 2 级就能挖开）
+            try:
+                import upgrade_plan
+                if upgrade_plan.maybe_upgrade_pickaxe():
+                    log("  十字镐升级完成，下一轮起可挖巨石")
+                    continue
+            except Exception as ex:
+                log(f"  升级检查失败: {ex}")
             # 血量低 → 先离开矿洞休整
             try:
                 _b = nav2.rd() or {}
@@ -278,6 +286,18 @@ def main():
             if t >= 2100:
                 go_home_sleep()
                 continue
+            # 傍晚 19:00 以后不再开新的下矿流程：一轮挖矿很容易拖到 2:00 昏倒（掉钱+被抬回家）
+            if t >= 1900 and "Mine" not in str(st["loc"]):
+                log("  傍晚了，不再下矿，农场收尾等睡觉")
+                fallback.goto_or_warp("Farm")
+                nav2.set_timeout(180)
+                try:
+                    nav2.break_obstacles(64, 15, 6)
+                except TimeoutError:
+                    pass
+                finally:
+                    nav2.clear_timeout()
+                continue
 
             # 目标：铜矿优先（够 20 做熔炉），否则攒石头做楼梯
             if st["copper"] >= 20 and st["stone"] >= 25:
@@ -341,6 +361,13 @@ def main():
                 nav2.clear_timeout()
             except Exception:
                 pass
+        except mine_real.LateNight as ex:
+            log(f"  时间太晚收工（{ex}），回家睡觉")
+            try:
+                go_home_sleep()
+            except Exception as _e:
+                log(f"  回家睡觉失败: {_e}")
+            continue
         except Exception as ex:
             log(f"  异常: {ex}")
             log(traceback.format_exc()[-500:])

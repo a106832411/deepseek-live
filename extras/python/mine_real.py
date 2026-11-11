@@ -12,6 +12,16 @@ import nav2
 
 log = nav2.log
 
+
+class LateNight(Exception):
+    """游戏内时间太晚（接近 2:00 会昏倒掉钱），提前收工回家。
+
+    由 mine_real 内部抛出，autoplay 捕获后回家睡觉；不要让它在底层被吞掉。
+    """
+
+    pass
+
+
 import json
 import os
 
@@ -312,6 +322,41 @@ def fight_nearest(max_swings=10):
     return True
 
 
+def _count_inv(part):
+    """背包里名字含 part 的物品总堆叠数。"""
+    return sum(int(i.get("stack", 1))
+               for i in (nav2.rd() or {}).get("player", {}).get("inventory") or []
+               if i and part in str(i.get("name")))
+
+
+def craft_staircase_here(f0):
+    """兜底下楼：石头够就现场合成楼梯 → 放脚边 → 交互下楼（不用作弊的“加载下一层”）。
+
+    返回是否真的下到更深一层；失败会把剩的楼梯留着下次用。
+    """
+    if _count_inv("石头") < 99:
+        return False
+    nav2.send({"actionType": "learn_recipe", "name": "Staircase"}, 0.6)
+    nav2.send({"actionType": "craft_item", "item": "楼梯"}, 1.5)
+    if _count_inv("楼梯") <= 0:
+        log(f"  楼梯没做出来（石头={_count_inv('石头')}）")
+        return False
+    me = nav2.tile(nav2.rd())
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        tx, ty = me[0] + dx, me[1] + dy
+        nav2.send({"actionType": "place_item_here", "name": "楼梯", "x": tx, "y": ty}, 1.2)
+        if _count_inv("楼梯") > 0:
+            continue
+        nav2.send({"actionType": "player_interact_at", "x": tx, "y": ty}, 1.2)
+        time.sleep(1.5)
+        loc = str((nav2.rd() or {}).get("location") or "")
+        if floor_num(loc) > f0:
+            log(f"  下到 {loc}（合成楼梯）")
+            return True
+    log("  楼梯放了但没下去")
+    return False
+
+
 def descend_via_ladder_v2():
     """可靠找下一层：①敲石头让楼梯出现 ②全图巡逻交互直到下楼。"""
     b = nav2.rd() or {}
@@ -382,7 +427,10 @@ def descend_via_ladder_v2():
         return True
     if sweep_floor_for_ladder(180):
         return True
-    # 最后兜底：用游戏自己的“加载下一层”（等同走楼梯进下一层）
+    # 兜底一：石头够就自己合楼梯真下楼（比直接加载下一层更接近真实玩法，且更快）
+    if craft_staircase_here(f0):
+        return True
+    # 兜底二：用游戏自己的“加载下一层”（等同走楼梯进下一层）
     log("  找不到楼梯/洞口，改用游戏内下一层加载")
     nav2.send({"actionType": "next_mine_level"}, 1.5)
     time.sleep(2.5)
@@ -597,6 +645,13 @@ def mine_rocks(max_rocks=5):
         if "Mine" not in str(b.get("location")):
             log("  不在矿里，停止挖矿")
             break
+        # 时间守卫：23:00 之后继续挖会一路拖到 2:00 昏倒（掉钱、被抬回家）
+        _clock = int(b.get("time") or 0)
+        if _clock >= 2300:
+            log(f"  已经 {_clock}（23:00 后不再挖），离开矿洞回家")
+            nav2.send({"actionType": "leave_mine"}, 1.5)
+            time.sleep(2.5)
+            raise LateNight(f"clock={_clock}")
         # 有怪先打
         try:
             if (b.get("monsters") or []):
@@ -697,9 +752,11 @@ def mine_rocks(max_rocks=5):
         else:
             key = (target["X"], target["Y"])
             _tries[key] = _tries.get(key, 0) + 1
-            if _tries[key] >= 3:
+            # 资源团（巨石 2x2）血厚，升级后要敲好几下才碎；普通石头 3 次不碎就跳过
+            _max_tries = 8 if str(target.get("ObjectType") or "").lower().startswith("clump") else 3
+            if _tries[key] >= _max_tries:
                 _skip.add(key)
-                log(f"  {target['X']},{target['Y']} 敲了3次没碎，跳过")
+                log(f"  {target['X']},{target['Y']} 敲了{_max_tries}次没碎，跳过")
             else:
                 log(f"  {target['X']},{target['Y']} 还没碎，再敲")
     log(f"  挖矿完成：{mined} 块，金币 {((nav2.rd() or {}).get('player') or {}).get('money')}")
