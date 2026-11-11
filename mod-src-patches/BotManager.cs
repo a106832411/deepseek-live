@@ -2763,6 +2763,64 @@ case "shop_click_sell":
                         catch (Exception ex) { this.monitor.Log("buy_direct err: " + ex.Message, LogLevel.Warn); }
                         break;
                     }
+                case "harvest_crop":
+                    {
+                        try
+                        {
+                            int hx = root.GetProperty("x").GetInt32(), hy = root.GetProperty("y").GetInt32();
+                            var locH = Game1.player.currentLocation;
+                            var posH = new Microsoft.Xna.Framework.Vector2(hx, hy);
+                            if (!locH.terrainFeatures.TryGetValue(posH, out var featH) || !(featH is StardewValley.TerrainFeatures.HoeDirt dirtH))
+                            { this.monitor.Log($"harvest_crop: ({hx},{hy}) 不是耕地", LogLevel.Warn); break; }
+                            var cropH = dirtH.crop;
+                            if (cropH == null) { this.monitor.Log("harvest_crop: 没有作物", LogLevel.Warn); break; }
+                            bool readyH = dirtH.readyForHarvest();
+                            int invBefore = Game1.player.Items.Count(i => i != null);
+                            bool okH = false;
+                            var partsH = new System.Collections.Generic.List<string>();
+                            try
+                            {
+                                var bfH = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                                bool calledH = false;
+                                foreach (var miH in cropH.GetType().GetMethods(bfH))
+                                {
+                                    if (miH.Name != "harvest") continue;
+                                    string sigH = miH.Name + "(" + string.Join(",", System.Array.ConvertAll(miH.GetParameters(), pp => pp.ParameterType.Name)) + ")";
+                                    try
+                                    {
+                                        var psH = miH.GetParameters();
+                                        var argsH = new object[psH.Length];
+                                        int intC = 0;
+                                        for (int q = 0; q < psH.Length; q++)
+                                        {
+                                            var pt = psH[q].ParameterType;
+                                            if (pt == typeof(int)) argsH[q] = (intC++ == 0) ? hx : hy;
+                                            else if (pt == typeof(StardewValley.TerrainFeatures.HoeDirt)) argsH[q] = dirtH;
+                                            else if (pt == typeof(bool)) argsH[q] = true;
+                                            else argsH[q] = null;
+                                        }
+                                        var resH = miH.Invoke(cropH, argsH);
+                                        okH = resH is bool bh ? bh : true;
+                                        partsH.Add(sigH + "=" + okH);
+                                        calledH = true;
+                                        break;
+                                    }
+                                    catch (Exception eH) { partsH.Add(sigH + ":err" + eH.Message); }
+                                }
+                                if (!calledH) partsH.Add("noHarvestMethod");
+                            }
+                            catch (Exception eH) { partsH.Add("err:" + eH.Message); }
+                            if (okH && dirtH.crop != null)
+                            {
+                                try { dirtH.crop = null; partsH.Add("cropCleared"); } catch { }
+                            }
+                            int invAfter = Game1.player.Items.Count(i => i != null);
+                            partsH.Add($"ready={readyH} invBefore={invBefore} invAfter={invAfter} cropNow={(dirtH.crop != null)}");
+                            this.monitor.Log("harvest_crop: " + string.Join(" ; ", partsH), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("harvest_crop err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
                 case "player_use_tool":
                     if (root.TryGetProperty("tool", out var put) && root.TryGetProperty("x", out var pux) && root.TryGetProperty("y", out var puy))
                     {

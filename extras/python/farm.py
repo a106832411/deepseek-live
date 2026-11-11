@@ -80,8 +80,9 @@ def harvest():
         if not st:
             continue
         nav2.walk_until(st["X"], st["Y"], 10)
-        nav2.send({"actionType": "player_interact_at", "x": t["X"], "y": t["Y"]}, 0.8)
-        time.sleep(0.3)
+        nav2.send({"actionType": "player_face_tile", "x": t["X"], "y": t["Y"]}, 0.25)
+        nav2.send({"actionType": "harvest_crop", "x": t["X"], "y": t["Y"]}, 1.0)
+        time.sleep(0.35)
         got += 1
     if got:
         log(f"  收获 {got} 个作物")
