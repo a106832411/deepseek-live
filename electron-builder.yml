@@ -22,6 +22,7 @@ files:
   - assets/**
   - server/**              # 免 Electron 的独立服务入口
   - extras/python/**       # 可选 Python 脚本（清唱/TTS 等，主进程会 spawn）
+  - extras/douyin/**       # 内置抖音弹幕中继 relay.js（deps.cjs 从 EXTRA_ROOT 找它、一键启动）
   # ---- 排除项（后写的覆盖前面的）----
   - "!**/node_modules/**"
   - "!**/__pycache__/**"
@@ -38,10 +39,11 @@ files:
   - "!src/**"
   - "!scripts/**"
 
-# Python 脚本必须从真实文件路径 spawn，asar 里的路径 python.exe 打不开
-# 打包后会落到 resources/app.asar.unpacked/extras/python/**
+# Python 脚本 / 内置抖音中继都必须从真实文件路径 spawn，asar 里的路径外部进程打不开
+# 打包后会落到 resources/app.asar.unpacked/extras/{python,douyin}/**
 asarUnpack:
   - extras/python/**
+  - extras/douyin/**
 
 # 生产依赖里没有原生模块（core.cjs 零 npm 依赖），跳过 rebuild，省时间
 npmRebuild: false
