@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 鲸live核心服务（零 npm 依赖）
  * - HTTP API + WS /ws
  * - AI 回复走 DeepSeek，语音走本地 GPT-SoVITS 代理（9881）
@@ -1462,9 +1462,11 @@ async function prepareRvc(item) {
   fs.mkdirSync(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
   const safe = String(item.song.name).replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 24) || 'song';
-  const src = (cfg.input && fs.existsSync(cfg.input))
+  const useLocalInput = !!(cfg.input && fs.existsSync(cfg.input));
+  const src = useLocalInput
     ? path.resolve(cfg.input)
     : path.join(os.tmpdir(), 'wt_cover_src_' + String(found.song.id || Date.now()) + '.mp3');
+  let downloaded = false;
   const outDir = path.join(dir, 'cover');
   const workDir = path.join(dir, 'cover-work');
   fs.mkdirSync(outDir, { recursive: true });
@@ -1476,6 +1478,7 @@ async function prepareRvc(item) {
     if (!(cfg.input && fs.existsSync(cfg.input)) && (!fs.existsSync(src) || fs.statSync(src).size < 10000)) {
       log(`真唱RVC：下载原曲《${found.song.name}》（${found.sourceName}）`);
       await downloadFile(found.url, src);
+      downloaded = true;
     }
     fs.writeFileSync(cfgPath, JSON.stringify({
       ffmpeg: wsl ? '/usr/bin/ffmpeg' : (cfg.ffmpeg || 'ffmpeg'),
@@ -1531,7 +1534,8 @@ async function prepareRvc(item) {
     log('真唱RVC 异常: ' + e.message);
     return null;
   } finally {
-    try { if (!cfg.keep) fs.unlinkSync(src); } catch (e) {}
+    // 只删「自己下载的临时原曲」；用户用 sing.rvc.input 指定的小样永远不删
+    try { if (!cfg.keep && downloaded) fs.unlinkSync(src); } catch (e) {}
   }
 }
 
@@ -2399,4 +2403,5 @@ module.exports = {
     };
   }
 };
+
 
