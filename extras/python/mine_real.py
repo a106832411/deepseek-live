@@ -55,6 +55,14 @@ def _save_no_ladder(keys):
 
 
 def _mark_no_ladder(floor):
+    # 入口层（第 1 层）永不记忆：一次 90 秒没找到楼梯就把整天下矿封死不值得
+    # （一个游戏日只有 ~16 真实分钟），下次进矿重新试。
+    try:
+        if int(floor) <= 1:
+            log(f"  第 {floor} 层这次没找到楼梯（入口层不记忆，下次照常进）")
+            return
+    except Exception:
+        pass
     keys = _load_no_ladder()
     keys.add(f"{_day_key()}#{floor}")
     _save_no_ladder(keys)
@@ -62,6 +70,12 @@ def _mark_no_ladder(floor):
 
 
 def _is_no_ladder(floor):
+    # 入口层豁免：旧存档里的 `1-x#1` 记录也一并忽略，避免一条旧记录封死一整天
+    try:
+        if int(floor) <= 1:
+            return False
+    except Exception:
+        pass
     return f"{_day_key()}#{floor}" in _load_no_ladder()
 
 
@@ -425,7 +439,9 @@ def descend_via_ladder_v2():
     # 阶段二：先快速试附近，再全图巡逻
     if quick_ladder_try(120):
         return True
-    if sweep_floor_for_ladder(180):
+    # 全图巡逻实测成功率只有 ~20%（41 次 33 次超时），预算从 180 秒压到 60 秒，
+    # 快速试失败后尽快转「合成楼梯 / 下一层加载」，别把 3 分钟烧在巡逻上。
+    if sweep_floor_for_ladder(60):
         return True
     # 兜底一：石头够就自己合楼梯真下楼（比直接加载下一层更接近真实玩法，且更快）
     if craft_staircase_here(f0):
