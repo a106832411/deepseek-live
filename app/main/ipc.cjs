@@ -36,7 +36,8 @@ const CHANNELS = {
   'deps:start': (svc, payload) => svc.depsStart((payload && (payload.name || payload.key)) || ''),
   'deps:stop': (svc, payload) => svc.depsStop((payload && (payload.name || payload.key)) || ''),
   'live2d:models': (svc) => svc.live2dModels(),
-  'live2d:set': (svc, payload) => svc.setLive2dModel((payload && (payload.path || payload.model)) || '')
+  'live2d:set': (svc, payload) => svc.setLive2dModel((payload && (payload.path || payload.model)) || ''),
+  'stats:history': (svc, payload) => svc.readStatsHistory((payload && payload.limit) || 10)
 };
 
 function registerIpc(service) {

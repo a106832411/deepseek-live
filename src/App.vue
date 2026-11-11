@@ -45,7 +45,9 @@ const running = ref(false);
 const connected = ref(false);
 const mode = ref('relay');
 const uptime = ref(0);
+const version = ref('');
 const stats = ref({});
+const statsHistory = ref([]);
 const feed = ref([]);
 const toast = ref('');
 const songState = ref({ current: null, queue: [] });
@@ -104,12 +106,29 @@ function toastShow(msg) {
 async function refresh() {
   try {
     const st = await invoke('status');
+    version.value = st.version || version.value;
     running.value = !!st.running;
     connected.value = !!st.connected;
     mode.value = st.mode || 'relay';
     uptime.value = st.uptime || 0;
     stats.value = st.stats || {};
     feed.value = st.recent || [];
+  } catch (e) {}
+}
+async function refreshStatsHistory() {
+  try {
+    const r = await invoke('stats:history', { limit: 8 });
+    const items = (r && (r.items || r)) || [];
+    statsHistory.value = Array.isArray(items) ? items : [];
+  } catch (e) {
+    statsHistory.value = [];
+  }
+}
+async function stopSession() {
+  try {
+    await invoke('session:stop');
+    await refresh();
+    refreshStatsHistory();
   } catch (e) {}
 }
 async function refreshSongs() {
@@ -444,6 +463,7 @@ onMounted(async () => {
   await Promise.all([loadCfg(), refresh(), refreshSongs()]);
   refreshDeps();
   loadL2dModels();
+  refreshStatsHistory();
   timer = setInterval(refresh, 1500);
   songTimer = setInterval(refreshSongs, 3000);
   // 依赖服务探测稍微费（要 spawn python --version），只在这两个页面开着时轮询
@@ -465,7 +485,7 @@ onUnmounted(() => {
         <div class="logo">🎙</div>
         <div>
           <div class="name">鲸live</div>
-          <div class="ver">deepseek-live · v0.2</div>
+          <div class="ver">deepseek-live · v{{ version || '0.2.0' }}</div>
         </div>
       </div>
       <nav class="tree">
@@ -494,7 +514,7 @@ onUnmounted(() => {
       <header class="topbar">
         <div class="crumb"><span class="muted">鲸live</span><span class="sep">/</span><b>{{ currentLabel }}</b></div>
         <div class="top-actions">
-          <button v-if="running" class="ghost warn" @click="invoke('session:stop').then(refresh)">结束会话</button>
+          <button v-if="running" class="ghost warn" @click="stopSession">结束会话</button>
           <button v-else class="primary" @click="invoke('session:start').then(refresh)">▶ 开始会话</button>
           <span class="pill" :class="running ? 'on' : 'off'">{{ running ? 'LIVE' : 'OFF' }}</span>
         </div>
@@ -548,6 +568,17 @@ onUnmounted(() => {
               </div>
               <div class="card-head" style="margin-top:16px"><h2>统计</h2></div>
               <button class="ghost" @click="invoke('stats:reset').then(refresh)">清空统计</button>
+              <div class="hint">结束会话/清空统计时，本场数据会自动写进 <code>logs/stats-history.jsonl</code></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2>最近场次</h2><span class="hint">每场结束自动存档（可复盘）</span></div>
+              <ul class="feed">
+                <li v-for="(h, i) in statsHistory" :key="i">
+                  <span class="tag">{{ String(h.at || '').slice(5, 16).replace('T', ' ') }}</span>
+                  <span class="txt">时长 {{ Math.round((h.durationSec || 0) / 60) }} 分 · 弹幕 {{ (h.stats || {}).danmaku || 0 }} · 礼物 {{ (h.stats || {}).gift || 0 }} · 关注 {{ (h.stats || {}).follow || 0 }}</span>
+                </li>
+                <li v-if="!statsHistory.length" class="empty">还没有历史场次，结束一场后会出现在这里</li>
+              </ul>
             </div>
             <div class="card">
               <div class="card-head"><h2>快捷入口</h2><span class="hint">OBS / 浏览器直接打开</span></div>
@@ -969,7 +1000,7 @@ onUnmounted(() => {
         <a :href="API + '/live2d'" target="_blank">皮套</a>
         <span class="foot-right">
           <span class="dot" :class="running ? 'on' : 'off'"></span>
-          {{ running ? 'LIVE' : 'OFF' }} · {{ mode }} · deepseek-live v0.2
+          {{ running ? 'LIVE' : 'OFF' }} · {{ mode }} · deepseek-live v{{ version || '0.2.0' }}
         </span>
       </footer>
     </section>

@@ -1,11 +1,12 @@
-{
+﻿{
   "name": "jinglive-app",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "鲸live：AI 虚拟主播直播控制台（Vue 3 + Electron）",
   "author": "鲸live",
   "main": "electron/main.cjs",
   "scripts": {
     "serve": "node server/index.cjs",
+    "smoke": "node scripts/smoke-test.cjs",
     "dev": "vite",
     "build": "vite build",
     "electron": "electron .",

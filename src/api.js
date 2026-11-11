@@ -46,6 +46,8 @@ async function rest(cmd, payload) {
       return fetchJson('/api/live2d/models');
     case 'live2d:set':
       return fetchJson('/api/live2d/model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}) });
+    case 'stats:history':
+      return fetchJson('/api/stats/history');
     default:
       throw new Error('unknown command: ' + cmd);
   }

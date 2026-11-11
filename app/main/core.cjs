@@ -291,6 +291,15 @@ function saveConfig() {
   }
 }
 
+// 版本号统一从 package.json 读（界面/接口都显示它，避免 UI 写死 v0.2、包版本 0.1.0 这种不一致）
+const PKG = (() => {
+  try {
+    const raw = fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8').replace(/^\uFEFF/, '');   // 文件可能带 BOM
+    return JSON.parse(raw);
+  } catch (e) { return {}; }
+})();
+const VERSION = PKG.version || '0.0.0';
+
 // ---------------- 状态 ----------------
 const state = {
   started: false,
@@ -314,6 +323,44 @@ const state = {
 function pushRecent(kind, name, text) {
   state.recent.unshift({ t: new Date().toTimeString().slice(0, 8), kind, name, text });
   state.recent = state.recent.slice(0, 50);
+}
+
+// ---------------- 本场数据落盘（复盘用） ----------------
+function _statsHistoryFile() {
+  const dir = path.join(LOG_DIR, '..', 'logs');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+  return path.join(dir, 'stats-history.jsonl');
+}
+
+/** 把当前这场的数据追加进 stats-history.jsonl（每场结束 / 清空统计时调用）。 */
+function saveSessionStats(reason) {
+  try {
+    const rec = {
+      at: new Date().toISOString(),
+      reason: reason || 'stop',
+      startedAt: state.startedAt ? new Date(state.startedAt).toISOString() : null,
+      durationSec: state.startedAt ? Math.round((Date.now() - state.startedAt) / 1000) : 0,
+      stats: Object.assign({}, state.stats)
+    };
+    fs.appendFileSync(_statsHistoryFile(), JSON.stringify(rec) + '\n');
+    log(`本场数据已落盘（${reason}）: ` + JSON.stringify(rec.stats));
+  } catch (e) {
+    log('本场数据落盘失败: ' + e.message);
+  }
+}
+
+/** 读最近 N 场历史数据（新的在前）。 */
+function readStatsHistory(limit = 30) {
+  try {
+    const f = _statsHistoryFile();
+    if (!fs.existsSync(f)) return [];
+    const lines = fs.readFileSync(f, 'utf8').split(/\r?\n/).filter(Boolean);
+    return lines.slice(-Math.max(1, limit)).reverse().map((x) => {
+      try { return JSON.parse(x); } catch (e) { return null; }
+    }).filter(Boolean);
+  } catch (e) {
+    return [];
+  }
 }
 
 // ---------------- 极简 WebSocket 服务端 ----------------
@@ -1700,7 +1747,7 @@ async function route(req, res) {
 
   if (p === '/api/health') {
     return json(res, {
-      ok: true, running: state.started, mode: (config.douyin || {}).mode,
+      ok: true, version: VERSION, running: state.started, mode: (config.douyin || {}).mode,
       connected: state.connected, stats: state.stats, uptime: state.startedAt ? Math.round((Date.now() - state.startedAt) / 1000) : 0
     });
   }
@@ -1712,6 +1759,7 @@ async function route(req, res) {
     return json(res, { ok: true, active: true });
   }
   if (p === '/api/session/stop') {
+    saveSessionStats('stop');
     state.started = false;
     log('会话结束');
     wsBroadcast({ kind: 'status', running: false, t: Date.now() });
@@ -1773,8 +1821,13 @@ async function route(req, res) {
     });
   }
   if (p === '/api/stats/reset') {
+    saveSessionStats('reset');
     state.stats = { enter: 0, danmaku: 0, gift: 0, follow: 0, like: 0, say: 0 };
     return json(res, { ok: true });
+  }
+  // 历史场次数据（每场结束/清空统计时自动落盘，复盘用）
+  if (p === '/api/stats/history') {
+    return json(res, { ok: true, items: readStatsHistory(30) });
   }
   if (p === '/api/obs/probe') {
     const body = await readBody(req);
@@ -2089,17 +2142,20 @@ module.exports = {
     return config;
   },
   resetStats() {
+    saveSessionStats('reset');
     state.stats = { enter: 0, danmaku: 0, gift: 0, follow: 0, like: 0, say: 0 };
     return state.stats;
   },
+  readStatsHistory: (limit) => readStatsHistory(limit || 30),
   startSession() { state.started = true; state.startedAt = Date.now(); state.history = []; wsBroadcast({ kind: 'status', running: true }); return { ok: true }; },
-  stopSession() { state.started = false; wsBroadcast({ kind: 'status', running: false }); return { ok: true }; },
+  stopSession() { saveSessionStats('stop'); state.started = false; wsBroadcast({ kind: 'status', running: false }); return { ok: true }; },
   say(text) { enqueueSpeech(text); return { ok: true }; },
   testEvent(ev) { handleEvent(ev); return { ok: true }; },
   ingest(events) { (events || []).forEach((e) => handleEvent(e)); return { ok: true, count: (events || []).length }; },
   status() {
     const cfgSongs = config.songs || {};
     return {
+      version: VERSION,
       running: state.started, startedAt: state.startedAt, connected: state.connected,
       mode: (config.douyin || {}).mode, stats: state.stats, recent: state.recent,
       song: {
