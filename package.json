@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "jinglive-app",
   "version": "0.2.0",
   "description": "鲸live：AI 虚拟主播直播控制台（Vue 3 + Electron）",

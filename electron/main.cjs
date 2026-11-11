@@ -5,9 +5,13 @@ const { app, BrowserWindow, shell, Menu } = require('electron');
 // 打包后核心不能写 app.asar：先指定可写目录（portable 版用 exe 同目录，安装版用 userData），
 // 必须在 require 核心服务之前设好（core.cjs 在模块加载时就会算 LOG_DIR / config 路径）
 const PACKED = /app\.asar/i.test(__dirname);
-if (!process.env.WT_DATA && !process.env.PORTABLE_EXECUTABLE_DIR) {
-  try { process.env.WT_DATA = PACKED ? app.getPath('userData') : path.resolve(__dirname, '..'); } catch (e) {}
-}
+const DATA_ROOT = process.env.WT_DATA
+  || process.env.PORTABLE_EXECUTABLE_DIR
+  || (PACKED ? app.getPath('userData') : path.resolve(__dirname, '..'));
+process.env.WT_DATA = DATA_ROOT;
+// 单实例锁默认放 %APPDATA%\<appName>：dev 脚本和便携版/安装版的 app 名相同，会互相误判成"第二个实例"。
+// 改成按数据根各放一把锁（dev 在仓库、portable 在 exe 目录、安装版在 userData），互不干扰。
+try { app.setPath('userData', path.join(DATA_ROOT, 'electron-data')); } catch (e) {}
 
 const core = require('../app/main/core.cjs');
 const { registerIpc } = require('../app/main/ipc.cjs');
