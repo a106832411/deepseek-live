@@ -119,3 +119,17 @@ fairseq：**不用装**。唱歌工坊自带 `compat/fairseq` shim（用 torchau
   2. 鲸live 直播点歌：`sing.engine="rvc"` + `sing.rvc.mode="wsl"`
 - demucs 在 GPU 上和 CPU 差不多（25s vs 26s / 90s 音频），真正提速的是 RVC 换声那一步；
   如果发现 GPU 整体更慢，可以把 demucs 单独放 CPU（后续可做成可配置）。
+
+## 8. RVC 在 WSL GPU 上会 segfault（重要结论，2026-11-12 补充）
+
+- demucs 在 WSL GPU 上正常（90 秒音频 25 秒）
+- 但 **RVC 推理（rvc_python）在 WSL + ROCm 下会段错误**，崩在 `torch/nn/modules/conv.py _conv_forward`
+  （`rvc_python/lib/infer_pack/modules.py` ResBlock）。已尝试均无效：
+  `RVC_HALF=0`（fp32）、`RVC_NOCUDNN=1`（禁用 cudnn/MIOpen 路径）、`MIOPEN_FIND_MODE=FAST/NORMAL/HYBRID`、
+  换 f0method（rmvpe/crepe/pm）；单独测 conv1d 各种 kernel/dilation、fft/stft、LSTM/GRU 都正常，
+  说明是模型上下文里的某种组合触发 DXG 后端崩溃，继续排查成本高。
+- **结论：RVC 走 Windows CPU。** 实测（Windows 的 torch 2.0 + MKL，GSV runtime）：
+  6 秒音频 RVC 推理 4.9 秒、完整 cover.py（20 秒音频：分离 19s + 换声 20s + 混音 1s）= 40 秒，
+  一首 4 分钟的歌约 6~8 分钟，完全可以接受。
+- WSL GPU 保留给 demucs / 未来修好 RVC 时再用；鲸live 和唱歌工坊默认配置已切到 `mode=local, device=cpu:0`。
+- 复现环境：torch 2.8.0+rocm6.4、ROCm 6.4、WSL 3.0.5、驱动 32.0.32015.7029；如果以后升级 torch/ROCm 可以再试 GPU RVC。

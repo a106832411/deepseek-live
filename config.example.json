@@ -1,174 +1,174 @@
-{
-  "platform": "douyin",
-  "douyin": {
-    "web_rid": "替换成你的直播间号",
-    "mode": "relay"
-  },
-  "ai": {
-    "backend": "openai",
-    "max_chars": 20,
-    "memory": 6,
-    "context": 3,
-    "openai_key": "sk-替换成你的DeepSeekKey",
-    "openai_base": "https://api.deepseek.com/v1",
-    "openai_model": "deepseek-chat"
-  },
-  "persona": {
-    "system": "你是直播间里的虚拟主播「小深」，说话自然简洁，偶尔带点小幽默。"
-  },
-  "tts": {
-    "api_url": "http://127.0.0.1:9881",
-    "ref_audio": "替换成参考音频的绝对路径.wav",
-    "top_k": 30,
-    "speed": 1,
-    "temperature": 1.3,
-    "sample_steps": 32,
-    "auto_play": true,
-    "queue_max": 3,
-    "stale_ms": 15000,
-    "prompt_text": "这里填参考音频里说的那句话（必须逐字一致）",
-    "repetition_penalty": 1.1
-  },
-  "events": {
-    "gift": {
-      "cooldown_user": 10,
-      "mode": "ai",
-      "enabled": true
-    },
-    "danmaku": {
-      "cooldown_user": 5,
-      "probability": 100,
-      "mode": "ai",
-      "enabled": true
-    },
-    "enter": {
-      "cooldown_user": 30,
-      "templates": [
-        "欢迎{name}，随便坐别客气～",
-        "{name}来啦，浪花把你送来啦！",
-        "欢迎{name}，今天心情怎么样？"
-      ],
-      "mode": "template",
-      "enabled": true
-    },
-    "like": {
-      "cooldown_user": 60,
-      "enabled": true
-    },
-    "follow": {
-      "cooldown_user": 60,
-      "templates": [
-        "谢谢{name}的关注！",
-        "{name}关注啦，嘿嘿～"
-      ],
-      "mode": "template",
-      "enabled": true
-    }
-  },
-  "fixed_replies": [
-    {
-      "reply": "宝子好呀，嘿嘿～",
-      "keywords": [
-        "你好",
-        "嗨",
-        "hi"
-      ]
-    }
-  ],
-  "merge_window": 0,
-  "songs": {
-    "request_file": "song_requests.jsonl",
-    "max_minutes": 10,
-    "max_queue": 20,
-    "enabled": true,
-    "dedupe": true,
-    "perform": "sing",
-    "sources": [
-      "netease",
-      "qq"
-    ]
-  },
-  "sing": {
-    "enabled": true,
-    "mode": "melody",
-    "lyrics": "netease",
-    "max_lines": 6,
-    "max_chars": 100,
-    "intro": true,
-    "outro": true,
-    "melody": "auto",
-    "bpm": 92,
-    "vibrato": true,
-    "gap_ms": 320,
-    "filler": "我清清嗓子，准备开唱啦～",
-    "pick_list": [
-      "小星星",
-      "生日快乐",
-      "月亮代表我的心",
-      "童年",
-      "后来",
-      "稻香",
-      "晴天",
-      "童话",
-      "勇气",
-      "宁夏"
-    ],
-    "v2": true,
-    "beat_scale": 0.75,
-    "engine": "tts",
-    "ace": {
-      "python": "D:/sing_gpu/venv/Scripts/python.exe",
-      "script": "D:/sing_gpu/ace_sing.py",
-      "svc_python": "D:/seedvc/venv/Scripts/python.exe",
-      "svc_script": "D:/seedvc/convert.py",
-      "duration": 12,
-      "cfg": 0.75,
-      "steps": 20,
-      "timeout_sec": 600,
-      "tags": [
-        "female solo vocal, a cappella, no instruments, pure vocal, cute, clear diction, mandarin, 80 BPM"
-      ],
-      "infer_steps": 8
-    },
-    "rvc": {
-      "mode": "wsl",
-      "distro": "Ubuntu-22.04",
-      "user": "root",
-      "python_wsl": "/opt/rvc/bin/python",
-      "compat_wsl": "/opt/rvc/compat",
-      "python": "",
-      "voices_file": "D:/models/rvc/voices.json",
-      "voice": "我的声线",
-      "f0": 0,
-      "device": "cuda:0",
-      "ffmpeg": "",
-      "demucs_model": "htdemucs",
-      "hf_endpoint": "https://hf-mirror.com",
-      "timeout_sec": 900,
-      "cover_script": "",
-      "input": "",
-      "dry_run": false,
-      "keep": false,
-      "ld_preload": "/opt/rocm/lib/libhsa-runtime64.so.1",
-      "dxg": 1
-    }
-  },
-  "obs": {
-    "host": "127.0.0.1",
-    "port": 4455,
-    "password": "替换成你的 OBS WebSocket 密码",
-    "scene": "深语直播",
-    "bgColor": "0b0c0e",
-    "preset": "simple"
-  },
-  "live2d": {
-    "model": "/live2d/models/avatar/c_0120.model3.json",
-    "scale": 0.92
-  },
-  "deps": {
-    "tts_start_cmd": "",
-    "obs_start_cmd": "",
-    "ollama_start_cmd": "",
-    "douyin_start_cmd": ""
-  }
+﻿{
+    "platform":  "douyin",
+    "douyin":  {
+                   "web_rid":  "替换成你的直播间号",
+                   "mode":  "relay"
+               },
+    "ai":  {
+               "backend":  "openai",
+               "max_chars":  20,
+               "memory":  6,
+               "context":  3,
+               "openai_key":  "sk-替换成你的DeepSeekKey",
+               "openai_base":  "https://api.deepseek.com/v1",
+               "openai_model":  "deepseek-chat"
+           },
+    "persona":  {
+                    "system":  "你是直播间里的虚拟主播「小深」，说话自然简洁，偶尔带点小幽默。"
+                },
+    "tts":  {
+                "api_url":  "http://127.0.0.1:9881",
+                "ref_audio":  "替换成参考音频的绝对路径.wav",
+                "top_k":  30,
+                "speed":  1,
+                "temperature":  1.3,
+                "sample_steps":  32,
+                "auto_play":  true,
+                "queue_max":  3,
+                "stale_ms":  15000,
+                "prompt_text":  "这里填参考音频里说的那句话（必须逐字一致）",
+                "repetition_penalty":  1.1
+            },
+    "events":  {
+                   "gift":  {
+                                "cooldown_user":  10,
+                                "mode":  "ai",
+                                "enabled":  true
+                            },
+                   "danmaku":  {
+                                   "cooldown_user":  5,
+                                   "probability":  100,
+                                   "mode":  "ai",
+                                   "enabled":  true
+                               },
+                   "enter":  {
+                                 "cooldown_user":  30,
+                                 "templates":  [
+                                                   "欢迎{name}，随便坐别客气～",
+                                                   "{name}来啦，浪花把你送来啦！",
+                                                   "欢迎{name}，今天心情怎么样？"
+                                               ],
+                                 "mode":  "template",
+                                 "enabled":  true
+                             },
+                   "like":  {
+                                "cooldown_user":  60,
+                                "enabled":  true
+                            },
+                   "follow":  {
+                                  "cooldown_user":  60,
+                                  "templates":  [
+                                                    "谢谢{name}的关注！",
+                                                    "{name}关注啦，嘿嘿～"
+                                                ],
+                                  "mode":  "template",
+                                  "enabled":  true
+                              }
+               },
+    "fixed_replies":  [
+                          {
+                              "reply":  "宝子好呀，嘿嘿～",
+                              "keywords":  [
+                                               "你好",
+                                               "嗨",
+                                               "hi"
+                                           ]
+                          }
+                      ],
+    "merge_window":  0,
+    "songs":  {
+                  "request_file":  "song_requests.jsonl",
+                  "max_minutes":  10,
+                  "max_queue":  20,
+                  "enabled":  true,
+                  "dedupe":  true,
+                  "perform":  "sing",
+                  "sources":  [
+                                  "netease",
+                                  "qq"
+                              ]
+              },
+    "sing":  {
+                 "enabled":  true,
+                 "mode":  "melody",
+                 "lyrics":  "netease",
+                 "max_lines":  6,
+                 "max_chars":  100,
+                 "intro":  true,
+                 "outro":  true,
+                 "melody":  "auto",
+                 "bpm":  92,
+                 "vibrato":  true,
+                 "gap_ms":  320,
+                 "filler":  "我清清嗓子，准备开唱啦～",
+                 "pick_list":  [
+                                   "小星星",
+                                   "生日快乐",
+                                   "月亮代表我的心",
+                                   "童年",
+                                   "后来",
+                                   "稻香",
+                                   "晴天",
+                                   "童话",
+                                   "勇气",
+                                   "宁夏"
+                               ],
+                 "v2":  true,
+                 "beat_scale":  0.75,
+                 "engine":  "tts",
+                 "ace":  {
+                             "python":  "D:/sing_gpu/venv/Scripts/python.exe",
+                             "script":  "D:/sing_gpu/ace_sing.py",
+                             "svc_python":  "D:/seedvc/venv/Scripts/python.exe",
+                             "svc_script":  "D:/seedvc/convert.py",
+                             "duration":  12,
+                             "cfg":  0.75,
+                             "steps":  20,
+                             "timeout_sec":  600,
+                             "tags":  [
+                                          "female solo vocal, a cappella, no instruments, pure vocal, cute, clear diction, mandarin, 80 BPM"
+                                      ],
+                             "infer_steps":  8
+                         },
+                 "rvc":  {
+                             "mode":  "local",
+                             "distro":  "Ubuntu-22.04",
+                             "user":  "root",
+                             "python_wsl":  "/opt/rvc/bin/python",
+                             "compat_wsl":  "/opt/rvc/compat",
+                             "python":  "D:/文档/deepseek-harness/default-workspace/whaletalk/gsv/GPT-SoVITS-v2pro-20250604/runtime/python.exe",
+                             "voices_file":  "D:\\文档\\deepseek-harness\\default-workspace\\tmp/rvc-voices/voices.json",
+                             "voice":  "我的声线",
+                             "f0":  0,
+                             "device":  "cpu:0",
+                             "ffmpeg":  "C:\\Program Files\\nodejs\\ffmpeg.exe",
+                             "demucs_model":  "htdemucs",
+                             "hf_endpoint":  "https://hf-mirror.com",
+                             "timeout_sec":  1800,
+                             "cover_script":  "",
+                             "input":  "",
+                             "dry_run":  false,
+                             "keep":  false,
+                             "ld_preload":  "/opt/rocm/lib/libhsa-runtime64.so.1",
+                             "dxg":  1
+                         }
+             },
+    "obs":  {
+                "host":  "127.0.0.1",
+                "port":  4455,
+                "password":  "替换成你的 OBS WebSocket 密码",
+                "scene":  "深语直播",
+                "bgColor":  "0b0c0e",
+                "preset":  "simple"
+            },
+    "live2d":  {
+                   "model":  "/live2d/models/avatar/c_0120.model3.json",
+                   "scale":  0.92
+               },
+    "deps":  {
+                 "tts_start_cmd":  "",
+                 "obs_start_cmd":  "",
+                 "ollama_start_cmd":  "",
+                 "douyin_start_cmd":  ""
+             }
 }

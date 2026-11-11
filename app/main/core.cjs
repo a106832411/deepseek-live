@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 鲸live核心服务（零 npm 依赖）
  * - HTTP API + WS /ws
  * - AI 回复走 DeepSeek，语音走本地 GPT-SoVITS 代理（9881）
@@ -226,7 +226,7 @@ const DEFAULT_CONFIG = {
     // 真唱翻唱（RVC）：找原曲 → demucs 拆人声/伴奏 → RVC 换声 → 混音 → 当清唱播放
     // 推荐在 WSL 里用 ROCm GPU（mode=wsl）；也可以指定 Windows 上的 python（mode=local，CPU 兜底）
     rvc: {
-      mode: 'wsl',                     // wsl=WSL 里的 python（GPU）| local=Windows python
+      mode: 'local',                   // local=Windows python（CPU，实测可用）| wsl=WSL 里的 python（GPU，RVC 在 WSL 上会 segfault）
       distro: 'Ubuntu-22.04',
       user: 'root',
       python_wsl: '/opt/rvc/bin/python',
@@ -235,11 +235,11 @@ const DEFAULT_CONFIG = {
       voices_file: '',                 // RVC 声线表 voices.json
       voice: '',                       // 用哪个声线（voices_file 里的键）
       f0: 0,                           // 升降调（半音），男女声互转常用 ±12
-      device: 'cuda:0',                // GPU：cuda:0；CPU：cpu:0
+      device: 'cpu:0',                 // CPU 推荐（Windows torch 有 MKL，实测 6s 音频推理 5s）；GPU 用 cuda:0
       ffmpeg: '',                      // local 模式 ffmpeg.exe（留空= PATH 里的 ffmpeg）
       demucs_model: 'htdemucs',
       hf_endpoint: 'https://hf-mirror.com',
-      timeout_sec: 900,
+      timeout_sec: 1800,               // 整条流水线超时（4 分钟的歌 CPU 约 7~10 分钟）
       cover_script: ''                 // 留空 = extras/python/song-cover/cover.py
     },
     ace: {
@@ -2399,3 +2399,4 @@ module.exports = {
     };
   }
 };
+

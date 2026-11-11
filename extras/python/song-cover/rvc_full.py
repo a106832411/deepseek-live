@@ -33,6 +33,14 @@ def main() -> int:
     ap.add_argument("--f0-method", default="rmvpe", help="音高提取方法")
     a = ap.parse_args()
 
+    import torch
+    # WSL+ROCm：cudnn/MIOpen 的 conv 在 DXG 上会 segfault，默认退回原生实现（RVC_NOCUDNN=0 可关）
+    if str(os.environ.get("RVC_NOCUDNN", "1")).strip().lower() in ("1", "true", "yes", "on"):
+        try:
+            torch.backends.cudnn.enabled = False
+        except Exception:
+            pass
+
     import rvc_python
     from rvc_python.configs.config import Config
     from rvc_python.modules.vc.modules import VC
@@ -61,6 +69,9 @@ def main() -> int:
 
     t0 = time.time()
     config = Config(lib_dir, a.device)
+    # WSL 上 fp16 推理可能崩溃：RVC_HALF=0 强制 fp32
+    if str(os.environ.get("RVC_HALF", "1")).strip().lower() in ("0", "false", "no", "off"):
+        config.is_half = False
     vc = VC(lib_dir, config)
     vc.get_vc(MODEL, version="v2")
     print("model loaded in %.1fs" % (time.time() - t0), flush=True)
