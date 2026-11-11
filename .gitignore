@@ -1,4 +1,4 @@
-node_modules/
+ï»¿node_modules/
 dist/
 config.json
 logs/
@@ -20,7 +20,11 @@ _envtest.*
 _obs*.cjs
 extras/python/stardew_tokens.jsonl
 
-# Çå³ªÊÔÌý demo / ÊµÑé²úÎï
+# ï¿½å³ªï¿½ï¿½ï¿½ï¿½ demo / Êµï¿½ï¿½ï¿½ï¿½ï¿½
 _singtry/
 _singtry_test.wav
+
+# electron-builder äº§ç‰©
+release/
+release-noasar/
 

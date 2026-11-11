@@ -173,6 +173,20 @@ function resolveStart(key, settings) {
     const exe = detectOllamaExe();
     if (exe) return { cmd: `${quote(exe)} serve`, source: '自动发现' };
   }
+  if (key === 'douyin') {
+    if (c.douyin_start_cmd) return { cmd: String(c.douyin_start_cmd), source: '配置' };
+    const script = path.join(s.root || process.cwd(), 'extras', 'douyin', 'relay.js');
+    if (fs.existsSync(script)) {
+      const dj = s.douyin || {};
+      const parts = [quote(process.execPath), quote(script), '--api', `http://127.0.0.1:${s.port || 8788}`];
+      if (dj.rid) parts.push('--rid', quote(dj.rid));
+      if (dj.url) parts.push('--url', quote(dj.url));
+      // 打包后的 Electron 里 process.execPath 是 electron.exe：加这个环境变量让它当 Node 跑；
+      // 纯 node server 启动时该变量无副作用（Node 会忽略它）
+      const env = /electron/i.test(path.basename(process.execPath)) ? { ELECTRON_RUN_AS_NODE: '1' } : null;
+      return { cmd: parts.join(' '), env, source: '自动发现' };
+    }
+  }
   return null;
 }
 
@@ -216,6 +230,9 @@ async function probe(settings) {
   const ttsStart = resolveStart('tts', { root, deps: s.deps });
   const obsStart = resolveStart('obs', { root, deps: s.deps });
   const ollamaStart = resolveStart('ollama', { root, deps: s.deps });
+  const douyinStart = resolveStart('douyin', { root, deps: s.deps, douyin: s.douyin, port: s.port });
+  const dj = s.douyin || {};
+  const douyinOk = !!(dj.active || (dj.ingestAgo !== null && dj.ingestAgo !== undefined && dj.ingestAgo < 120));
 
   const svc = (o) => Object.assign({ managed: false, startable: false, port: 0, detail: '', hint: '' }, o);
 
@@ -228,6 +245,17 @@ async function probe(settings) {
         : `端口 ${tts.port} 没有服务在监听`,
       hint: '没它 AI 不会出声；首次启动要加载模型 1~3 分钟',
       command: ttsStart ? ttsStart.cmd : ''
+    }),
+    svc({
+      key: 'douyin', name: '抖音弹幕中继（Chrome 抓弹幕）', icon: '📺', ok: douyinOk,
+      startable: !!douyinStart, managed: CHILDREN.has('douyin'),
+      detail: douyinOk
+        ? `中继在跑${dj.ingestAgo !== null && dj.ingestAgo !== undefined ? `，最近一条事件 ${dj.ingestAgo}s 前` : ''}${dj.lastCount ? `（上次 ${dj.lastCount} 个事件）` : ''}`
+        : (dj.heartbeatAgo !== null && dj.heartbeatAgo !== undefined
+          ? `中继进程还在（心跳 ${dj.heartbeatAgo}s 前），但最近没收到弹幕`
+          : '中继没在跑'),
+      hint: '点一键启动会开一个静音 Chrome 抓直播间聊天 DOM；首次要扫码登录，登录状态会存下来',
+      command: douyinStart ? douyinStart.cmd : ''
     }),
     svc({
       key: 'obs', name: 'OBS Studio（推流 / 叠加层）', icon: '🎬', ok: obsOk,
@@ -265,10 +293,10 @@ async function probe(settings) {
 async function start(key, settings, log) {
   const s = settings || {};
   const say = typeof log === 'function' ? log : () => {};
-  if (!['tts', 'obs', 'ollama'].includes(key)) {
+  if (!['tts', 'obs', 'ollama', 'douyin'].includes(key)) {
     return { ok: false, error: `不支持一键启动：${key}（Python / 真唱引擎需要手动装）` };
   }
-  const spec = resolveStart(key, { root: s.root, deps: s.deps });
+  const spec = resolveStart(key, { root: s.root, deps: s.deps, douyin: s.douyin, port: s.port });
   if (!spec) {
     return { ok: false, error: `没找到 ${key} 的启动方式：请到「运行环境」里填启动命令，或手动启动` };
   }
@@ -290,7 +318,8 @@ async function start(key, settings, log) {
       cwd: spec.cwd || s.root || process.cwd(),
       detached: true,
       stdio: ['ignore', out || 'ignore', out || 'ignore'],
-      windowsHide: true
+      windowsHide: true,
+      env: spec.env ? Object.assign({}, process.env, spec.env) : process.env
     });
     child.on('error', (e) => {
       say(`启动 ${key} 失败: ${e.message}`);

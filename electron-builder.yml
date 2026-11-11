@@ -1,0 +1,72 @@
+# 鲸live electron-builder 配置
+# 用法：
+#   npm run build:exe        -> 便携版 portable exe（推荐，免安装）
+#   npm run build:installer  -> NSIS 安装版（需要额外下载 nsis 工具链）
+#   npm run dist             -> vite build + 便携版打包（不经过 scripts/build-exe.ps1 的前置检查）
+# 产物：release/ 目录（git 未跟踪，建议把 release/ 加进 .gitignore）
+
+appId: com.jinglive.deeplive
+productName: 鲸live
+copyright: Copyright © 2026 鲸live
+
+directories:
+  output: release
+
+# 打包进 app.asar 的文件白名单（只打运行时真正需要的）
+files:
+  - package.json
+  - electron/**            # 主进程 / preload
+  - app/**                 # 核心服务、IPC、OBS 桥
+  - dist/**                # vite 产物（Vue 控制台）
+  - public/**              # 免构建页面 + Live2D 模型（HTTP 静态服务，asar 内可正常读）
+  - assets/**
+  - server/**              # 免 Electron 的独立服务入口
+  - extras/python/**       # 可选 Python 脚本（清唱/TTS 等，主进程会 spawn）
+  # ---- 排除项（后写的覆盖前面的）----
+  - "!**/node_modules/**"
+  - "!**/__pycache__/**"
+  - "!**/*.pyc"
+  - "!extras/python/logs/**"
+  - "!**/*.log"
+  - "!logs/**"
+  - "!config.json"
+  - "!config.example.json"
+  - "!.env"
+  - "!.env.example"
+  - "!mod-src-patches/**"
+  - "!docs/**"
+  - "!src/**"
+  - "!scripts/**"
+
+# Python 脚本必须从真实文件路径 spawn，asar 里的路径 python.exe 打不开
+# 打包后会落到 resources/app.asar.unpacked/extras/python/**
+asarUnpack:
+  - extras/python/**
+
+# 生产依赖里没有原生模块（core.cjs 零 npm 依赖），跳过 rebuild，省时间
+npmRebuild: false
+compression: normal
+buildDependenciesFromSource: false
+
+win:
+  icon: assets/icon.png   # 1254x1254 PNG，electron-builder 自动转 .ico
+  target:
+    - target: portable
+      arch:
+        - x64
+  artifactName: "${productName}-${version}-portable.${ext}"
+
+portable:
+  # portable 启动时会把 app 解到 %TEMP%，并在环境变量里给出原 exe 所在目录
+  # 用户配置（config.json / .env）建议放在 exe 同目录，由 Lead 适配 process.env.PORTABLE_EXECUTABLE_DIR
+  requestExecutionLevel: user
+  unpackDirName: jinglive-portable
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 鲸live
+  artifactName: "${productName}-${version}-setup.${ext}"

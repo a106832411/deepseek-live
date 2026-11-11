@@ -175,15 +175,34 @@ curl -X POST http://127.0.0.1:8788/api/obs/setup   -d '{}'   # 一键建场景
 | POST | `/api/songs/skip` | 跳过（正在唱→打断；排队→删队首；查歌词窗口→3 秒内取消；空闲→无操作），见 [docs/清唱.md](docs/清唱.md) |
 | GET | `/api/deps` | 运行环境探测：TTS / OBS / Ollama / Python / 真唱引擎是否在线，见 [docs/运行环境.md](docs/运行环境.md) |
 | POST | `/api/deps/start` `/api/deps/stop` | 一键启动 / 停止依赖服务（只停鲸live 自己启动的） |
+| POST | `/api/douyin/heartbeat` | 弹幕中继心跳（判断中继死活；内置中继每 15 秒上报） |
+| GET | `/api/live2d/models` | 皮套模型列表 + 当前模型 |
+| POST | `/api/live2d/model` | 切换皮套模型（写回 `live2d.model`） |
 | WS | `/ws` | 事件/回复/日志/状态推送；清唱事件 `sing start/line/end`、`song queued` |
 
 ## 桌面版特性
 
 - 左侧菜单树控制台（会话 / 事件 / 配置 / 皮套 / 叠加层 / 清唱队列 / 说话 / 运行环境）
 - 全部配置表单化（AI、TTS、事件触发、固定回复、过滤词、清唱/点歌、运行环境启动命令），也支持高级 JSON 编辑
-- **运行环境页**：TTS / OBS / Ollama / Python / 真唱引擎状态灯 + 一键启动，自动发现本机路径（见 [docs/运行环境.md](docs/运行环境.md)）
+- **运行环境页**：TTS / 抖音中继 / OBS / Ollama / Python / 真唱引擎状态灯 + 一键启动，
+  启动方式自动发现本机路径（见 [docs/运行环境.md](docs/运行环境.md)）
+- **抖音中继内置**：`extras/douyin/relay.js`（Node 零依赖 + Chrome CDP 读聊天 DOM），
+  一键启动/停止，见 [docs/抖音接入.md](docs/抖音接入.md)
+- **皮套模型管理**：模型丢进 `public/live2d/models/<名字>/`，控制台下拉切换，OBS 源 URL 不用改
+- **统一控制台**：浏览器打开 `/console` 和 Electron 窗口是同一套 Vue 控制台（自动回退 HTTP API）
 - 端口 8788 被占用时核心自动 +1 顺延，Electron 等真正监听成功再开窗口，不会白屏
 - 黑金主题，可二次开发换肤
+
+## 打包成 exe
+
+```bash
+npm run build:exe        # 便携版：release\鲸live-<版本>-portable.exe
+npm run build:installer  # NSIS 安装包（per-user，免管理员）
+```
+
+打包后是 `app.asar`，运行期可写目录（logs / config.json / .env）走
+`WT_DATA` → `PORTABLE_EXECUTABLE_DIR`（便携版 = exe 同目录）→ 安装版 userData；
+Python 脚本（清唱）从 `resources\app.asar.unpacked\extras\python` 起。详见 [docs/打包.md](docs/打包.md)。
 
 ## 依赖服务
 

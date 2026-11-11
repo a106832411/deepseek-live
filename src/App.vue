@@ -51,6 +51,8 @@ const toast = ref('');
 const songState = ref({ current: null, queue: [] });
 const iframeKey = ref(0);
 const l2dScale = ref(0.92);
+const l2dModels = ref([]);
+const l2dModel = ref('');
 const obsLog = ref('');
 const obsBusy = ref(false);
 const sayText = ref('');
@@ -333,6 +335,36 @@ async function obsSave() {
 }
 function reloadFrames() { iframeKey.value++; }
 
+// ---------------- 皮套模型 ----------------
+async function loadL2dModels() {
+  try {
+    const r = await invoke('live2d:models');
+    l2dModels.value = (r && r.models) || [];
+    l2dModel.value = ((r && r.current) || '').replace(/^\//, '');
+  } catch (e) {
+    l2dModels.value = [];
+  }
+}
+async function changeL2dModel() {
+  const path = '/' + l2dModel.value.replace(/^\//, '');
+  try {
+    const r = await invoke('live2d:set', { path });
+    if (r && r.ok) {
+      toastShow('✅ 皮套已切换');
+      reloadFrames();
+    } else {
+      toastShow('❌ ' + ((r && r.error) || '切换失败'));
+    }
+  } catch (e) {
+    toastShow('❌ ' + e.message);
+  }
+}
+function l2dSrc() {
+  let s = API + '/live2d?scale=' + l2dScale.value;
+  if (l2dModel.value) s += '&model=/' + encodeURI(l2dModel.value.replace(/^\//, ''));
+  return s;
+}
+
 // ---------------- 运行环境（依赖服务：TTS / OBS / Ollama / Python） ----------------
 const depsState = ref({ services: [] });
 const depsBusy = ref('');
@@ -388,7 +420,7 @@ const checks = computed(() => [
   { label: '语音服务在线（TTS）', ok: !!(depsByKey.value.tts && depsByKey.value.tts.ok), hint: depsByKey.value.tts && depsByKey.value.tts.ok ? '' : '到「运行环境」一键启动' },
   { label: 'OBS 已连接', ok: !!(depsByKey.value.obs && depsByKey.value.obs.ok), hint: depsByKey.value.obs && depsByKey.value.obs.ok ? '' : 'OBS 没开也行，只是没有叠加上屏' },
   { label: '清唱配置就绪', ok: !!cfg.value.sing, hint: '' },
-  { label: '皮套模型已内置', ok: true, hint: '' }
+  { label: '皮套模型已内置', ok: l2dModels.value.length > 0, hint: l2dModels.value.length ? '' : '去「Live2D 皮套」页看看模型目录' }
 ]);
 
 const eventCounts = computed(() => {
@@ -407,6 +439,7 @@ const filteredFeed = computed(() =>
 onMounted(async () => {
   await Promise.all([loadCfg(), refresh(), refreshSongs()]);
   refreshDeps();
+  loadL2dModels();
   timer = setInterval(refresh, 1500);
   songTimer = setInterval(refreshSongs, 3000);
   // 依赖服务探测稍微费（要 spawn python --version），只在这两个页面开着时轮询
@@ -528,7 +561,7 @@ onUnmounted(() => {
               <div class="card-head"><h2>使用提示</h2><span class="hint">常用操作</span></div>
               <ul class="tips">
                 <li>弹幕发「唱歌 歌名」/「清唱 歌名」，AI 清唱给你听</li>
-                <li>中继脚本把弹幕 POST 到 <code>/api/douyin/ingest</code> 即可接入</li>
+                <li>抖音接入：运行环境页「📺 抖音弹幕中继」一键启动（内置中继，见 docs/抖音接入.md）</li>
                 <li>密钥/人设/TTS 路径改 <code>.env</code> 后重启生效</li>
                 <li>OBS 浏览器源：弹幕层 <code>/overlay</code>、清唱列表 <code>/songs</code>、皮套 <code>/live2d</code></li>
               </ul>
@@ -570,6 +603,12 @@ onUnmounted(() => {
         <div v-if="current === 'live2d'" class="card">
           <div class="card-head"><h2>Live2D 皮套</h2><span class="hint">OBS 浏览器源：{{ API }}/live2d</span></div>
           <div class="row">
+            <label class="field inline" style="min-width:280px"><span>模型</span>
+              <select v-model="l2dModel" @change="changeL2dModel">
+                <option v-for="m in l2dModels" :key="m.path" :value="m.path.replace(/^\//, '')">{{ m.name }}</option>
+                <option v-if="!l2dModels.length" value="">（没找到模型）</option>
+              </select>
+            </label>
             <label class="field inline"><span>缩放</span>
               <input type="range" min="0.5" max="1.2" step="0.02" v-model.number="l2dScale" style="width:180px" />
               <b>{{ l2dScale.toFixed(2) }}</b>
@@ -577,7 +616,11 @@ onUnmounted(() => {
             <button class="ghost" @click="reloadFrames">重新加载</button>
             <a :href="API + '/live2d'" target="_blank">新窗口打开</a>
           </div>
-          <iframe :key="'l2d' + iframeKey + l2dScale" class="frame checker" :src="API + '/live2d?scale=' + l2dScale"></iframe>
+          <div class="hint-text">
+            · 换模型：把 Live2D 模型目录（含 <code>*.model3.json</code>）丢进 <code>public/live2d/models/</code>，刷新这个下拉框即可看到<br>
+            · 切换后会自动写进 <code>config.json</code> 的 <code>live2d.model</code>，OBS 里的 <code>/live2d</code> 源不用改 URL
+          </div>
+          <iframe :key="'l2d' + iframeKey + l2dScale + l2dModel" class="frame checker" :src="l2dSrc()"></iframe>
         </div>
 
         <!-- 叠加层 -->

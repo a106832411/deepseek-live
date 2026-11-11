@@ -16,10 +16,22 @@ const { spawn } = require('child_process');
 const obs = require('./obs.cjs');
 const deps = require('./deps.cjs');
 
+// ---------------- 路径（源码运行 / 打包后 asar 都要能跑） ----------------
+// ROOT：只读资源根（public/dist 页面、内置脚本）。源码 = 仓库根；打包后 = app.asar（Electron 的 fs 能透明读 asar）
+// DATA_ROOT：可写根（logs、config.json、.env、运行期产物）。优先级：
+//   1) WT_DATA 环境变量  2) electron-builder portable 的 PORTABLE_EXECUTABLE_DIR（配置跟 exe 放一起）
+//   3) 打包后 exe 所在目录  4) 源码运行 = 仓库根
+// EXTRA_ROOT：Python 脚本真实路径。打包后脚本被 asarUnpack 到 app.asar.unpacked（asar 里的路径 spawn 不了）
 const ROOT = path.resolve(__dirname, '..', '..');
+const PACKED = /app\.asar/i.test(__dirname);
+const DATA_ROOT = process.env.WT_DATA
+  || process.env.PORTABLE_EXECUTABLE_DIR
+  || (PACKED ? path.dirname(process.execPath) : ROOT);
+const EXTRA_ROOT = PACKED ? path.join(process.resourcesPath || ROOT, 'app.asar.unpacked') : ROOT;
 const PUBLIC = path.join(ROOT, 'public');
-const LOG_DIR = path.join(ROOT, 'logs');
-fs.mkdirSync(LOG_DIR, { recursive: true });
+const DIST = path.join(ROOT, 'dist');
+const LOG_DIR = path.join(DATA_ROOT, 'logs');
+try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch (e) {}
 
 let LOG_TAG = '';
 function log(msg) {
@@ -34,6 +46,7 @@ function log(msg) {
 function loadDotEnv() {
   const candidates = [
     process.env.DEEPLIVE_ENV || '',
+    path.join(DATA_ROOT, '.env'),
     path.join(process.cwd(), '.env'),
     path.join(ROOT, '.env')
   ].filter(Boolean);
@@ -145,7 +158,8 @@ function resolvePort(p) {
 }
 
 // ---------------- 配置 ----------------
-const CONFIG_PATH = process.env.WT_CONFIG || path.join(ROOT, 'config.json');
+// 配置文件放可写根（打包后不能写 asar 里）
+const CONFIG_PATH = process.env.WT_CONFIG || path.join(DATA_ROOT, 'config.json');
 const DEFAULT_CONFIG = {
   platform: 'douyin',
   douyin: { mode: 'relay', web_rid: '447058766923' },
@@ -154,6 +168,8 @@ const DEFAULT_CONFIG = {
   // prompt_text 必须和参考音逐字一致，否则 GPT-SoVITS 会念得又平又假
   tts: { api_url: 'http://127.0.0.1:9881', ref_audio: '', prompt_text: '梁山在上，今天大白饭也要变得美味呀。', speed: 1.0, sample_steps: 32, top_k: 30, temperature: 1.3, repetition_penalty: 1.1, auto_play: true },
   obs: { host: '127.0.0.1', port: 4455, password: '', scene: '鲸live直播', bgColor: '0b0c0e' },
+  // 皮套：模型文件放在 public/live2d/models/ 下（每套一个子目录 + *.model3.json），控制台可切换
+  live2d: { model: '/live2d/models/avatar/c_0120.model3.json', scale: 0.92 },
   events: {
     danmaku: { enabled: true, probability: 100, cooldown_user: 5, mode: 'ai' },
     enter: { enabled: true, cooldown_user: 30, mode: 'template', templates: ['欢迎{name}，随便坐别客气～'] },
@@ -205,7 +221,8 @@ const DEFAULT_CONFIG = {
   deps: {
     tts_start_cmd: '',      // 例：powershell -NoProfile -ExecutionPolicy Bypass -File D:\...\run_gpu_api.ps1
     obs_start_cmd: '',      // 例：D:\obs-studio\bin\64bit\obs64.exe
-    ollama_start_cmd: ''    // 例：ollama serve
+    ollama_start_cmd: '',   // 例：ollama serve
+    douyin_start_cmd: ''    // 留空 = 自动用内置 extras/douyin/relay.js
   }
 };
 
@@ -242,7 +259,11 @@ function loadConfig() {
   }
 }
 function saveConfig() {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
+  try {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
+  } catch (e) {
+    log('⚠ 保存配置失败（' + CONFIG_PATH + '）: ' + e.message);
+  }
 }
 
 // ---------------- 状态 ----------------
@@ -253,6 +274,9 @@ const state = {
   stats: { enter: 0, danmaku: 0, gift: 0, follow: 0, like: 0, say: 0 },
   recent: [],
   lastUser: {},
+  lastIngest: 0,       // 最后一次收到中继事件的本地时间（判断中继是否活着）
+  lastHeartbeat: 0,    // 中继进程心跳（/api/douyin/heartbeat）
+  lastIngestCount: 0,
   history: [],
   agents: new Set(),
   ttsQueue: Promise.resolve(),
@@ -431,7 +455,7 @@ function runPy(args, timeoutMs = 120000, pyExe = null) {
     let stdout = '';
     let stderr = '';
     let done = false;
-    const p = spawn(pyExe || pythonPath(), args, { windowsHide: true, cwd: ROOT });
+    const p = spawn(pyExe || pythonPath(), args, { windowsHide: true, cwd: EXTRA_ROOT });
     const finish = (code, extra) => {
       if (done) return;
       done = true;
@@ -1050,7 +1074,7 @@ async function doPrep(item) {
     if (r) return r;
     log('真唱管线失败，回退 TTS 清唱');
   }
-  const script = path.join(ROOT, 'extras', 'python', 'sing_tts.py');
+  const script = path.join(EXTRA_ROOT, 'extras', 'python', 'sing_tts.py');
   if (!fs.existsSync(script)) return null;
   const dir = path.join(LOG_DIR, 'sing');
   fs.mkdirSync(dir, { recursive: true });
@@ -1363,7 +1387,7 @@ async function handleEvent(ev) {
         requestSong(ev.name, query).catch((e) => log('点歌异常: ' + e.message));
         return;
       }
-      const file = path.join(ROOT, 'tools', 'logs', cfgSongs.request_file || 'song_requests.jsonl');
+      const file = path.join(DATA_ROOT, 'tools', 'logs', cfgSongs.request_file || 'song_requests.jsonl');
       try {
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.appendFileSync(file, JSON.stringify({ t: new Date().toTimeString().slice(0, 8), name: ev.name, query }) + '\n');
@@ -1430,13 +1454,21 @@ async function route(req, res) {
   if (method === 'GET' && p === '/songs') return serveFile(res, 'songs.html');
   if (method === 'GET' && p === '/stats') return serveFile(res, 'stats.html');
   if (method === 'GET' && p === '/subtitle') return serveFile(res, 'subtitle.html');
-  if (method === 'GET' && p === '/console') return serveFile(res, 'console.html');
   if (method === 'GET' && p === '/live2d') return serveFile(res, 'live2d.html');
   if (method === 'GET' && p === '/stardew') return serveFile(res, 'stardew.html');
+  // 控制台：优先用 Vue 构建产物（dist，和 Electron 窗口里完全同一套 UI），没构建才回退免构建版
+  if (method === 'GET' && p === '/console') {
+    if (fs.existsSync(path.join(DIST, 'index.html'))) return serveFrom(res, DIST, 'index.html');
+    return serveFile(res, 'console.html');
+  }
+  // Vue 控制台的静态资源（vite 产物 /assets/* 和 favicon）
+  if (method === 'GET' && (p.startsWith('/assets/') || p === '/icon.png')) {
+    return serveFrom(res, DIST, p === '/icon.png' ? 'icon.png' : p.slice(1));
+  }
   if (p === '/api/stardew') {
     try {
       const bridge = 'E:\\steam\\steamapps\\common\\Stardew Valley\\Mods\\StardewMCPBridge\\bridge_data.json';
-      const guardLog = path.join(ROOT, 'extras', 'python', 'logs', 'guard.log');
+      const guardLog = path.join(EXTRA_ROOT, 'extras', 'python', 'logs', 'guard.log');
       const st = fs.statSync(bridge);
       const b = JSON.parse(fs.readFileSync(bridge, 'utf8'));
       const age = (Date.now() - st.mtimeMs) / 1000;
@@ -1508,8 +1540,15 @@ async function route(req, res) {
   if (p === '/api/douyin/ingest') {
     const body = await readBody(req);
     const events = body.events || (body.event ? [body.event] : []);
+    state.lastIngest = Date.now();
+    state.lastIngestCount = events.length;
     for (const ev of events) await handleEvent(ev);
     return json(res, { ok: true, count: events.length });
+  }
+  // 中继心跳：弹幕中继脚本定时上报，用来判断「中继活着但没弹幕」还是「中继根本没跑」
+  if (p === '/api/douyin/heartbeat') {
+    state.lastHeartbeat = Date.now();
+    return json(res, { ok: true });
   }
   if (p === '/api/douyin/connect' || p === '/api/douyin/disconnect') {
     if (p.endsWith('connect')) { state.connected = true; log('抖音已连接(relay)'); }
@@ -1517,7 +1556,20 @@ async function route(req, res) {
     return json(res, { ok: true, connected: state.connected });
   }
   if (p === '/api/douyin/health') {
-    return json(res, { connected: state.connected, mode: (config.douyin || {}).mode || 'relay', running: state.started, counts: state.stats, recent: state.recent.slice(0, 8) });
+    const now = Date.now();
+    return json(res, {
+      connected: state.connected,
+      mode: (config.douyin || {}).mode || 'relay',
+      running: state.started,
+      counts: state.stats,
+      recent: state.recent.slice(0, 8),
+      relay: {
+        active: !!state.lastHeartbeat && now - state.lastHeartbeat < 30000,
+        heartbeatAgo: state.lastHeartbeat ? Math.round((now - state.lastHeartbeat) / 1000) : null,
+        ingestAgo: state.lastIngest ? Math.round((now - state.lastIngest) / 1000) : null,
+        lastCount: state.lastIngestCount
+      }
+    });
   }
   if (p === '/api/stats/reset') {
     state.stats = { enter: 0, danmaku: 0, gift: 0, follow: 0, like: 0, say: 0 };
@@ -1526,6 +1578,14 @@ async function route(req, res) {
   if (p === '/api/obs/probe') {
     const body = await readBody(req);
     return json(res, await obsProbe(body || {}));
+  }
+  // 皮套模型：列表 / 切换（模型文件放 public/live2d/models/ 下）
+  if (p === '/api/live2d/models') return json(res, listLive2dModels());
+  if (p === '/api/live2d/model') {
+    if (method === 'GET') return json(res, listLive2dModels());
+    const body = await readBody(req);
+    const r = setLive2dModel(body.path || body.model);
+    return json(res, r, r.ok ? 200 : 400);
   }
   if (p === '/api/obs/setup') {
     const body = await readBody(req);
@@ -1633,6 +1693,59 @@ function serveFile(res, name) {
   res.end(body);
 }
 
+/** 从指定目录服务静态文件（Vue 构建产物 dist/ 用；防目录穿越）。 */
+function serveFrom(res, baseDir, rel) {
+  const safe = String(rel).replace(/\\/g, '/').replace(/\.\./g, '');
+  const file = path.join(baseDir, safe);
+  if (!(file === baseDir || file.startsWith(baseDir + path.sep)) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    res.writeHead(404); return res.end('not found');
+  }
+  const ext = path.extname(file).toLowerCase();
+  const body = fs.readFileSync(file);
+  const mime = MIME[ext] || (ext === '.woff2' ? 'font/woff2' : ext === '.svg' ? 'image/svg+xml' : 'application/octet-stream');
+  res.writeHead(200, { 'Content-Type': mime, 'Content-Length': body.length, 'Cache-Control': 'no-cache' });
+  res.end(body);
+}
+
+// ---------------- 皮套模型 ----------------
+
+/** 扫 public/live2d/models 下的所有 *.model3.json（每套模型一个子目录）。 */
+function listLive2dModels() {
+  const base = path.join(PUBLIC, 'live2d', 'models');
+  const models = [];
+  const walk = (dir, depth) => {
+    let ents = [];
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    for (const e of ents) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (depth < 3) walk(full, depth + 1);
+        continue;
+      }
+      if (!/\.model3\.json$/i.test(e.name)) continue;
+      const rel = path.relative(PUBLIC, full).replace(/\\/g, '/');
+      models.push({ name: path.basename(path.dirname(full)) || e.name, file: e.name, path: '/' + rel });
+    }
+  };
+  walk(base, 0);
+  const cur = (config.live2d && config.live2d.model) || (models[0] && models[0].path) || '';
+  return { ok: true, models, current: cur };
+}
+
+/** 切换皮套模型：校验路径在 public/live2d/models 下并写回 config。 */
+function setLive2dModel(p) {
+  const rel = String(p || '').trim();
+  if (!/^\/live2d\/models\/.+\.model3\.json$/i.test(rel)) {
+    return { ok: false, error: '模型路径不合法（要以 /live2d/models/ 开头、.model3.json 结尾）' };
+  }
+  const full = path.join(PUBLIC, rel.replace(/^\/+/, '').replace(/\//g, path.sep));
+  if (!fs.existsSync(full)) return { ok: false, error: '模型文件不存在: ' + full };
+  config = deepMerge(config, { live2d: { model: rel } });
+  saveConfig();
+  log('皮套模型切换: ' + rel);
+  return { ok: true, current: rel, models: listLive2dModels().models };
+}
+
 // ---------------- 启动 ----------------
 /**
  * 启动核心服务。
@@ -1715,14 +1828,23 @@ function depsSettings() {
   const obsCfg = c.obs || {};
   const aiCfg = c.ai || {};
   return {
-    root: ROOT,
+    root: EXTRA_ROOT,
     logDir: LOG_DIR,
     pythonPath: pythonPath(),
     ttsUrl: ttsCfg.api_url || 'http://127.0.0.1:9881',
     obs: { host: obsCfg.host || '127.0.0.1', port: Number(obsCfg.port || 4455) },
     ollamaBase: aiCfg.openai_base || 'http://127.0.0.1:11434',
     deps: c.deps || {},
-    sing: c.sing || {}
+    sing: c.sing || {},
+    port: state.port || resolvePort(0),
+    douyin: {
+      rid: (c.douyin || {}).web_rid || '',
+      url: (c.douyin || {}).room_url || '',
+      active: !!(state.lastHeartbeat && Date.now() - state.lastHeartbeat < 30000),
+      heartbeatAgo: state.lastHeartbeat ? Math.round((Date.now() - state.lastHeartbeat) / 1000) : null,
+      ingestAgo: state.lastIngest ? Math.round((Date.now() - state.lastIngest) / 1000) : null,
+      lastCount: state.lastIngestCount || 0
+    }
   };
 }
 
@@ -1746,6 +1868,8 @@ module.exports = {
   depsSettings,
   depsStart(name) { return deps.start(String(name || ''), depsSettings(), log); },
   depsStop(name) { return deps.stop(String(name || '')); },
+  live2dModels() { return listLive2dModels(); },
+  setLive2dModel: (p) => setLive2dModel(p),
   get config() { return config; },
   state,
   handleEvent,

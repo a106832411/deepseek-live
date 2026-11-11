@@ -17,7 +17,16 @@
 <script>
 (async function () {
   const q = new URLSearchParams(location.search);
-  const MODEL_URL = q.get('model') || '/live2d/models/avatar/c_0120.model3.json';
+  // 没显式传 ?model= 时，用控制台里选中的模型（config.live2d.model）
+  let modelUrl = q.get('model') || '';
+  if (!modelUrl) {
+    try {
+      const r = await fetch('/api/live2d/models', { cache: 'no-store' });
+      const j = await r.json();
+      modelUrl = (j && j.current) || '';
+    } catch (e) {}
+  }
+  const MODEL_URL = modelUrl || '/live2d/models/avatar/c_0120.model3.json';
   const SCALE = Number(q.get('scale') || 0.92);
   const err = document.getElementById('err');
   function showErr(e) { err.textContent = String((e && e.stack) || e); }

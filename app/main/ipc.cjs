@@ -34,7 +34,9 @@ const CHANNELS = {
   'obs:setup': (svc, payload) => svc.obsSetup(payload || {}),
   'deps:get': (svc) => svc.depsStatus(),
   'deps:start': (svc, payload) => svc.depsStart((payload && (payload.name || payload.key)) || ''),
-  'deps:stop': (svc, payload) => svc.depsStop((payload && (payload.name || payload.key)) || '')
+  'deps:stop': (svc, payload) => svc.depsStop((payload && (payload.name || payload.key)) || ''),
+  'live2d:models': (svc) => svc.live2dModels(),
+  'live2d:set': (svc, payload) => svc.setLive2dModel((payload && (payload.path || payload.model)) || '')
 };
 
 function registerIpc(service) {

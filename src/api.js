@@ -42,6 +42,10 @@ async function rest(cmd, payload) {
       return fetchJson('/api/deps/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}) });
     case 'deps:stop':
       return fetchJson('/api/deps/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}) });
+    case 'live2d:models':
+      return fetchJson('/api/live2d/models');
+    case 'live2d:set':
+      return fetchJson('/api/live2d/model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}) });
     default:
       throw new Error('unknown command: ' + cmd);
   }
