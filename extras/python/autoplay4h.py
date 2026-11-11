@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import boxes
 import fallback
+import sell
 import furnace_progress as fp
 import guard
 import mine_real
@@ -180,6 +181,16 @@ def main():
                 log("  游戏没就绪，等 30 秒")
                 time.sleep(30)
                 continue
+            # 石头/木材太多 → 卖掉换金币（各留 ~999）
+            try:
+                _st0 = state()
+                if _st0.get("stone", 0) > 1400 or _st0.get("wood", 0) > 1400:
+                    log(f"  卖资源前 金币={_st0.get('money')} 石头={_st0.get('stone')} 木材={_st0.get('wood')}")
+                    sell.sell_surplus()
+                    _st1 = state()
+                    log(f"  卖资源后 金币={_st1.get('money')} 石头={_st1.get('stone')} 木材={_st1.get('wood')}")
+            except Exception as ex:
+                log(f"  卖东西失败: {ex}")
             # 血量低 → 先离开矿洞休整
             try:
                 _b = nav2.rd() or {}

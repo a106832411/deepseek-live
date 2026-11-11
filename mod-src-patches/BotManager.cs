@@ -2151,6 +2151,424 @@ namespace StardewMCPBridge
                         catch (Exception ex) { this.monitor.Log("ship_final err: " + ex.Message, LogLevel.Warn); }
                         break;
                     }
+                case "dump_shop_methods":
+                    {
+                        try
+                        {
+                            var menuD = Game1.activeClickableMenu;
+                            var partsD = new System.Collections.Generic.List<string>();
+                            partsD.Add("menu=" + (menuD?.GetType().Name ?? "none"));
+                            if (menuD != null)
+                            {
+                                var bfD = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                                foreach (var mi in menuD.GetType().GetMethods(bfD))
+                                    if (mi.Name.ToLower().Contains("sell")) partsD.Add("m:" + mi.Name + "(" + string.Join(",", System.Array.ConvertAll(mi.GetParameters(), pp => pp.ParameterType.Name)) + ")");
+                                foreach (var pi in menuD.GetType().GetProperties(bfD))
+                                    if (pi.Name.ToLower().Contains("shop") || pi.Name.ToLower().Contains("stock")) partsD.Add("p:" + pi.Name);
+                            }
+                            this.monitor.Log("SHOPM " + string.Join(" | ", partsD), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_shop_methods err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "shop_sell":
+                    {
+                        try
+                        {
+                            string nmS = root.TryGetProperty("name", out var nS) ? nS.GetString() : "";
+                            int keepS = root.TryGetProperty("keep", out var kS) ? kS.GetInt32() : 0;
+                            var menuS = Game1.activeClickableMenu;
+                            if (menuS == null) { this.monitor.Log("shop_sell: 没有打开的商店", LogLevel.Warn); break; }
+                            var bfS = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            System.Reflection.MethodInfo sellM = null;
+                            foreach (var mi in menuS.GetType().GetMethods(bfS))
+                            {
+                                if (!mi.Name.ToLower().Contains("sell")) continue;
+                                var ps = mi.GetParameters();
+                                if (ps.Length >= 1 && ps.Length <= 2 && ps[0].ParameterType.Name == "ISalable") { sellM = mi; break; }
+                            }
+                            var partsS = new System.Collections.Generic.List<string>();
+                            partsS.Add("sellM=" + (sellM?.Name ?? "null") + " beforeMoney=" + Game1.player.Money);
+                            int soldS = 0;
+                            if (sellM != null)
+                            {
+                                var invS = Game1.player.Items;
+                                for (int iS = invS.Count - 1; iS >= 0; iS--)
+                                {
+                                    var itS = invS[iS];
+                                    if (itS == null) continue;
+                                    string dS = itS.DisplayName ?? itS.Name ?? "";
+                                    if (!dS.Contains(nmS)) continue;
+                                    if (itS.Stack <= keepS) continue;
+                                    int stackBefore = itS.Stack;
+                                    var args = sellM.GetParameters().Length == 1 ? new object[] { itS } : new object[] { itS, true };
+                                    try { sellM.Invoke(menuS, args); } catch (Exception e2) { partsS.Add("sellErr:" + e2.Message); break; }
+                                    soldS += stackBefore - (invS[iS]?.Stack ?? 0);
+                                    partsS.Add($"{dS}:{stackBefore}->{(invS[iS]?.Stack ?? 0)}");
+                                }
+                            }
+                            partsS.Add("soldUnits=" + soldS + " afterMoney=" + Game1.player.Money);
+                            this.monitor.Log("shop_sell: " + string.Join(" ; ", partsS), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("shop_sell err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "open_shop_here":
+                    {
+                        try
+                        {
+                            int ox = root.GetProperty("x").GetInt32(), oy = root.GetProperty("y").GetInt32();
+                            var locO = Game1.player.currentLocation;
+                            var caO = locO.GetType().GetMethod("checkAction",
+                                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                            object resO = null;
+                            if (caO != null)
+                            {
+                                var argsO = new object[] { new xTile.Dimensions.Location(ox, oy), Game1.viewport, Game1.player };
+                                resO = caO.Invoke(locO, argsO);
+                            }
+                            this.monitor.Log($"open_shop_here: ({ox},{oy}) res={resO} menu={(Game1.activeClickableMenu?.GetType().Name ?? "none")}", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("open_shop_here err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                case "talk_npc":
+                    {
+                        try
+                        {
+                            string nmT = root.TryGetProperty("name", out var nT) ? nT.GetString() : "";
+                            var locT = Game1.player.currentLocation;
+                            StardewValley.NPC npcT = null;
+                            foreach (var chT in locT.characters)
+                            {
+                                string dT = chT.Name ?? "";
+                                if (dT.Contains(nmT)) { npcT = chT; break; }
+                            }
+                            if (npcT == null) { this.monitor.Log("talk_npc: 找不到 NPC " + nmT, LogLevel.Warn); break; }
+                            var bfT = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var partsT = new System.Collections.Generic.List<string>();
+                            bool done = false;
+                            foreach (var mi in npcT.GetType().GetMethods(bfT))
+                            {
+                                if (mi.Name != "checkAction") continue;
+                                var ps = mi.GetParameters();
+                                if (ps.Length != 2) continue;
+                                try
+                                {
+                                    mi.Invoke(npcT, new object[] { Game1.player, locT });
+                                    partsT.Add("checkAction2=ok");
+                                    done = true;
+                                    break;
+                                }
+                                catch (Exception e3) { partsT.Add("err:" + e3.Message); }
+                            }
+                            if (!done)
+                            {
+                                // 退而求其次：直接调用商店
+                                var shopM = npcT.GetType().GetMethod("openShopMenu", bfT);
+                                if (shopM != null)
+                                {
+                                    var ps2 = shopM.GetParameters();
+                                    object[] args2 = ps2.Length == 0 ? null : new object[] { "" };
+                                    try { shopM.Invoke(npcT, args2); partsT.Add("openShopMenu=ok"); } catch (Exception e4) { partsT.Add("openShopErr:" + e4.Message); }
+                                }
+                                else partsT.Add("no checkAction/openShopMenu");
+                            }
+                            partsT.Add("menu=" + (Game1.activeClickableMenu?.GetType().Name ?? "none"));
+                            this.monitor.Log("talk_npc: " + string.Join(" ; ", partsT), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("talk_npc err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                case "force_npc_shop":
+                    {
+                        try
+                        {
+                            string nmS2 = root.TryGetProperty("name", out var nS2) ? nS2.GetString() : "";
+                            var locS2 = Game1.player.currentLocation;
+                            StardewValley.NPC npcS2 = null;
+                            foreach (var chS2 in locS2.characters)
+                                if ((chS2.Name ?? "").Contains(nmS2)) { npcS2 = chS2; break; }
+                            if (npcS2 == null) { this.monitor.Log("force_npc_shop: 找不到 NPC " + nmS2, LogLevel.Warn); break; }
+                            var bfS2 = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var partsS2 = new System.Collections.Generic.List<string>();
+                            var mShop = npcS2.GetType().GetMethod("openShopMenu", bfS2);
+                            if (mShop != null)
+                            {
+                                var psS2 = mShop.GetParameters();
+                                try
+                                {
+                                    object[] argsS2 = psS2.Length == 0 ? null : new object[] { psS2[0].ParameterType == typeof(string) ? (object)"" : Activator.CreateInstance(psS2[0].ParameterType) };
+                                    mShop.Invoke(npcS2, argsS2);
+                                    partsS2.Add("openShopMenu=ok");
+                                }
+                                catch (Exception eS2) { partsS2.Add("err:" + eS2.Message); }
+                            }
+                            else partsS2.Add("no openShopMenu");
+                            partsS2.Add("menu=" + (Game1.activeClickableMenu?.GetType().Name ?? "none"));
+                            this.monitor.Log("force_npc_shop: " + string.Join(" ; ", partsS2), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("force_npc_shop err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                case "open_shop_id":
+                    {
+                        try
+                        {
+                            string sid = root.TryGetProperty("shopId", out var sidEl) ? sidEl.GetString() : "SeedShop";
+                            var bfO = System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var partsO = new System.Collections.Generic.List<string>();
+                            bool opened = false;
+                            foreach (var tO in new[] { typeof(StardewValley.Utility), Game1.currentLocation.GetType() })
+                            {
+                                foreach (var mi in tO.GetMethods(bfO | System.Reflection.BindingFlags.Instance))
+                                {
+                                    string nm = mi.Name.ToLower();
+                                    if (!(nm.Contains("openshop") || nm.Contains("showshop"))) continue;
+                                    var ps = mi.GetParameters();
+                                    if (ps.Length < 1 || ps[0].ParameterType != typeof(string)) continue;
+                                    try
+                                    {
+                                        object targetObj = mi.IsStatic ? null : Game1.currentLocation;
+                                        var args = new object[ps.Length];
+                                        args[0] = sid;
+                                        for (int i = 1; i < ps.Length; i++)
+                                            args[i] = ps[i].ParameterType.IsValueType ? Activator.CreateInstance(ps[i].ParameterType) : null;
+                                        mi.Invoke(targetObj, args);
+                                        partsO.Add(tO.Name + "." + mi.Name + "=ok");
+                                        opened = true;
+                                        break;
+                                    }
+                                    catch (Exception e5) { partsO.Add(tO.Name + "." + mi.Name + "Err:" + e5.Message); }
+                                }
+                                if (opened) break;
+                            }
+                            partsO.Add("menu=" + (Game1.activeClickableMenu?.GetType().Name ?? "none"));
+                            this.monitor.Log("open_shop_id: " + string.Join(" ; ", partsO), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("open_shop_id err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                                case "auto_sell":
+                    {
+                        try
+                        {
+                            string shopIdS = root.TryGetProperty("shopId", out var sEl) ? sEl.GetString() : "SeedShop";
+                            string nmS = root.TryGetProperty("name", out var nEl) ? nEl.GetString() : "";
+                            int keepS = root.TryGetProperty("keep", out var kEl) ? kEl.GetInt32() : 0;
+                            int money0 = Game1.player.Money;
+                            var tUtil = typeof(StardewValley.Utility);
+                            System.Reflection.MethodInfo mOpen = null;
+                            foreach (var mi in tUtil.GetMethods(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+                            {
+                                if (mi.Name != "TryOpenShopMenu") continue;
+                                var pp = mi.GetParameters();
+                                if (pp.Length >= 1 && pp[0].ParameterType == typeof(string)) { mOpen = mi; break; }
+                            }
+                            if (mOpen == null) { this.monitor.Log("auto_sell: 没有 TryOpenShopMenu", LogLevel.Warn); break; }
+                            var psO = mOpen.GetParameters();
+                            var argsO = new object[psO.Length];
+                            argsO[0] = shopIdS;
+                            for (int i = 1; i < psO.Length; i++) argsO[i] = psO[i].ParameterType.IsValueType ? Activator.CreateInstance(psO[i].ParameterType) : null;
+                            mOpen.Invoke(null, argsO);
+                            var menuS = Game1.activeClickableMenu;
+                            if (menuS == null || menuS.GetType().Name != "ShopMenu") { this.monitor.Log("auto_sell: 商店没打开", LogLevel.Warn); break; }
+                            var bfS = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var partsS = new System.Collections.Generic.List<string>();
+                            object invMenu = null;
+                            for (var t = menuS.GetType(); t != null && t != typeof(object) && invMenu == null; t = t.BaseType)
+                            {
+                                var f = t.GetField("inventory", bfS);
+                                if (f != null) { var v = f.GetValue(menuS); if (v != null && v.GetType().Name.Contains("InventoryMenu")) invMenu = v; }
+                            }
+                            partsS.Add("money0=" + money0 + " invMenu=" + (invMenu?.GetType().Name ?? "null"));
+                            var fInv = invMenu?.GetType().GetField("inventory", bfS);
+                            var slots = fInv?.GetValue(invMenu) as System.Collections.IList;
+                            partsS.Add("slots=" + (slots?.Count ?? -1));
+                            var clickM = menuS.GetType().GetMethod("receiveLeftClick", bfS);
+                            try
+                            {
+                                var xp = menuS.GetType().GetProperty("xPositionOnScreen", bfS);
+                                var yp = menuS.GetType().GetProperty("yPositionOnScreen", bfS);
+                                partsS.Add($"menuPos=({xp?.GetValue(menuS)},{yp?.GetValue(menuS)})");
+                                if (slots != null && slots.Count > 0)
+                                {
+                                    var c0 = slots[0];
+                                    var b0 = c0.GetType().GetProperty("bounds")?.GetValue(c0) ?? c0.GetType().GetField("bounds")?.GetValue(c0);
+                                    partsS.Add("slot0Bounds=" + b0);
+                                }
+                            }
+                            catch { }
+                            // 把目标物品槽位写文件（供外面真实鼠标点击卖）
+                            try
+                            {
+                                var slotLines = new System.Collections.Generic.List<string>();
+                                if (slots != null)
+                                {
+                                    for (int i = 0; i < slots.Count && i < Game1.player.Items.Count; i++)
+                                    {
+                                        var it = Game1.player.Items[i];
+                                        if (it == null) continue;
+                                        string d = it.DisplayName ?? it.Name ?? "";
+                                        if (!d.Contains(nmS)) continue;
+                                        var comp = slots[i];
+                                        var b = comp.GetType().GetProperty("bounds")?.GetValue(comp) ?? comp.GetType().GetField("bounds")?.GetValue(comp);
+                                        slotLines.Add($"{i}|{d}|{it.Stack}|{b}");
+                                    }
+                                }
+                                var slotPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(typeof(BotManager).Assembly.Location), "shop_slots.txt");
+                                System.IO.File.WriteAllText(slotPath, string.Join("\n", slotLines));
+                            }
+                            catch { }
+                            int clicks = 0;
+                            if (clickM != null && slots != null)
+                            {
+                                for (int attempt = 0; attempt < 80; attempt++)
+                                {
+                                    int slotIdx = -1;
+                                    for (int i = 0; i < Game1.player.Items.Count && i < slots.Count; i++)
+                                    {
+                                        var it = Game1.player.Items[i];
+                                        if (it == null) continue;
+                                        string d = it.DisplayName ?? it.Name ?? "";
+                                        if (!d.Contains(nmS)) continue;
+                                        if (it.Stack <= keepS) continue;
+                                        slotIdx = i; break;
+                                    }
+                                    if (slotIdx < 0) break;
+                                    var comp = slots[slotIdx];
+                                    var boundsP = comp.GetType().GetProperty("bounds");
+                                    object boundsO = boundsP != null ? boundsP.GetValue(comp) : comp.GetType().GetField("bounds")?.GetValue(comp);
+                                    if (boundsO == null) { partsS.Add("no bounds"); break; }
+                                    var r = (Microsoft.Xna.Framework.Rectangle)boundsO;
+                                    int mPrev = Game1.player.Money;
+                                    try { clickM.Invoke(menuS, new object[] { r.Center.X, r.Center.Y, true }); } catch (Exception e6) { partsS.Add("clickErr:" + e6.Message); break; }
+                                    if (Game1.player.Money == mPrev && clicks < 2)
+                                    {
+                                        // 尝试带 viewport 偏移
+                                        try { clickM.Invoke(menuS, new object[] { r.Center.X + Game1.viewport.X, r.Center.Y + Game1.viewport.Y, true }); } catch { }
+                                        if (Game1.player.Money != mPrev) partsS.Add("vpOffsetWorked");
+                                    }
+                                    if (Game1.player.Money == mPrev && clicks == 0)
+                                    {
+                                        var heldM = menuS.GetType().GetMethod("leftClickHeld", bfS);
+                                        var relM = menuS.GetType().GetMethod("releaseLeftClick", bfS);
+                                        try
+                                        {
+                                            heldM?.Invoke(menuS, new object[] { r.Center.X, r.Center.Y });
+                                            relM?.Invoke(menuS, new object[] { r.Center.X, r.Center.Y });
+                                        }
+                                        catch { }
+                                        if (Game1.player.Money != mPrev) partsS.Add("heldReleaseWorked");
+                                    }
+                                    clicks++;
+                                    if (Game1.player.Money != mPrev) { partsS.Add("soldAtClick" + clicks); break; }
+                                }
+                            }
+                            partsS.Add($"clicks={clicks} money={Game1.player.Money} (+{Game1.player.Money - money0})");
+                            this.monitor.Log("auto_sell: " + string.Join(" ; ", partsS), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("auto_sell err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+case "shop_click_sell":
+                    {
+                        try
+                        {
+                            string nmS = root.TryGetProperty("name", out var nS) ? nS.GetString() : "";
+                            int keepS = root.TryGetProperty("keep", out var kS) ? kS.GetInt32() : 0;
+                            var menuS = Game1.activeClickableMenu;
+                            if (menuS == null || menuS.GetType().Name != "ShopMenu") { this.monitor.Log("shop_click_sell: 商店没开", LogLevel.Warn); break; }
+                            var bfS = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            int money0 = Game1.player.Money;
+                            var partsS = new System.Collections.Generic.List<string>();
+                            // 找 InventoryMenu
+                            object invMenu = null;
+                            for (var t = menuS.GetType(); t != null && t != typeof(object) && invMenu == null; t = t.BaseType)
+                            {
+                                var f = t.GetField("inventory", bfS);
+                                if (f != null) { invMenu = f.GetValue(menuS); if (invMenu != null && invMenu.GetType().Name.Contains("InventoryMenu")) break; invMenu = null; }
+                            }
+                            partsS.Add("invMenu=" + (invMenu?.GetType().Name ?? "null"));
+                            if (invMenu == null) { this.monitor.Log("shop_click_sell: 找不到 InventoryMenu", LogLevel.Warn); break; }
+                            var fInv = invMenu.GetType().GetField("inventory", bfS);
+                            var slots = fInv?.GetValue(invMenu) as System.Collections.IList;
+                            partsS.Add("slots=" + (slots?.Count ?? -1));
+                            var clickM = menuS.GetType().GetMethod("receiveLeftClick", bfS);
+                            if (clickM == null) { this.monitor.Log("shop_click_sell: 没有 receiveLeftClick", LogLevel.Warn); break; }
+                            int clicks = 0;
+                            for (int attempt = 0; attempt < 60; attempt++)
+                            {
+                                // 找还有目标物品且超过 keep 的槽位
+                                int slotIdx = -1;
+                                for (int i = 0; i < Game1.player.Items.Count; i++)
+                                {
+                                    var it = Game1.player.Items[i];
+                                    if (it == null) continue;
+                                    string d = it.DisplayName ?? it.Name ?? "";
+                                    if (!d.Contains(nmS)) continue;
+                                    if (it.Stack <= keepS) continue;
+                                    if (slots != null && i < slots.Count) { slotIdx = i; break; }
+                                }
+                                if (slotIdx < 0) break;
+                                var comp = slots[slotIdx];
+                                var boundsP = comp.GetType().GetProperty("bounds");
+                                object boundsO = boundsP != null ? boundsP.GetValue(comp) : comp.GetType().GetField("bounds")?.GetValue(comp);
+                                if (boundsO == null) { partsS.Add("no bounds"); break; }
+                                var r = (Microsoft.Xna.Framework.Rectangle)boundsO;
+                                try { clickM.Invoke(menuS, new object[] { r.Center.X, r.Center.Y, true }); } catch (Exception e6) { partsS.Add("clickErr:" + e6.Message); break; }
+                                clicks++;
+                                System.Threading.Thread.Sleep(20);
+                            }
+                            partsS.Add($"clicks={clicks} money={Game1.player.Money} (+{Game1.player.Money - money0})");
+                            this.monitor.Log("shop_click_sell: " + string.Join(" ; ", partsS), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("shop_click_sell err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                case "dump_shop_slots":
+                    {
+                        try
+                        {
+                            string nmS = root.TryGetProperty("name", out var nS) ? nS.GetString() : "";
+                            var menuS = Game1.activeClickableMenu;
+                            var lines = new System.Collections.Generic.List<string>();
+                            lines.Add("menu=" + (menuS?.GetType().Name ?? "none"));
+                            if (menuS != null && menuS.GetType().Name == "ShopMenu")
+                            {
+                                var bfS = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                                object invMenu = null;
+                                for (var t = menuS.GetType(); t != null && t != typeof(object) && invMenu == null; t = t.BaseType)
+                                {
+                                    var f = t.GetField("inventory", bfS);
+                                    if (f != null) { var v = f.GetValue(menuS); if (v != null && v.GetType().Name.Contains("InventoryMenu")) invMenu = v; }
+                                }
+                                var slots = invMenu?.GetType().GetField("inventory", bfS)?.GetValue(invMenu) as System.Collections.IList;
+                                lines.Add("slots=" + (slots?.Count ?? -1));
+                                if (slots != null)
+                                {
+                                    for (int i = 0; i < slots.Count && i < Game1.player.Items.Count; i++)
+                                    {
+                                        var it = Game1.player.Items[i];
+                                        if (it == null) continue;
+                                        string d = it.DisplayName ?? it.Name ?? "";
+                                        if (!d.Contains(nmS)) continue;
+                                        var comp = slots[i];
+                                        var b = comp.GetType().GetProperty("bounds")?.GetValue(comp) ?? comp.GetType().GetField("bounds")?.GetValue(comp);
+                                        lines.Add($"{i}|{d}|{it.Stack}|{b}");
+                                    }
+                                }
+                            }
+                            var path = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(typeof(BotManager).Assembly.Location), "shop_slots.txt");
+                            System.IO.File.WriteAllText(path, string.Join("\n", lines));
+                            this.monitor.Log("dump_shop_slots: " + lines.Count + " lines", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_shop_slots err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
                 case "player_use_tool":
                     if (root.TryGetProperty("tool", out var put) && root.TryGetProperty("x", out var pux) && root.TryGetProperty("y", out var puy))
                     {
