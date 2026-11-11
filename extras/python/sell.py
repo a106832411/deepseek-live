@@ -22,7 +22,7 @@ SLOTS = r"E:\steam\steamapps\common\Stardew Valley\Mods\StardewMCPBridge\shop_sl
 SHOPS = {
     "Carpenter": ["石头", "木材", "粘土", "硬木"],
     "Blacksmith": ["铜矿石", "铁矿石", "煤炭"],
-    "SeedShop": ["防风草", "土豆", "花椰菜", "蓝莓"],
+    "SeedShop": ["防风草", "土豆", "花椰菜", "蓝莓", "小麦", "甜瓜", "西红柿", "辣椒", "萝卜", "虞美人"],
 }
 
 

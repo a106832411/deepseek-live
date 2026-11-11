@@ -285,8 +285,32 @@ namespace StardewMCPBridge
             return list;
         }
 
+        private static int GetWateringCanWater()
+        {
+            try
+            {
+                foreach (var it in Game1.player.Items)
+                {
+                    if (it is StardewValley.Tools.WateringCan can) return can.WaterLeft;
+                }
+            }
+            catch { }
+            return -1;
+        }
+
+        private static void TryUnpauseOptions()
+        {
+            try
+            {
+                if (Game1.options == null) return;
+                Game1.options.pauseWhenOutOfFocus = false;
+            }
+            catch { }
+        }
+
         private void SyncGameState()
         {
+            TryUnpauseOptions();
             try
             {
                 var state = new
@@ -308,7 +332,8 @@ namespace StardewMCPBridge
                     player = new
                     {
                         name = Game1.player.Name,
-                        health = Game1.player.health,
+                        wateringCanLeft = GetWateringCanWater(),
+                    health = Game1.player.health,
                         stamina = Game1.player.Stamina,
                         money = Game1.player.Money,
                         tile = new { x = (int)Game1.player.Tile.X, y = (int)Game1.player.Tile.Y },

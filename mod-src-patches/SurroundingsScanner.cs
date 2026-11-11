@@ -117,6 +117,7 @@ namespace StardewMCPBridge
                 passable = buildingsTile && passable;
             }
 
+            bool watered = false;
             string terrainType = null;
             string cropName = null;
             bool cropReady = false;
@@ -132,6 +133,7 @@ namespace StardewMCPBridge
                 if (feature is HoeDirt dirt)
                 {
                     terrainType = "hoeDirt";
+                    try { watered = dirt.state.Value == 1; } catch { }
                     waterState = dirt.state.Value; // 0=dry, 1=watered
                     if (dirt.crop != null)
                     {
@@ -229,6 +231,7 @@ namespace StardewMCPBridge
                 Terrain = terrainType,
                 CropName = cropName,
                 CropReady = cropReady,
+                Watered = watered,
                 WaterState = waterState,
                 ObjectName = objectName,
                 ObjectType = objectType,
@@ -301,6 +304,7 @@ namespace StardewMCPBridge
         public string Terrain { get; set; }
         public string CropName { get; set; }
         public bool CropReady { get; set; }
+        public bool Watered { get; set; }
         public int WaterState { get; set; }
         public string ObjectName { get; set; }
         public string ObjectType { get; set; }

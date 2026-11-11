@@ -2569,6 +2569,200 @@ case "shop_click_sell":
                         catch (Exception ex) { this.monitor.Log("dump_shop_slots err: " + ex.Message, LogLevel.Warn); }
                         break;
                     }
+                case "plant_seed":
+                    {
+                        try
+                        {
+                            string nmP = root.TryGetProperty("name", out var nP) ? nP.GetString() : "";
+                            int pxP = root.GetProperty("x").GetInt32(), pyP = root.GetProperty("y").GetInt32();
+                            var locP = Game1.player.currentLocation;
+                            var posP = new Microsoft.Xna.Framework.Vector2(pxP, pyP);
+                            if (!locP.terrainFeatures.TryGetValue(posP, out var featP) || !(featP is StardewValley.TerrainFeatures.HoeDirt dirtP))
+                            { this.monitor.Log($"plant_seed: ({pxP},{pyP}) 不是耕地", LogLevel.Warn); break; }
+                            StardewValley.Object seedP = null; int idxP = -1;
+                            for (int iP = 0; iP < Game1.player.Items.Count; iP++)
+                            {
+                                var itP = Game1.player.Items[iP];
+                                if (itP == null) continue;
+                                string dP = itP.DisplayName ?? itP.Name ?? "";
+                                if (!dP.Contains(nmP)) continue;
+                                seedP = itP as StardewValley.Object; idxP = iP; break;
+                            }
+                            if (seedP == null) { this.monitor.Log("plant_seed: 没有种子 " + nmP, LogLevel.Warn); break; }
+                            bool okP = false;
+                            var idsP = new[] { seedP.QualifiedItemId, seedP.ItemId, seedP.ParentSheetIndex.ToString() };
+                            var triedP = new System.Collections.Generic.List<string>();
+                            foreach (var idP in idsP)
+                            {
+                                if (string.IsNullOrEmpty(idP)) continue;
+                                try { okP = dirtP.plant(idP, Game1.player, false); } catch (Exception e8) { triedP.Add(idP + ":err" + e8.Message); continue; }
+                                triedP.Add(idP + ":" + okP);
+                                if (okP) break;
+                            }
+                            if (okP)
+                            {
+                                seedP.Stack -= 1;
+                                if (seedP.Stack <= 0) Game1.player.Items[idxP] = null;
+                            }
+                            this.monitor.Log($"plant_seed: ({pxP},{pyP}) {nmP} planted={okP} tried={string.Join(",", triedP)}", LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("plant_seed err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                case "dump_plant_apis":
+                    {
+                        try
+                        {
+                            var bfD = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var partsD = new System.Collections.Generic.List<string>();
+                            foreach (var tD in new[] { typeof(StardewValley.GameLocation), typeof(StardewValley.TerrainFeatures.HoeDirt), typeof(StardewValley.Object) })
+                            {
+                                foreach (var mi in tD.GetMethods(bfD))
+                                {
+                                    string nmD = mi.Name.ToLower();
+                                    if (nmD.Contains("plant") || nmD.Contains("performuseaction") || nmD.Contains("useseed") || nmD.Contains("doFunction".ToLower()))
+                                        partsD.Add(tD.Name + "." + mi.Name + "(" + string.Join(",", System.Array.ConvertAll(mi.GetParameters(), pp => pp.ParameterType.Name)) + ")");
+                                }
+                            }
+                            this.monitor.Log("PLANTAPI " + string.Join(" | ", partsD), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_plant_apis err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                case "dump_shop_fields":
+                    {
+                        try
+                        {
+                            var menuS = Game1.activeClickableMenu;
+                            var bfS = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var partsS = new System.Collections.Generic.List<string>();
+                            partsS.Add("menu=" + (menuS?.GetType().Name ?? "none"));
+                            if (menuS != null)
+                            {
+                                for (var t = menuS.GetType(); t != null && t != typeof(object); t = t.BaseType)
+                                {
+                                    foreach (var f in t.GetFields(bfS | System.Reflection.BindingFlags.DeclaredOnly))
+                                    {
+                                        string nm = f.Name.ToLower();
+                                        if (nm.Contains("sale") || nm.Contains("stock") || nm.Contains("button") || nm.Contains("inventory") || nm.Contains("hover"))
+                                            partsS.Add(t.Name + "." + f.Name + ":" + f.FieldType.Name);
+                                    }
+                                }
+                                var forSaleF = menuS.GetType().GetField("forSale", bfS);
+                                var forSale = forSaleF?.GetValue(menuS) as System.Collections.IEnumerable;
+                                if (forSale != null)
+                                {
+                                    int k = 0;
+                                    foreach (var it in forSale)
+                                    {
+                                        if (k > 8) break;
+                                        var obj = it as StardewValley.ISalable;
+                                        partsS.Add("sale" + k + "=" + (obj?.DisplayName ?? "?") + ":" + (obj?.salePrice() ?? -1));
+                                        k++;
+                                    }
+                                }
+                            }
+                            this.monitor.Log("SHOPF " + string.Join(" | ", partsS), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("dump_shop_fields err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+
+                case "buy_item":
+                    {
+                        try
+                        {
+                            string nmB = root.TryGetProperty("name", out var nB) ? nB.GetString() : "";
+                            int cntB = root.TryGetProperty("count", out var cB) ? cB.GetInt32() : 1;
+                            var bfB = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var menuB = Game1.activeClickableMenu;
+                            if (menuB == null) { this.monitor.Log("buy_item: 商店没开", LogLevel.Warn); break; }
+                            var saleF = menuB.GetType().GetField("forSale", bfB);
+                            var saleL = saleF?.GetValue(menuB) as System.Collections.IList;
+                            var btnF = menuB.GetType().GetField("forSaleButtons", bfB);
+                            var btnL = btnF?.GetValue(menuB) as System.Collections.IList;
+                            var clickM = menuB.GetType().GetMethod("receiveLeftClick", bfB);
+                            var partsB = new System.Collections.Generic.List<string>();
+                            partsB.Add("menu=" + menuB.GetType().Name + " sale=" + (saleL?.Count ?? -1) + " buttons=" + (btnL?.Count ?? -1) + " money0=" + Game1.player.Money);
+                            int bought = 0;
+                            if (saleL != null && btnL != null && clickM != null)
+                            {
+                                for (int attempt = 0; attempt < cntB; attempt++)
+                                {
+                                    int idx = -1;
+                                    for (int i = 0; i < saleL.Count && i < btnL.Count; i++)
+                                    {
+                                        var obj = saleL[i] as StardewValley.ISalable;
+                                        string dn = obj?.DisplayName ?? "";
+                                        if (!dn.Contains(nmB)) continue;
+                                        idx = i; break;
+                                    }
+                                    if (idx < 0) { partsB.Add("not found"); break; }
+                                    var comp = btnL[idx];
+                                    var b = comp.GetType().GetProperty("bounds")?.GetValue(comp) ?? comp.GetType().GetField("bounds")?.GetValue(comp);
+                                    if (b == null) { partsB.Add("no bounds"); break; }
+                                    var r = (Microsoft.Xna.Framework.Rectangle)b;
+                                    try { clickM.Invoke(menuB, new object[] { r.Center.X, r.Center.Y, true }); } catch (Exception e7) { partsB.Add("clickErr:" + e7.Message); break; }
+                                    bought++;
+                                }
+                            }
+                            partsB.Add($"bought={bought} money={Game1.player.Money}");
+                            this.monitor.Log("buy_item: " + string.Join(" ; ", partsB), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("buy_item err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
+                case "buy_direct":
+                    {
+                        try
+                        {
+                            string nmB = root.TryGetProperty("name", out var nB) ? nB.GetString() : "";
+                            int cntB = root.TryGetProperty("count", out var cB) ? cB.GetInt32() : 1;
+                            var menuB = Game1.activeClickableMenu;
+                            if (menuB == null) { this.monitor.Log("buy_direct: 商店没开", LogLevel.Warn); break; }
+                            var bfB = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            var saleL = menuB.GetType().GetField("forSale", bfB)?.GetValue(menuB) as System.Collections.IList;
+                            var stockD = menuB.GetType().GetField("itemPriceAndStock", bfB)?.GetValue(menuB) as System.Collections.IDictionary;
+                            var partsB = new System.Collections.Generic.List<string>();
+                            int bought = 0, spent = 0;
+                            for (int attempt = 0; attempt < cntB; attempt++)
+                            {
+                                StardewValley.ISalable targetB = null;
+                                string keyB = null;
+                                if (saleL != null)
+                                {
+                                    for (int i = 0; i < saleL.Count; i++)
+                                    {
+                                        var s2 = saleL[i] as StardewValley.ISalable;
+                                        string dn = s2?.DisplayName ?? "";
+                                        if (!dn.Contains(nmB)) continue;
+                                        targetB = s2; keyB = s2.QualifiedItemId; break;
+                                    }
+                                }
+                                if (targetB == null) { partsB.Add("not found " + nmB); break; }
+                                int price = targetB.salePrice();
+                                if (stockD != null && keyB != null && stockD.Contains(keyB))
+                                {
+                                    var entry = stockD[keyB];
+                                    var priceProp = entry?.GetType().GetProperty("Price");
+                                    var priceField = entry?.GetType().GetField("Price");
+                                    int p2 = priceProp != null ? (int)priceProp.GetValue(entry) : (priceField != null ? (int)priceField.GetValue(entry) : price);
+                                    if (p2 > 0) price = p2;
+                                }
+                                if (Game1.player.Money < price) { partsB.Add("no money price=" + price); break; }
+                                var one = (targetB as StardewValley.Item)?.getOne();
+                                if (one == null) { partsB.Add("no item copy"); break; }
+                                one.Stack = 1;
+                                if (!Game1.player.addItemToInventoryBool(one, true)) { partsB.Add("inventory full"); break; }
+                                Game1.player.Money -= price;
+                                bought++; spent += price;
+                            }
+                            partsB.Add($"bought={bought} spent={spent} money={Game1.player.Money}");
+                            this.monitor.Log("buy_direct: " + string.Join(" ; ", partsB), LogLevel.Info);
+                        }
+                        catch (Exception ex) { this.monitor.Log("buy_direct err: " + ex.Message, LogLevel.Warn); }
+                        break;
+                    }
                 case "player_use_tool":
                     if (root.TryGetProperty("tool", out var put) && root.TryGetProperty("x", out var pux) && root.TryGetProperty("y", out var puy))
                     {
