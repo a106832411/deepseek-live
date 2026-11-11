@@ -208,6 +208,7 @@ function normalize(c) {
   if (c.sing.beat_scale == null) c.sing.beat_scale = 0.75;
   if (!c.sing.engine) c.sing.engine = 'tts';
   if (!c.sing.ace) c.sing.ace = {};
+  if (!c.sing.rvc) c.sing.rvc = {};
   c.obs = c.obs || {};
   if (!c.obs.host) c.obs.host = '127.0.0.1';
   if (c.obs.port == null) c.obs.port = 4455;
@@ -904,6 +905,7 @@ onUnmounted(() => {
                   <select v-model="cfg.sing.engine" @change="markDirty">
                     <option value="tts">TTS 清唱（默认，快）</option>
                     <option value="ace">真唱 ACE-Step（本地部署，慢但真唱）</option>
+                    <option value="rvc">真唱 RVC 翻唱（原曲分离+换声，WSL/GPU）</option>
                   </select>
                 </label>
                 <label class="field"><span>唱法模式</span>
@@ -937,6 +939,19 @@ onUnmounted(() => {
                 </label>
                 <label class="field"><span>每首句数</span><input type="number" v-model.number="cfg.sing.max_lines" @input="markDirty" /></label>
                 <label class="field"><span>整首字数</span><input type="number" v-model.number="cfg.sing.max_chars" @input="markDirty" /></label>
+              </div>
+              <div class="row2" style="margin-top:8px" v-if="cfg.sing.engine === 'rvc'">
+                <label class="field"><span>RVC 运行方式</span>
+                  <select v-model="cfg.sing.rvc.mode" @change="markDirty">
+                    <option value="wsl">WSL（ROCm GPU，推荐）</option>
+                    <option value="local">Windows 本地 python（CPU）</option>
+                  </select>
+                </label>
+                <label class="field"><span>RVC 声线名</span><input v-model="cfg.sing.rvc.voice" @input="markDirty" placeholder="voices.json 里的键" /></label>
+                <label class="field"><span>声线表 voices.json</span><input v-model="cfg.sing.rvc.voices_file" @input="markDirty" placeholder="D:/models/rvc/voices.json" /></label>
+                <label class="field"><span>升降调（半音）</span><input type="number" v-model.number="cfg.sing.rvc.f0" @input="markDirty" /></label>
+                <label class="field"><span>设备</span><input v-model="cfg.sing.rvc.device" @input="markDirty" placeholder="cuda:0 / cpu:0" /></label>
+                <label class="field"><span>WSL 发行版</span><input v-model="cfg.sing.rvc.distro" @input="markDirty" placeholder="Ubuntu-22.04" /></label>
               </div>
               <div class="row">
                 <label class="check"><input type="checkbox" v-model="cfg.sing.v2" @change="markDirty" /> 唱腔化 v2（拉长元音+连唱，更像在唱）</label>

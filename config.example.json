@@ -1,4 +1,4 @@
-﻿{
+{
   "platform": "douyin",
   "douyin": {
     "web_rid": "替换成你的直播间号",
@@ -129,6 +129,26 @@
         "female solo vocal, a cappella, no instruments, pure vocal, cute, clear diction, mandarin, 80 BPM"
       ],
       "infer_steps": 8
+    },
+    "rvc": {
+      "mode": "wsl",
+      "distro": "Ubuntu-22.04",
+      "user": "root",
+      "python_wsl": "/opt/rvc/bin/python",
+      "compat_wsl": "/opt/rvc/compat",
+      "python": "",
+      "voices_file": "D:/models/rvc/voices.json",
+      "voice": "我的声线",
+      "f0": 0,
+      "device": "cuda:0",
+      "ffmpeg": "",
+      "demucs_model": "htdemucs",
+      "hf_endpoint": "https://hf-mirror.com",
+      "timeout_sec": 900,
+      "cover_script": "",
+      "input": "",
+      "dry_run": false,
+      "keep": false
     }
   },
   "obs": {

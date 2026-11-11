@@ -222,7 +222,26 @@ const DEFAULT_CONFIG = {
     natural: true,              // melody 模式走自然旋律（弱颤音/不硬量化/句尾轻拖）
     v2: true,                   // 唱腔化 v2：按节拍拉伸元音（一字 0.4~0.8s）+ legato + 颤音，唱法感更强
     beat_scale: 0.75,           // v2 档位：0.55 保守 / 0.75 中等 / 0.95 明显
-    engine: 'tts',              // tts=TTS 清唱（默认）| ace=真唱（ACE-Step 生成人声 + Seed-VC 换声，需本地部署）
+    engine: 'tts',              // tts=TTS 清唱（默认）| ace=真唱（ACE-Step + Seed-VC）| rvc=真唱翻唱（原曲分离 + RVC 换声，唱歌工坊同款流水线）
+    // 真唱翻唱（RVC）：找原曲 → demucs 拆人声/伴奏 → RVC 换声 → 混音 → 当清唱播放
+    // 推荐在 WSL 里用 ROCm GPU（mode=wsl）；也可以指定 Windows 上的 python（mode=local，CPU 兜底）
+    rvc: {
+      mode: 'wsl',                     // wsl=WSL 里的 python（GPU）| local=Windows python
+      distro: 'Ubuntu-22.04',
+      user: 'root',
+      python_wsl: '/opt/rvc/bin/python',
+      compat_wsl: '/opt/rvc/compat',   // fairseq shim（插件自带，WSL 里复制过去的）
+      python: '',                      // local 模式的 Windows python.exe 路径
+      voices_file: '',                 // RVC 声线表 voices.json
+      voice: '',                       // 用哪个声线（voices_file 里的键）
+      f0: 0,                           // 升降调（半音），男女声互转常用 ±12
+      device: 'cuda:0',                // GPU：cuda:0；CPU：cpu:0
+      ffmpeg: '',                      // local 模式 ffmpeg.exe（留空= PATH 里的 ffmpeg）
+      demucs_model: 'htdemucs',
+      hf_endpoint: 'https://hf-mirror.com',
+      timeout_sec: 900,
+      cover_script: ''                 // 留空 = extras/python/song-cover/cover.py
+    },
     ace: {
       python: 'D:/sing_gpu/venv/Scripts/python.exe',
       script: 'D:/sing_gpu/ace_sing.py',
@@ -1312,9 +1331,189 @@ async function prepareAce(item) {
   return { outWav, timing, engine: 'ace' };
 }
 
+// ---------------- 真唱引擎二：RVC 翻唱（唱歌工坊同款流水线：分离 → 换声 → 混音） ----------------
+function rvcSettings() {
+  const cfg = (config.sing || {}).rvc || {};
+  const pick = (v, d) => (v === undefined || v === null || v === '' ? d : v);
+  return {
+    mode: String(pick(cfg.mode, 'wsl')).toLowerCase() === 'local' ? 'local' : 'wsl',
+    distro: String(pick(cfg.distro, 'Ubuntu-22.04')),
+    user: String(pick(cfg.user, 'root')),
+    pythonWsl: String(pick(cfg.python_wsl, '/opt/rvc/bin/python')),
+    compatWsl: String(pick(cfg.compat_wsl, '/opt/rvc/compat')),
+    python: String(pick(cfg.python, '')),
+    voicesFile: String(pick(cfg.voices_file, '')),
+    voice: String(pick(cfg.voice, '')),
+    f0: Math.max(-24, Math.min(24, Math.round(Number(pick(cfg.f0, 0)) || 0))),
+    device: String(pick(cfg.device, 'cuda:0')),
+    ffmpeg: String(pick(cfg.ffmpeg, '')),
+    demucsModel: String(pick(cfg.demucs_model, 'htdemucs')),
+    hfEndpoint: String(pick(cfg.hf_endpoint, 'https://hf-mirror.com')),
+    timeoutMs: Math.max(120000, Number(pick(cfg.timeout_sec, 900)) * 1000),
+    coverScript: String(pick(cfg.cover_script, path.join(EXTRA_ROOT, 'extras', 'python', 'song-cover', 'cover.py'))),
+    input: String(pick(cfg.input, '')),        // 可选：直接用本地音频测试（不给就自动找并下载原曲）
+    dryRun: cfg.dry_run === true,
+    keep: cfg.keep === true
+  };
+}
+
+/** 返回空串 = 可用；否则返回不可用原因（写进日志，方便排查） */
+function rvcUnavailableReason(cfg) {
+  if (!cfg.voice) return '没配声线（sing.rvc.voice）';
+  if (!cfg.voicesFile || !fs.existsSync(cfg.voicesFile)) return '声线表不存在: ' + cfg.voicesFile;
+  if (!fs.existsSync(cfg.coverScript)) return '找不到 cover.py: ' + cfg.coverScript;
+  if (cfg.mode === 'local' && !cfg.python) return 'local 模式没配 sing.rvc.python（Windows python 路径）';
+  return '';
+}
+
+/** Windows 路径 → WSL 的 /mnt/x/... 路径（不是 Windows 路径就原样返回） */
+function winToWslPath(p) {
+  const s = String(p || '');
+  const m = /^([A-Za-z]):[\\/](.*)$/.exec(s);
+  if (!m) return s;
+  return '/mnt/' + m[1].toLowerCase() + '/' + m[2].replace(/\\/g, '/');
+}
+
+/** 在 WSL（GPU）或 Windows（CPU 兜底）里跑一个 python 命令，收 stdout/stderr，超时 kill */
+function spawnRvcPython(cfg, argv, timeoutMs) {
+  return new Promise((resolve) => {
+    let file;
+    let args;
+    let env = null;
+    if (cfg.mode === 'wsl') {
+      file = 'wsl.exe';
+      args = ['-d', cfg.distro, '-u', cfg.user, '--', 'env', 'PYTHONPATH=' + cfg.compatWsl, cfg.pythonWsl]
+        .concat(argv.map(winToWslPath));
+    } else {
+      file = cfg.python || 'python';
+      args = argv;
+      env = Object.assign({}, process.env, { PYTHONIOENCODING: 'utf-8', PYTHONUNBUFFERED: '1' });
+    }
+    let out = '';
+    let err = '';
+    let done = false;
+    const finish = (code) => { if (!done) { done = true; resolve({ code, out, err }); } };
+    let p;
+    try { p = spawn(file, args, { windowsHide: true, env }); } catch (e) { err = e.message; finish(-2); return; }
+    const timer = setTimeout(() => { try { p.kill(); } catch (e) {} finish(-1); }, timeoutMs);
+    p.stdout.on('data', (d) => { out += d.toString(); });
+    p.stderr.on('data', (d) => { err += d.toString(); });
+    p.on('exit', (c) => { clearTimeout(timer); finish(c); });
+    p.on('error', (e) => { clearTimeout(timer); err += String((e && e.message) || e); finish(-2); });
+  });
+}
+
+/** 用 ffmpeg 把成品 mp3 转成 wav（直播放音链路只吃 wav） */
+function rvcMp3ToWav(cfg, mp3, wav) {
+  return new Promise((resolve) => {
+    const ff = ['-y', '-v', 'error', '-i', mp3, '-ar', '44100', '-ac', '1', wav];
+    let file;
+    let args;
+    if (cfg.mode === 'wsl') { file = 'wsl.exe'; args = ['-d', cfg.distro, '-u', cfg.user, '--', 'ffmpeg'].concat(ff.map(winToWslPath)); }
+    else { file = cfg.ffmpeg || 'ffmpeg'; args = ff; }
+    let p;
+    try { p = spawn(file, args, { windowsHide: true }); } catch (e) { resolve(false); return; }
+    let err = '';
+    const timer = setTimeout(() => { try { p.kill(); } catch (e) {} resolve(false); }, 180000);
+    p.stderr.on('data', (d) => { err += d.toString(); });
+    p.on('exit', (c) => { clearTimeout(timer); if (c !== 0) log('真唱RVC ffmpeg: ' + err.trim().split('\n').slice(-3).join(' | ')); resolve(c === 0 && fs.existsSync(wav)); });
+    p.on('error', () => { clearTimeout(timer); resolve(false); });
+  });
+}
+
+async function prepareRvc(item) {
+  const cfg = rvcSettings();
+  const why = rvcUnavailableReason(cfg);
+  if (why) { log('真唱RVC 不可用: ' + why); return null; }
+  let found = null;
+  if (!(cfg.input && fs.existsSync(cfg.input))) {
+    found = await findPlayable(item.query);
+    if (!found || !found.url) { log(`真唱RVC：没找到可下载的原曲《${item.query}》`); return null; }
+  }
+
+  const dir = path.join(LOG_DIR, 'sing');
+  fs.mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  const safe = String(item.song.name).replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 24) || 'song';
+  const src = (cfg.input && fs.existsSync(cfg.input))
+    ? path.resolve(cfg.input)
+    : path.join(os.tmpdir(), 'wt_cover_src_' + String(found.song.id || Date.now()) + '.mp3');
+  const outDir = path.join(dir, 'cover');
+  const workDir = path.join(dir, 'cover-work');
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.mkdirSync(workDir, { recursive: true });
+  const cfgPath = path.join(dir, `${stamp}_${safe}.cover.json`);
+  const wsl = cfg.mode === 'wsl';
+  try {
+    if (!found && !(cfg.input && fs.existsSync(cfg.input))) return null;
+    if (!(cfg.input && fs.existsSync(cfg.input)) && (!fs.existsSync(src) || fs.statSync(src).size < 10000)) {
+      log(`真唱RVC：下载原曲《${found.song.name}》（${found.sourceName}）`);
+      await downloadFile(found.url, src);
+    }
+    fs.writeFileSync(cfgPath, JSON.stringify({
+      ffmpeg: wsl ? '/usr/bin/ffmpeg' : (cfg.ffmpeg || 'ffmpeg'),
+      voices_file: wsl ? winToWslPath(cfg.voicesFile) : cfg.voicesFile,
+      demucs_model: cfg.demucsModel,
+      work_dir: wsl ? winToWslPath(workDir) : workDir,
+      out_dir: wsl ? winToWslPath(outDir) : outDir,
+      device: cfg.device,
+      hf_endpoint: cfg.hfEndpoint
+    }, null, 2), 'utf8');
+    const argv = [cfg.coverScript, '--input', src, '--voice', cfg.voice, '--config', cfgPath,
+      '--f0', String(cfg.f0), '--device', cfg.device, '--clip-seconds', '0', '--name', item.song.name, '--outdir', outDir];
+    if (cfg.keep) argv.push('--keep-work');
+    if (cfg.dryRun) {
+      // 自检用：只打印将要执行的命令，不真的跑（可验证 WSL/本地路径拼得对不对）
+      const preview = cfg.mode === 'wsl'
+        ? ['wsl.exe', '-d', cfg.distro, '-u', cfg.user, '--', 'env', 'PYTHONPATH=' + cfg.compatWsl, cfg.pythonWsl].concat(argv.map(winToWslPath))
+        : [cfg.python || 'python'].concat(argv);
+      log('真唱RVC 自检（dry_run，不执行）: ' + preview.map((x) => (/\s/.test(x) ? '"' + x + '"' : x)).join(' '));
+      return null;
+    }
+    log(`真唱RVC开始: 《${item.song.name}》 声线=${cfg.voice} 模式=${cfg.mode}(${cfg.device})`);
+    const t0 = Date.now();
+    const r = await spawnRvcPython(cfg, argv, cfg.timeoutMs);
+    log(`真唱RVC结束 code=${r.code} 用时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    if (r.code !== 0) {
+      log('真唱RVC stderr: ' + String(r.err || r.out || '').trim().split('\n').slice(-6).join(' | '));
+      return null;
+    }
+    let mp3 = null;
+    try {
+      const files = fs.readdirSync(outDir).filter((f) => f.endsWith('_full.mp3'))
+        .map((f) => ({ f, t: fs.statSync(path.join(outDir, f)).mtimeMs })).sort((a, b) => b.t - a.t);
+      if (files.length) mp3 = path.join(outDir, files[0].f);
+    } catch (e) {}
+    if (!mp3) { log('真唱RVC：没找到成品 mp3'); return null; }
+
+    const outWav = path.join(dir, `${stamp}_${safe}.wav`);
+    if (!(await rvcMp3ToWav(cfg, mp3, outWav))) { log('真唱RVC：成品转 wav 失败'); return null; }
+    const env = wavEnvelope(fs.readFileSync(outWav));
+    const dur = (env && env.duration) || 0;
+    if (!dur || dur < 5) { log('真唱RVC：成品太短或时长读不出来'); return null; }
+    const timing = buildAceTiming(item.lyrics, dur);
+    timing.engine = 'rvc';
+    timing.mode = 'rvc';
+    if (!cfg.keep) { try { fs.unlinkSync(mp3); } catch (e) {} }
+    log(`真唱RVC生成完成: 《${item.song.name}》 ${dur.toFixed(1)}s`);
+    return { outWav, timing, engine: 'rvc' };
+  } catch (e) {
+    log('真唱RVC 异常: ' + e.message);
+    return null;
+  } finally {
+    try { if (!cfg.keep) fs.unlinkSync(src); } catch (e) {}
+  }
+}
+
 async function doPrep(item) {
   const cfg = config.sing || {};
   const tts = config.tts || {};
+  // 真唱翻唱（RVC）：原曲 → demucs 分离 → RVC 换声 → 混音，走唱歌工坊同款流水线
+  if (String(cfg.engine || 'tts') === 'rvc') {
+    const r = await prepareRvc(item).catch((e) => { log('真唱RVC 管线异常: ' + e.message); return null; });
+    if (r) return r;
+    log('真唱RVC 失败，回退 TTS 清唱');
+  }
   // 真唱引擎（ACE-Step + Seed-VC）：失败自动回落到下面的 TTS 清唱
   if (String(cfg.engine || 'tts') === 'ace') {
     const r = await prepareAce(item).catch((e) => { log('真唱管线异常: ' + e.message); return null; });
@@ -1421,7 +1620,7 @@ async function performSing(item) {
   // 还没合成完就垫一句，避免十几秒静音（合成慢就循环垫，最多 2 次）
   const fillerText = String((cfg.filler === false ? '' : cfg.filler) || '我清清嗓子，准备开唱啦～歌词有点长，我再看一眼～马上就好，再等我一下下～');
   // 真唱管线要 1~2 分钟，垫话次数按引擎放宽
-  const fillerMax = String(cfg.engine || 'tts') === 'ace' ? 7 : 2;
+  const fillerMax = String(cfg.engine || 'tts') === 'ace' ? 7 : String(cfg.engine || 'tts') === 'rvc' ? 12 : 2;
   for (let i = 0; i < fillerMax && !prepDone && fillerText; i++) {
     await ttsSpeak(fillerText);
     if (state.song.skip) { state.song.skip = false; wsBroadcast({ kind: 'sing', action: 'end', t: Date.now() }); return; }
@@ -2120,6 +2319,10 @@ module.exports = {
   wavEnvelope,
   obsProbe,
   obsSetup,
+  rvcSettings,
+  winToWslPath,
+  rvcUnavailableReason(cfg) { return rvcUnavailableReason(cfg || rvcSettings()); },
+  prepareRvc,
   depsStatus,
   depsSettings,
   depsStart(name) { return deps.start(String(name || ''), depsSettings(), log); },
