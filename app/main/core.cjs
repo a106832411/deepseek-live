@@ -1829,6 +1829,7 @@ function depsSettings() {
   const aiCfg = c.ai || {};
   return {
     root: EXTRA_ROOT,
+    resRoot: ROOT,
     logDir: LOG_DIR,
     pythonPath: pythonPath(),
     ttsUrl: ttsCfg.api_url || 'http://127.0.0.1:9881',

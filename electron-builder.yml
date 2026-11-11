@@ -21,6 +21,8 @@ files:
   - public/**              # 免构建页面 + Live2D 模型（HTTP 静态服务，asar 内可正常读）
   - assets/**
   - server/**              # 免 Electron 的独立服务入口
+  - scripts/start-all.ps1  # 只读：里面写着本机 TTS 工作目录，运行环境页靠它自动发现 TTS
+  - scripts/stop-all.ps1
   - extras/python/**       # 可选 Python 脚本（清唱/TTS 等，主进程会 spawn）
   - extras/douyin/**       # 内置抖音弹幕中继 relay.js（deps.cjs 从 EXTRA_ROOT 找它、一键启动）
   # ---- 排除项（后写的覆盖前面的）----
@@ -37,7 +39,9 @@ files:
   - "!mod-src-patches/**"
   - "!docs/**"
   - "!src/**"
-  - "!scripts/**"
+  - "!scripts/build-exe.ps1"
+  - "!scripts/install.ps1"
+  - "!scripts/*.bat"
 
 # Python 脚本 / 内置抖音中继都必须从真实文件路径 spawn，asar 里的路径外部进程打不开
 # 打包后会落到 resources/app.asar.unpacked/extras/{python,douyin}/**

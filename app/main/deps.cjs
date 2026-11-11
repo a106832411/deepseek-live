@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 运行环境检测 / 一键启动（TTS · OBS · Ollama · Python · 真唱引擎）
  *
  * 零 npm 依赖：只用 net / fs / os / path / child_process。
@@ -95,22 +95,29 @@ function splitCommand(cmd) {
 
 // ---------------- 自动发现本机路径 ----------------
 
-/** TTS 启动脚本：优先读 scripts/start-all.ps1 里写的工作目录，再按常见目录结构找。 */
-function detectTtsScript(root) {
+/** TTS 启动脚本：优先读 scripts/start-all.ps1 里写的工作目录，再按常见目录结构找。
+ *  打包后脚本在 app.asar 里（只读文本，Electron 的 fs 能读），而 relay/douyin 在 asar.unpacked，
+ *  所以两个根都要试：root（extras 真实根）和 resRoot（asar/仓库根）。 */
+function detectTtsScript(root, resRoot) {
   const cands = [];
+  const roots = [root, resRoot].filter(Boolean);
   // ① 仓库自带的一键启动脚本里写着 TTS 工作目录（$Work = 'D:\...\whaletalk'），照抄即可
-  try {
-    const starter = path.join(root, 'scripts', 'start-all.ps1');
-    if (fs.existsSync(starter)) {
-      const text = fs.readFileSync(starter, 'utf8');
-      const m = /^\s*\$Work\s*=\s*['"]([^'"]+)['"]/m.exec(text);
-      if (m && m[1]) cands.push(path.join(m[1], 'gsv_gpu', 'run_gpu_api.ps1'));
-    }
-  } catch (e) {}
+  for (const r of roots) {
+    try {
+      const starter = path.join(r, 'scripts', 'start-all.ps1');
+      if (fs.existsSync(starter)) {
+        const text = fs.readFileSync(starter, 'utf8');
+        const m = /^\s*\$Work\s*=\s*['"]([^'"]+)['"]/m.exec(text);
+        if (m && m[1]) cands.push(path.join(m[1], 'gsv_gpu', 'run_gpu_api.ps1'));
+      }
+    } catch (e) {}
+  }
   // ② 常见目录结构：仓库同级 / 上级的 whaletalk
-  cands.push(path.resolve(root, '..', 'whaletalk', 'gsv_gpu', 'run_gpu_api.ps1'));
-  cands.push(path.resolve(root, '..', '..', 'whaletalk', 'gsv_gpu', 'run_gpu_api.ps1'));
-  cands.push(path.resolve(root, 'extras', 'tts', 'run_tts.ps1'));
+  for (const r of roots) {
+    cands.push(path.resolve(r, '..', 'whaletalk', 'gsv_gpu', 'run_gpu_api.ps1'));
+    cands.push(path.resolve(r, '..', '..', 'whaletalk', 'gsv_gpu', 'run_gpu_api.ps1'));
+  }
+  cands.push(path.resolve(root || '.', 'extras', 'tts', 'run_tts.ps1'));
   return firstExisting(cands);
 }
 
@@ -160,7 +167,7 @@ function resolveStart(key, settings) {
   const c = s.deps || {};
   if (key === 'tts') {
     if (c.tts_start_cmd) return { cmd: String(c.tts_start_cmd), source: '配置' };
-    const script = detectTtsScript(s.root || process.cwd());
+    const script = detectTtsScript(s.root || process.cwd(), s.resRoot);
     if (script) return { cmd: `powershell -NoProfile -ExecutionPolicy Bypass -File ${quote(script)}`, source: '自动发现' };
   }
   if (key === 'obs') {
@@ -227,7 +234,7 @@ async function probe(settings) {
   const aceScript = ace.script && fs.existsSync(String(ace.script).replace(/\//g, '\\'));
   const aceOk = !!(acePython && aceScript);
 
-  const ttsStart = resolveStart('tts', { root, deps: s.deps });
+  const ttsStart = resolveStart('tts', { root, resRoot: s.resRoot, deps: s.deps });
   const obsStart = resolveStart('obs', { root, deps: s.deps });
   const ollamaStart = resolveStart('ollama', { root, deps: s.deps });
   const douyinStart = resolveStart('douyin', { root, deps: s.deps, douyin: s.douyin, port: s.port });
@@ -298,7 +305,7 @@ async function start(key, settings, log) {
   if (!['tts', 'obs', 'ollama', 'douyin'].includes(key)) {
     return { ok: false, error: `不支持一键启动：${key}（Python / 真唱引擎需要手动装）` };
   }
-  const spec = resolveStart(key, { root: s.root, deps: s.deps, douyin: s.douyin, port: s.port });
+  const spec = resolveStart(key, { root: s.root, resRoot: s.resRoot, deps: s.deps, douyin: s.douyin, port: s.port });
   if (!spec) {
     return { ok: false, error: `没找到 ${key} 的启动方式：请到「运行环境」里填启动命令，或手动启动` };
   }
