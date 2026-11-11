@@ -173,12 +173,16 @@ curl -X POST http://127.0.0.1:8788/api/obs/setup   -d '{}'   # 一键建场景
 | GET | `/api/songs/state` | 清唱状态 `{mode:'sing', sing{enabled,style,lyrics}, current{lyrics,lyricIndex,audio,duration}, queue}`（`perform=play` 时返回旧形状） |
 | POST | `/api/songs/request` | 点歌/清唱 `{name, query}`；返回 `{ok, position, song}` |
 | POST | `/api/songs/skip` | 跳过（正在唱→打断；排队→删队首；查歌词窗口→3 秒内取消；空闲→无操作），见 [docs/清唱.md](docs/清唱.md) |
+| GET | `/api/deps` | 运行环境探测：TTS / OBS / Ollama / Python / 真唱引擎是否在线，见 [docs/运行环境.md](docs/运行环境.md) |
+| POST | `/api/deps/start` `/api/deps/stop` | 一键启动 / 停止依赖服务（只停鲸live 自己启动的） |
 | WS | `/ws` | 事件/回复/日志/状态推送；清唱事件 `sing start/line/end`、`song queued` |
 
 ## 桌面版特性
 
-- 左侧菜单树控制台（会话 / 事件 / 配置 / 皮套 / 叠加层 / 清唱队列 / 说话）
-- 全部配置表单化（AI、TTS、事件触发、固定回复、过滤词、清唱/点歌），也支持高级 JSON 编辑
+- 左侧菜单树控制台（会话 / 事件 / 配置 / 皮套 / 叠加层 / 清唱队列 / 说话 / 运行环境）
+- 全部配置表单化（AI、TTS、事件触发、固定回复、过滤词、清唱/点歌、运行环境启动命令），也支持高级 JSON 编辑
+- **运行环境页**：TTS / OBS / Ollama / Python / 真唱引擎状态灯 + 一键启动，自动发现本机路径（见 [docs/运行环境.md](docs/运行环境.md)）
+- 端口 8788 被占用时核心自动 +1 顺延，Electron 等真正监听成功再开窗口，不会白屏
 - 黑金主题，可二次开发换肤
 
 ## 依赖服务

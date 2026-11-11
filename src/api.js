@@ -36,6 +36,12 @@ async function rest(cmd, payload) {
       return fetchJson('/api/songs/state');
     case 'songs:request':
       return fetchJson('/api/songs/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}) });
+    case 'deps:get':
+      return fetchJson('/api/deps');
+    case 'deps:start':
+      return fetchJson('/api/deps/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}) });
+    case 'deps:stop':
+      return fetchJson('/api/deps/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload || {}) });
     default:
       throw new Error('unknown command: ' + cmd);
   }

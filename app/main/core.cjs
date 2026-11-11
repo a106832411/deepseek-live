@@ -14,6 +14,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const obs = require('./obs.cjs');
+const deps = require('./deps.cjs');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const PUBLIC = path.join(ROOT, 'public');
@@ -199,6 +200,12 @@ const DEFAULT_CONFIG = {
     },
     filler: '我清清嗓子，准备开唱啦～歌词有点长，我再看一眼～马上就好，再等我一下下～',
     pick_list: ['小星星', '生日快乐', '月亮代表我的心', '童年', '后来', '稻香', '晴天', '童话', '勇气', '宁夏']
+  },
+  // 运行环境：依赖服务的一键启动命令（留空 = 自动发现本机路径；发现不了就在「运行环境」页里手填）
+  deps: {
+    tts_start_cmd: '',      // 例：powershell -NoProfile -ExecutionPolicy Bypass -File D:\...\run_gpu_api.ps1
+    obs_start_cmd: '',      // 例：D:\obs-studio\bin\64bit\obs64.exe
+    ollama_start_cmd: ''    // 例：ollama serve
   }
 };
 
@@ -1524,6 +1531,28 @@ async function route(req, res) {
     const body = await readBody(req);
     return json(res, await obsSetup(body || {}));
   }
+  // 运行环境：探测依赖服务 / 一键启动 / 停止（只停鲸live自己起的）
+  if (p === '/api/deps' || p === '/api/deps/check') {
+    return json(res, await depsStatus());
+  }
+  if (p === '/api/deps/start') {
+    const body = await readBody(req);
+    const name = String((body && (body.name || body.key)) || '');
+    if (name === 'all' || name === '*') {
+      const results = [];
+      for (const key of ['tts', 'obs', 'ollama']) results.push(await deps.start(key, depsSettings(), log));
+      return json(res, { ok: true, results, services: (await depsStatus()).services });
+    }
+    if (!name) return json(res, { ok: false, error: '缺少 name' }, 400);
+    const r = await deps.start(name, depsSettings(), log);
+    return json(res, Object.assign({ services: (await depsStatus()).services }, r), r.ok ? 200 : 400);
+  }
+  if (p === '/api/deps/stop') {
+    const body = await readBody(req);
+    const name = String((body && body.name) || '');
+    const r = deps.stop(name);
+    return json(res, Object.assign({ services: (await depsStatus()).services }, r), r.ok ? 200 : 400);
+  }
   if (p === '/api/songs/request') {
     const body = await readBody(req);
     const name = body.name || '手动点歌';
@@ -1605,7 +1634,12 @@ function serveFile(res, name) {
 }
 
 // ---------------- 启动 ----------------
-function start(port) {
+/**
+ * 启动核心服务。
+ * @param {number} port 期望端口
+ * @param {(actualPort:number)=>void} [onReady] 真正监听成功后回调（端口被占用会自动 +1 顺延）
+ */
+function start(port, onReady) {
   port = resolvePort(port);
   LOG_TAG = '[p' + port + ']';
   loadConfig();
@@ -1619,11 +1653,38 @@ function start(port) {
     if (req.url.startsWith('/ws')) handleWsUpgrade(req, socket);
     else socket.destroy();
   });
-  server.listen(port, '127.0.0.1', () => {
-    state.port = port;
-  log(`鲸live服务已启动: http://127.0.0.1:${port}`);
-    log(`面板 http://127.0.0.1:${port}/dashboard  弹幕层 http://127.0.0.1:${port}/overlay  歌单 http://127.0.0.1:${port}/songs`);
+
+  let curPort = port;
+  let bumped = 0;
+  // 注意：用单个 'listening' 监听，而不是每次 listen(p, cb) 都挂一个回调——
+  // 端口冲突后重新 listen 时，旧回调也会被触发，会重复打印/重复开窗口。
+  server.on('listening', () => {
+    const p = (server.address() && server.address().port) || curPort;
+    curPort = p;
+    state.port = p;
+    log(`鲸live服务已启动: http://127.0.0.1:${p}`);
+    log(`面板 http://127.0.0.1:${p}/dashboard  弹幕层 http://127.0.0.1:${p}/overlay  歌单 http://127.0.0.1:${p}/songs`);
+    if (typeof onReady === 'function') {
+      try { onReady(p); } catch (e) { log('onReady 回调异常: ' + e.message); }
+    }
   });
+  const listenOn = (p) => {
+    curPort = p;
+    server.listen(p, '127.0.0.1');
+  };
+  // 端口被占用：自动 +1 顺延（最多试 20 个），避免 Electron 起不来/白屏
+  server.on('error', (e) => {
+    if (e && e.code === 'EADDRINUSE' && bumped < 20) {
+      bumped += 1;
+      const next = port + bumped;
+      LOG_TAG = '[p' + next + ']';
+      log(`端口 ${curPort} 被占用，改用 ${next}`);
+      try { listenOn(next); } catch (err) { log('换端口失败: ' + err.message); }
+      return;
+    }
+    log('服务启动失败: ' + ((e && e.message) || e));
+  });
+  listenOn(port);
   return server;
 }
 
@@ -1646,12 +1707,45 @@ function obsSettings(overrides) {
 function obsProbe(overrides) { return obs.probe(obsSettings(overrides)); }
 function obsSetup(overrides) { return obs.setupScene(obsSettings(overrides)); }
 
+// ---------------- 运行环境（依赖服务）----------------
+/** 把 config 里跟依赖服务相关的字段拼成 deps.cjs 要的 settings。 */
+function depsSettings() {
+  const c = config || {};
+  const ttsCfg = c.tts || {};
+  const obsCfg = c.obs || {};
+  const aiCfg = c.ai || {};
+  return {
+    root: ROOT,
+    logDir: LOG_DIR,
+    pythonPath: pythonPath(),
+    ttsUrl: ttsCfg.api_url || 'http://127.0.0.1:9881',
+    obs: { host: obsCfg.host || '127.0.0.1', port: Number(obsCfg.port || 4455) },
+    ollamaBase: aiCfg.openai_base || 'http://127.0.0.1:11434',
+    deps: c.deps || {},
+    sing: c.sing || {}
+  };
+}
+
+/** 探测 TTS / OBS / Ollama / Python / 真唱引擎。 */
+async function depsStatus() {
+  try {
+    const services = await deps.probe(depsSettings());
+    return { ok: true, services, managed: deps.managed(), checkedAt: Date.now(), port: state.port };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e), services: [] };
+  }
+}
+
 module.exports = {
   start,
   resolvePort,
   envOf,
   obsProbe,
   obsSetup,
+  depsStatus,
+  depsSettings,
+  depsStart(name) { return deps.start(String(name || ''), depsSettings(), log); },
+  depsStop(name) { return deps.stop(String(name || '')); },
   get config() { return config; },
   state,
   handleEvent,

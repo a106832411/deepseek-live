@@ -31,7 +31,10 @@ const CHANNELS = {
   },
   'songs:skip': (svc) => svc.skipSong(),
   'obs:status': (svc, payload) => svc.obsProbe(payload || {}),
-  'obs:setup': (svc, payload) => svc.obsSetup(payload || {})
+  'obs:setup': (svc, payload) => svc.obsSetup(payload || {}),
+  'deps:get': (svc) => svc.depsStatus(),
+  'deps:start': (svc, payload) => svc.depsStart((payload && (payload.name || payload.key)) || ''),
+  'deps:stop': (svc, payload) => svc.depsStop((payload && (payload.name || payload.key)) || '')
 };
 
 function registerIpc(service) {

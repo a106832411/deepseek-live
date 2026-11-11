@@ -8,7 +8,6 @@ const { registerIpc } = require('../app/main/ipc.cjs');
 const PORT = core.resolvePort(Number(process.env.DEEPLIVE_PORT || process.env.WT_PORT || 0) || undefined);
 process.env.WT_BASE = 'http://127.0.0.1:' + PORT;
 let win = null;
-
 function createWindow() {
   win = new BrowserWindow({
     width: 1440,
@@ -40,10 +39,13 @@ app.whenReady().then(() => {
   // 去掉默认系统菜单栏（File/Edit/View...）
   Menu.setApplicationMenu(null);
   // 1) 核心服务（HTTP + WS + AI + TTS + 点歌），供 OBS / 中继 / 外部脚本使用
-  core.start(PORT);
-  // 2) IPC 桥：Vue 控制台直接控制核心（不经过 HTTP）
-  registerIpc(core);
-  createWindow();
+  //    端口被占用时核心会自动 +1 顺延，所以窗口要等真正监听成功再开（否则 IPC 基址会错）
+  core.start(PORT, (actualPort) => {
+    process.env.WT_BASE = 'http://127.0.0.1:' + actualPort;
+    // 2) IPC 桥：Vue 控制台直接控制核心（不经过 HTTP）
+    registerIpc(core);
+    createWindow();
+  });
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

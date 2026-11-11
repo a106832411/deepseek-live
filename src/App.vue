@@ -21,6 +21,7 @@ const MENU = [
     { key: 'say', label: '手动说话', icon: '🗣' }
   ] },
   { title: '系统设置', icon: '⚙', items: [
+    { key: 'env', label: '运行环境', icon: '🧰' },
     { key: 'config', label: '全部配置', icon: '📝' }
   ] }
 ];
@@ -92,6 +93,7 @@ const EVENT_META = [
 
 let timer = null;
 let songTimer = null;
+let depsTimer = null;
 
 function toastShow(msg) {
   toast.value = msg;
@@ -190,6 +192,10 @@ function normalize(c) {
   if (!c.obs.preset) c.obs.preset = 'simple';
   if (c.douyin == null) c.douyin = { mode: 'relay', web_rid: '' };
   if (c.persona == null) c.persona = { system: '' };
+  c.deps = c.deps || {};
+  if (c.deps.tts_start_cmd == null) c.deps.tts_start_cmd = '';
+  if (c.deps.obs_start_cmd == null) c.deps.obs_start_cmd = '';
+  if (c.deps.ollama_start_cmd == null) c.deps.ollama_start_cmd = '';
   return c;
 }
 
@@ -327,11 +333,60 @@ async function obsSave() {
 }
 function reloadFrames() { iframeKey.value++; }
 
+// ---------------- 运行环境（依赖服务：TTS / OBS / Ollama / Python） ----------------
+const depsState = ref({ services: [] });
+const depsBusy = ref('');
+const depsByKey = computed(() => {
+  const m = {};
+  for (const s of depsState.value.services || []) m[s.key] = s;
+  return m;
+});
+async function refreshDeps() {
+  try {
+    const r = await invoke('deps:get');
+    if (r && r.services) depsState.value = r;
+  } catch (e) {
+    depsState.value = { services: [] };
+  }
+}
+async function startDep(key) {
+  depsBusy.value = key;
+  try {
+    const r = await invoke('deps:start', { name: key });
+    if (r && r.services) depsState.value = { services: r.services };
+    if (r && r.ok) {
+      const svc = (r.services || []).find((x) => x.key === key);
+      toastShow(svc && svc.ok ? `✅ ${svc.name} 已启动` : `⏳ ${key} 启动中：端口还没起来，稍后点刷新（首次加载模型 1~3 分钟）`);
+    } else {
+      toastShow('❌ ' + ((r && r.error) || '启动失败'));
+    }
+  } catch (e) {
+    toastShow('❌ ' + e.message);
+  } finally {
+    depsBusy.value = '';
+    refreshDeps();
+  }
+}
+async function stopDep(key) {
+  depsBusy.value = key;
+  try {
+    const r = await invoke('deps:stop', { name: key });
+    if (r && r.services) depsState.value = { services: r.services };
+    toastShow(r && r.ok ? '已停止' : '❌ ' + ((r && r.error) || '停止失败'));
+  } catch (e) {
+    toastShow('❌ ' + e.message);
+  } finally {
+    depsBusy.value = '';
+    refreshDeps();
+  }
+}
+
 const checks = computed(() => [
   { label: '会话已开始', ok: running.value, hint: running.value ? '' : '点右上角开始会话' },
   { label: '抖音连接（relay）', ok: connected.value, hint: connected.value ? '' : '中继未就绪' },
   { label: 'AI Key 已配置', ok: !!(cfg.value.ai && cfg.value.ai.openai_key), hint: '' },
-  { label: 'TTS 地址已配置', ok: !!(cfg.value.tts && cfg.value.tts.api_url), hint: '' },
+  { label: '语音服务在线（TTS）', ok: !!(depsByKey.value.tts && depsByKey.value.tts.ok), hint: depsByKey.value.tts && depsByKey.value.tts.ok ? '' : '到「运行环境」一键启动' },
+  { label: 'OBS 已连接', ok: !!(depsByKey.value.obs && depsByKey.value.obs.ok), hint: depsByKey.value.obs && depsByKey.value.obs.ok ? '' : 'OBS 没开也行，只是没有叠加上屏' },
   { label: '清唱配置就绪', ok: !!cfg.value.sing, hint: '' },
   { label: '皮套模型已内置', ok: true, hint: '' }
 ]);
@@ -351,12 +406,18 @@ const filteredFeed = computed(() =>
 
 onMounted(async () => {
   await Promise.all([loadCfg(), refresh(), refreshSongs()]);
+  refreshDeps();
   timer = setInterval(refresh, 1500);
   songTimer = setInterval(refreshSongs, 3000);
+  // 依赖服务探测稍微费（要 spawn python --version），只在这两个页面开着时轮询
+  depsTimer = setInterval(() => {
+    if (current.value === 'env' || current.value === 'session') refreshDeps();
+  }, 6000);
 });
 onUnmounted(() => {
   clearInterval(timer);
   clearInterval(songTimer);
+  clearInterval(depsTimer);
 });
 </script>
 
@@ -608,6 +669,41 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- 运行环境 -->
+        <div v-if="current === 'env'" class="card">
+          <div class="card-head">
+            <h2>运行环境</h2>
+            <span class="hint">依赖服务状态 / 一键启动</span>
+            <button class="ghost sm" @click="refreshDeps">↻ 刷新</button>
+          </div>
+          <div class="dep-list">
+            <div v-for="s in depsState.services" :key="s.key" class="dep-row">
+              <span class="dot" :class="s.ok ? 'on' : 'off'"></span>
+              <span class="dep-ico">{{ s.icon }}</span>
+              <div class="dep-main">
+                <div class="dep-title">
+                  {{ s.name }}
+                  <span class="pill sm" :class="s.ok ? 'on' : 'off'">{{ s.ok ? '在线' : '离线' }}</span>
+                  <span v-if="s.managed" class="tag mini">鲸live 启动</span>
+                </div>
+                <div class="dep-detail muted">{{ s.detail }}</div>
+                <div class="dep-hint muted" v-if="s.hint">💡 {{ s.hint }}</div>
+              </div>
+              <div class="dep-actions">
+                <button v-if="!s.ok && s.startable" class="primary sm" :disabled="depsBusy === s.key" @click="startDep(s.key)">
+                  {{ depsBusy === s.key ? '启动中…' : '一键启动' }}
+                </button>
+                <button v-if="s.managed" class="ghost sm warn" @click="stopDep(s.key)">停止</button>
+              </div>
+            </div>
+            <div v-if="!depsState.services.length" class="empty-hint">正在检测依赖服务…</div>
+          </div>
+          <div class="deps-tip muted">
+            启动命令留空会自动发现本机路径（TTS 找仓库旁的 whaletalk/gsv_gpu、OBS 找常见安装目录、Ollama 找 LOCALAPPDATA）；
+            发现不了就去「全部配置 → 🧰 运行环境」手填。启动日志：<code>logs/deps-*.log</code>
+          </div>
+        </div>
+
         <!-- 配置 -->
         <template v-if="current === 'config'">
           <div class="cfg-actions">
@@ -778,6 +874,14 @@ onUnmounted(() => {
                   </select>
                 </label>
               </div>
+            </section>
+
+            <section class="card">
+              <div class="card-head"><h2>🧰 运行环境</h2><span class="hint">留空 = 自动发现本机路径</span></div>
+              <label class="field"><span>TTS 启动命令</span><input v-model="cfg.deps.tts_start_cmd" @input="markDirty" placeholder="powershell -NoProfile -ExecutionPolicy Bypass -File D:\...\run_gpu_api.ps1" /></label>
+              <label class="field"><span>OBS 启动命令</span><input v-model="cfg.deps.obs_start_cmd" @input="markDirty" placeholder="D:\obs-studio\bin\64bit\obs64.exe" /></label>
+              <label class="field"><span>Ollama 启动命令</span><input v-model="cfg.deps.ollama_start_cmd" @input="markDirty" placeholder="ollama serve" /></label>
+              <div class="hint">这三项是「运行环境」页一键启动用的；不填也行，会自动找常见位置。</div>
             </section>
 
             <section class="card">
@@ -1233,4 +1337,22 @@ a:hover { text-decoration: underline; }
 }
 .fade-enter-active, .fade-leave-active { transition: opacity .18s, transform .18s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(5px); }
+
+/* 运行环境（依赖服务） */
+.dep-list { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.dep-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
+  background: rgba(255, 255, 255, .015);
+}
+.dep-ico { font-size: 20px; line-height: 1.2; width: 24px; text-align: center; flex: 0 0 24px; }
+.dep-main { flex: 1 1 auto; min-width: 0; }
+.dep-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; flex-wrap: wrap; }
+.dep-detail { font-size: 12.5px; margin-top: 3px; word-break: break-all; }
+.dep-hint { font-size: 12px; margin-top: 2px; opacity: .85; }
+.dep-actions { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+.pill.sm { font-size: 11px; padding: 1px 7px; }
+.tag.mini { font-size: 10.5px; padding: 1px 6px; opacity: .9; }
+.primary.sm { padding: 7px 12px; font-size: 12.5px; }
+.deps-tip { margin-top: 14px; font-size: 12px; line-height: 1.7; }
 </style>

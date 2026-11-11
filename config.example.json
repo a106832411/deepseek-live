@@ -1,4 +1,4 @@
-{
+﻿{
   "platform": "douyin",
   "douyin": {
     "web_rid": "替换成你的直播间号",
@@ -134,5 +134,10 @@
     "scene": "深语直播",
     "bgColor": "0b0c0e",
     "preset": "simple"
+  },
+  "deps": {
+    "tts_start_cmd": "",
+    "obs_start_cmd": "",
+    "ollama_start_cmd": ""
   }
 }
