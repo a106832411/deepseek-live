@@ -17,9 +17,9 @@ const PACKED = /app\.asar/i.test(__dirname);
 // 历史遗留的本机绝对路径：只作兜底（本机还没重新打包、或有人删了 assets/obs 里的图时仍能用）
 const LEGACY_PRESET_ASSETS = {
   'bg3_星空鲸海.png':
-    'D:/文档/deepseek-harness/default-workspace/whaletalk/assemble/ai_bg/1080x1920/bg3_星空鲸海.png',
+    'C:/Users/49820/Desktop/deepseek-live/assets/obs/bg3_星空鲸海.png',
   '叠加层_竖屏_文字_v2.png':
-    'D:/文档/deepseek-harness/default-workspace/whaletalk/assemble/叠加层_竖屏_文字_v2.png'
+    'C:/Users/49820/Desktop/deepseek-live/assets/obs/叠加层_竖屏_文字_v2.png'
 };
 
 /**

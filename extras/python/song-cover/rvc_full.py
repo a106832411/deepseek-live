@@ -17,6 +17,11 @@ import sys
 import time
 
 import numpy as np
+
+# 本地 RVC 可能缺 fairseq：把仓库自带的 compat 目录放进 sys.path（GPU/CPU 通用）
+COMPAT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "compat")
+if os.path.isdir(COMPAT_DIR) and COMPAT_DIR not in sys.path:
+    sys.path.insert(0, COMPAT_DIR)
 import soundfile as sf
 
 
@@ -77,19 +82,24 @@ def main() -> int:
     print("model loaded in %.1fs" % (time.time() - t0), flush=True)
 
     t1 = time.time()
+    # 推理参数可用环境变量覆盖：protect 越高越保留源人声咬字（适合翻唱），filter_radius 影响 f0 平滑
+    protect = float(os.environ.get("RVC_PROTECT", "0.33") or 0.33)
+    filter_radius = int(os.environ.get("RVC_FILTER_RADIUS", "3") or 3)
+    f0_method = os.environ.get("RVC_F0_METHOD", a.f0_method or "rmvpe") or "rmvpe"
+    print("infer params: f0=%s protect=%.2f radius=%d index=%.2f" % (f0_method, protect, filter_radius, a.index_rate), flush=True)
     audio_opt = vc.vc_single(
         sid=0,
         input_audio_path=a.input,
         f0_up_key=a.f0_up_key,
         f0_file="",
-        f0_method=a.f0_method,
+        f0_method=f0_method,
         file_index=INDEX,
         file_index2="",
         index_rate=a.index_rate,
-        filter_radius=3,
+        filter_radius=filter_radius,
         resample_sr=0,
         rms_mix_rate=a.rms_mix_rate,
-        protect=0.33,
+        protect=protect,
     )
     print("infer done in %.1fs" % (time.time() - t1), flush=True)
     if not isinstance(audio_opt, np.ndarray):

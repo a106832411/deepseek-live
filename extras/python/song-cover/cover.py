@@ -133,6 +133,7 @@ def main() -> int:
     ap.add_argument("--index-rate", type=float, default=0.5, help="RVC index_rate")
     ap.add_argument("--device", default="", help="torch 设备：cpu:0 / cuda:0")
     ap.add_argument("--keep-work", action="store_true", help="保留下载与中间文件")
+    ap.add_argument("--vocals-only", action="store_true", help="只输出清唱人声（不混伴奏）")
     args = ap.parse_args()
 
     cfg_path = args.config or os.path.join(ROOT, "config.json")
@@ -214,12 +215,40 @@ def main() -> int:
     if rc != 0 or not os.path.exists(voc_rvc):
         die("RVC 失败: " + out[-800:])
 
+    # 3.5) 只要清唱：不混伴奏，直接对人声做 EQ + 响度归一化后导出
+    if args.vocals_only:
+        eq_db = float(os.environ.get("RVC_VOC_EQ", "8") or 8)
+        vocal_master = os.path.join(work, "vocals_master.wav")
+        filters = []
+        if eq_db:
+            filters.append("highshelf=f=4000:g=%.1f:w=0.7" % eq_db)
+        filters.append("loudnorm=I=-16:TP=-1.5:LRA=11")
+        log("清唱模式：跳过伴奏混音，人声 EQ=%+.1fdB + 响度归一化" % eq_db)
+        rc, out = run(
+            [ff, "-y", "-v", "error", "-i", voc_rvc, "-af", ",".join(filters),
+             "-ar", "44100", "-ac", "2", vocal_master],
+            timeout=600,
+        )
+        if rc != 0 or not os.path.exists(vocal_master):
+            die("清唱后期失败: " + out[-500:])
+        base_name = "%s_%s" % (name, voice) if voice else name
+        full_mp3 = os.path.join(out_dir, base_name + "_full.mp3")
+        rc, out = run(
+            [ff, "-y", "-v", "error", "-i", vocal_master, "-ar", "44100", "-ac", "2",
+             "-b:a", "192k", full_mp3],
+            timeout=300,
+        )
+        if rc != 0 or not os.path.exists(full_mp3):
+            die("导出清唱版失败: " + out[-500:])
+        log("清唱版: %s" % full_mp3)
+        return 0
+
     # 4) 混音
     mix_wav = os.path.join(work, "mix.wav")
     log("混音")
     rc, out = run(
         [sys.executable, os.path.join(ROOT, "rvc_mix.py"), voc_rvc, inst, mix_wav],
-        timeout=600,
+        timeout=3600,
     )
     if rc != 0 or not os.path.exists(mix_wav):
         die("混音失败: " + out[-500:])

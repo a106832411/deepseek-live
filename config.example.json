@@ -1,4 +1,4 @@
-﻿{
+{
     "platform":  "douyin",
     "douyin":  {
                    "web_rid":  "替换成你的直播间号",
@@ -136,7 +136,7 @@
                              "user":  "root",
                              "python_wsl":  "/opt/rvc/bin/python",
                              "compat_wsl":  "/opt/rvc/compat",
-                             "python":  "D:/文档/deepseek-harness/default-workspace/whaletalk/gsv/GPT-SoVITS-v2pro-20250604/runtime/python.exe",
+                             "python":  "D:/path/to/GSV/runtime/python.exe",
                              "voices_file":  "D:\\文档\\deepseek-harness\\default-workspace\\tmp/rvc-voices/voices.json",
                              "voice":  "我的声线",
                              "f0":  0,

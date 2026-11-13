@@ -1356,6 +1356,7 @@ function rvcSettings() {
     coverScript: String(pick(cfg.cover_script, path.join(EXTRA_ROOT, 'extras', 'python', 'song-cover', 'cover.py'))),
     input: String(pick(cfg.input, '')),        // 可选：直接用本地音频测试（不给就自动找并下载原曲）
     dryRun: cfg.dry_run === true,
+    vocalsOnly: cfg.vocals_only === true,
     keep: cfg.keep === true
   };
 }
@@ -1492,6 +1493,7 @@ async function prepareRvc(item) {
     const argv = [cfg.coverScript, '--input', src, '--voice', cfg.voice, '--config', cfgPath,
       '--f0', String(cfg.f0), '--device', cfg.device, '--clip-seconds', '0', '--name', item.song.name, '--outdir', outDir];
     if (cfg.keep) argv.push('--keep-work');
+    if (cfg.vocalsOnly) argv.push('--vocals-only');
     if (cfg.dryRun) {
       // 自检用：只打印将要执行的命令，不真的跑（可验证 WSL/本地路径拼得对不对）
       const preview = cfg.mode === 'wsl'
