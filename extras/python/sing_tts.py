@@ -21,7 +21,7 @@
     --lines-file _singtry/lines.json --out _singtry/melody_demo.wav \
     --timing-out _singtry/melody_demo.timing.json \
     --tts-url http://127.0.0.1:9881 \
-    --ref-audio "C:/Users/49820/Desktop/deepseek-live/assets/voice_ref/ref_小奶音_7s.wav" \
+    --ref-audio "D:/live/deepseek-live/assets/voice_ref/ref_小奶音_7s.wav" \
     --prompt-text "" --speed 0.95 \
     --mode melody --melody auto --bpm 92 --vibrato 1 --gap-ms 320 --seed 123
 
@@ -58,7 +58,7 @@ TAIL_SEC = 0.40                # 结尾留白（契约）
 PLACEHOLDER_SEC = 1.00         # 单句失败时的静音占位
 
 DEFAULT_TTS_URL = "http://127.0.0.1:9881"
-DEFAULT_REF_AUDIO = "C:/Users/49820/Desktop/deepseek-live/assets/voice_ref/ref_小奶音_7s.wav"
+DEFAULT_REF_AUDIO = "D:/live/deepseek-live/assets/voice_ref/ref_小奶音_7s.wav"
 # 参考音对应的真实文本（Whisper+FunASR 一致）。传错/占位符会让 GPT-SoVITS 输出又短又平。
 DEFAULT_PROMPT_TEXT = "梁山在上，今天大白饭也要变得美味呀。"
 DEFAULT_TOP_K = 25            # 2026-11 调参：更自然（旧值 20）
