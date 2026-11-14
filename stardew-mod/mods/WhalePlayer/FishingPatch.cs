@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using HarmonyLib;
 using StardewModdingAPI;
 using StardewValley;
@@ -61,6 +62,47 @@ namespace WhalePlayer
                     + " menu=" + (Game1.activeClickableMenu == null ? "null" : Game1.activeClickableMenu.GetType().Name));
             }
             catch (Exception) { }
+        }
+    }
+
+
+    /// <summary>脚本钓鱼：接管 DoFunction 的"咬钩"分支，按原版逻辑建 BobberBar。</summary>
+    [HarmonyPatch(typeof(FishingRod), nameof(FishingRod.DoFunction))]
+    internal static class NibbleBranchPatch
+    {
+        private static bool Prefix(FishingRod __instance, GameLocation location, int x, int y, int power, Farmer who)
+        {
+            try
+            {
+                if (!WhalePlayer.ModEntry.ScriptedFishing) return true;
+                if (!__instance.isNibbling) return true;
+                if (Game1.activeClickableMenu is BobberBar) return false;
+
+                var rod = __instance;
+                string baitId = null;
+                try { baitId = rod.GetBait()?.QualifiedItemId; } catch { }
+                var tackle = new List<string>();
+                try { tackle = rod.GetTackleQualifiedItemIDs() ?? tackle; } catch { }
+
+                var bobberTile = new Microsoft.Xna.Framework.Vector2(rod.bobber.X / 64f, rod.bobber.Y / 64f);
+                Item fish = null;
+                try
+                {
+                    fish = location.getFish(rod.fishingNibbleAccumulator, baitId, 3, who, 0.0, bobberTile);
+                }
+                catch (Exception) { }
+                if (fish == null || ItemRegistry.GetDataOrErrorItem(fish.QualifiedItemId).IsErrorItem)
+                    fish = ItemRegistry.Create("(O)168", 1, 0);
+
+                Game1.activeClickableMenu = new BobberBar(fish.ItemId, 0.6f, false, tackle, fish.SetFlagOnPickup, false, baitId, false);
+                WhalePlayer.ModEntry.Trace?.Invoke("咬钩分支接管: 已创建 BobberBar fish=" + fish.Name);
+                return false;   // 跳过原函数
+            }
+            catch (Exception ex)
+            {
+                WhalePlayer.ModEntry.Trace?.Invoke("咬钩分支异常: " + ex.Message);
+                return true;
+            }
         }
     }
 
