@@ -37,6 +37,33 @@ namespace WhalePlayer
         }
     }
 
+
+    /// <summary>脚本钓鱼期间禁止引擎重置钓鱼状态。</summary>
+    [HarmonyPatch(typeof(FishingRod), nameof(FishingRod.resetState))]
+    internal static class FishingRodResetPatch
+    {
+        private static bool Prefix() => !WhalePlayer.ModEntry.ScriptedFishing;
+    }
+
+
+    /// <summary>调完 DoFunction 后打印状态，定位是哪条 return 走的。</summary>
+    [HarmonyPatch(typeof(FishingRod), nameof(FishingRod.DoFunction))]
+    internal static class DoFunctionTracePatch
+    {
+        private static void Postfix(FishingRod __instance)
+        {
+            try
+            {
+                WhalePlayer.ModEntry.Trace?.Invoke(
+                    "DoFunction 返回: nibbling=" + __instance.isNibbling + " hit=" + __instance.hit
+                    + " casting=" + __instance.isCasting + " pulling=" + __instance.pullingOutOfWater
+                    + " fishCaught=" + __instance.fishCaught
+                    + " menu=" + (Game1.activeClickableMenu == null ? "null" : Game1.activeClickableMenu.GetType().Name));
+            }
+            catch (Exception) { }
+        }
+    }
+
     /// <summary>小游戏补丁：每帧把绿条贴到鱼身上，并加速进度，自动钓上来。</summary>
     [HarmonyPatch(typeof(BobberBar), "update")]
     internal static class BobberBarPatch

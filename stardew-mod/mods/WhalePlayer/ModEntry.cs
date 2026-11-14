@@ -28,6 +28,8 @@ namespace WhalePlayer
     /// </summary>
     public class ModEntry : Mod
     {
+        public static bool ScriptedFishing = false;
+        public static Action<string> Trace = null;
         private string ordersDir;
         private string statePath;
         private int toolTicks = -1;
@@ -44,6 +46,8 @@ namespace WhalePlayer
         private int castCooldown = 0;
         private bool fishingPump = false;
         private int biteCountdown = -1;
+        private string pendingCatch = null;
+        private int castingPending = -1;
         private int hopIndex = 0;
         private Dictionary<string, HashSet<string>> graph = null;
         private string travelDest = null;  // 目标场景（goto 动作）
@@ -60,6 +64,7 @@ namespace WhalePlayer
             Directory.CreateDirectory(this.ordersDir);
             helper.Events.GameLoop.UpdateTicked += this.OnUpdateTicked;
             helper.Events.GameLoop.SaveLoaded += (s, e) => this.Monitor.Log("WhalePlayer: 已进入存档", LogLevel.Info);
+            Trace = msg => this.Monitor.Log(msg, LogLevel.Alert);
             try
             {
                 var harmony = new HarmonyLib.Harmony("Whale.WhalePlayer.patch");
@@ -73,39 +78,91 @@ namespace WhalePlayer
         {
             if (!Context.IsWorldReady) return;
 
-            // 钓鱼泵：咬钩后自动提竿
+            // 钓鱼泵：按原版状态机推进（bite → isNibbling → 提竿 → BobberBar）
             if (this.fishingPump)
             {
+                // 小游戏开着时什么都不做，交给 BobberBar 补丁完成
+                if (Game1.activeClickableMenu is StardewValley.Menus.BobberBar) return;
                 var p0 = Game1.player;
                 var rd = p0.Items.OfType<StardewValley.Tools.FishingRod>().FirstOrDefault();
-                if (rd == null) this.fishingPump = false;
-                else if (Game1.activeClickableMenu is StardewValley.Menus.BobberBar)
+                if (rd == null) { this.fishingPump = false; }
+                else if (this.castingPending > 0)
                 {
-                    // 小游戏由 Harmony 补丁自动完成
-                }
-                else if (!rd.isFishing)
-                {
-                    try
+                    this.castingPending--;
+                    if (this.castingPending == 0)
                     {
-                        rd.DoFunction(p0.currentLocation, (int)p0.Tile.X, (int)p0.Tile.Y, 1, p0);
-                        this.Monitor.Log("钓鱼泵: 重新抛竿", LogLevel.Trace);
+                        try { rd.castingEndFunction(p0); } catch { }
+                        if (this.fishSpot.X >= 0) { try { rd.bobber.Value = this.fishSpot; } catch { } }
+                        try
+                        {
+                            rd.isNibbling = false; rd.hit = false; rd.fishingBiteAccumulator = 0f;
+                            var t0 = typeof(StardewValley.Tools.FishingRod);
+                            var bf0 = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                            void ResetBool(string nm)
+                            {
+                                var f = t0.GetField(nm, bf0);
+                                if (f == null) return;
+                                var cur = f.GetValue(rd);
+                                if (cur == null) { f.SetValue(rd, false); return; }
+                                var vp = cur.GetType().GetProperty("Value");
+                                if (vp != null && vp.CanWrite) vp.SetValue(cur, false);
+                                else f.SetValue(rd, false);
+                            }
+                            ResetBool("isCasting"); ResetBool("pullingOutOfWater"); ResetBool("fishCaught");
+                            ResetBool("isReeling"); ResetBool("showingTreasure"); ResetBool("castedButBobberStillInAir");
+                        }
+                        catch { }
+                        this.Monitor.Log($"钓鱼: 抛竿完成 isFishing={rd.isFishing} bobber=({rd.bobber.X:F0},{rd.bobber.Y:F0}) bite={rd.timeUntilFishingBite:F1}", LogLevel.Info);
                     }
-                    catch { }
                 }
-                else if (this.biteCountdown < 0) { this.biteCountdown = 150; }
-                else if (this.biteCountdown > 0) { this.biteCountdown--; rd.timeUntilFishingBite = this.biteCountdown / 60f; }
-                else if (rd.timeUntilFishingBite <= 0.02f || this.biteCountdown == 0)
+                else if (rd.isFishing && !rd.isNibbling && rd.timeUntilFishingBite > 0f)
+                {
+                    // 咬钩计时完全交给游戏自己的 tickUpdate，这里不重复累加
+                }
+                else if (rd.isNibbling)
                 {
                     if (this.castCooldown > 0) { this.castCooldown--; return; }
-                    this.castCooldown = 45;   // 0.75 秒节流
+                    this.castCooldown = 40;
                     try
                     {
-                        rd.hit = true;
-                        rd.timeUntilFishingBite = 0f;
-                        rd.DoFunction(p0.currentLocation, (int)p0.Tile.X, (int)p0.Tile.Y, 1, p0);
-                        this.Monitor.Log($"钓鱼泵: 咬钩提竿 hit={rd.hit} menu={Game1.activeClickableMenu?.GetType().Name}", LogLevel.Info);
+                        // 补齐原版咬钩分支所需状态
+                        var tp = typeof(StardewValley.Tools.FishingRod);
+                        var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                        void SetF(string name, object val)
+                        {
+                            var f = tp.GetField(name, bf);
+                            if (f == null) return;
+                            var cur = f.GetValue(rd);
+                            if (cur == null) { f.SetValue(rd, val); return; }
+                            var vp = cur.GetType().GetProperty("Value");
+                            if (vp != null && vp.CanWrite) vp.SetValue(cur, val);
+                            else f.SetValue(rd, val);
+                        }
+                        SetF("clearWaterDistance", 3);
+                        SetF("pullingOutOfWater", false);
+                        SetF("isCasting", false);
+                        this.Monitor.Log($"闸门: isCasting={rd.isCasting} pulling={rd.pullingOutOfWater} fishCaught={rd.fishCaught} isFishing={rd.isFishing} nibbling={rd.isNibbling} reeling={rd.isReeling}", LogLevel.Alert);
+                        SetF("fishingNibbleAccumulator", 500f);
+                        SetF("isNibbling", true);
+                        SetF("hit", false);
+                        rd.DoFunction(p0.currentLocation, (int)rd.bobber.X, (int)rd.bobber.Y, 1, p0);
+                        var menu = Game1.activeClickableMenu;
+                        if (menu is StardewValley.Menus.BobberBar)
+                        {
+                            rd.isNibbling = false;
+                            rd.hit = false;
+                            this.castCooldown = 600;
+                            this.Monitor.Log("钓鱼: 小游戏已开启（原版 BobberBar）", LogLevel.Info);
+                        }
+                        else this.Monitor.Log($"钓鱼: 提竿 menu={menu?.GetType().Name}", LogLevel.Trace);
                     }
                     catch (Exception ex) { this.Monitor.Log($"提竿异常：{ex.Message}", LogLevel.Warn); }
+                }
+                else if (!rd.isFishing && !(Game1.activeClickableMenu is StardewValley.Menus.BobberBar))
+                {
+                    if (this.castCooldown > 0) { this.castCooldown--; return; }
+                    this.castCooldown = 60;
+                    try { rd.beginUsing(p0.currentLocation, (int)this.fishSpot.X, (int)this.fishSpot.Y, p0); this.castingPending = 45; } catch { }
                 }
             }
 
@@ -921,6 +978,15 @@ namespace WhalePlayer
 
         private void GoFish()
         {
+            if (Game1.player.currentLocation?.Name == "Beach")
+            {
+                // 固定钓点：栈桥末端 (25,36)，朝下抛到海面
+                this.fishSpot = new Microsoft.Xna.Framework.Vector2(25, 39);
+                Game1.player.controller = new StardewValley.Pathfinding.PathFindController(
+                    Game1.player, Game1.player.currentLocation, new Point(25, 36), 3);
+                this.Monitor.Log("go_fish: 海滩固定钓点，走向栈桥 (25,36)", LogLevel.Info);
+                return;
+            }
             var loc = Game1.player.currentLocation;
             var p = Game1.player.Tile;
             var best = new Vector2(-1, -1);
@@ -928,23 +994,36 @@ namespace WhalePlayer
             try
             {
                 int w = loc.Map.Layers[0].LayerWidth, h = loc.Map.Layers[0].LayerHeight;
-                for (int y = 1; y < h - 1; y++)
-                    for (int x = 1; x < w - 1; x++)
+                bool IsWater(int x, int y)
+                {
+                    if (x < 1 || y < 1 || x >= w - 1 || y >= h - 1) return false;
+                    return loc.doesTileHaveProperty(x, y, "Water", "Back") != null;
+                }
+                for (int y = 3; y < h - 3; y++)
+                {
+                    for (int x = 3; x < w - 3; x++)
                     {
-                        if (loc.doesTileHaveProperty(x, y, "Water", "Back") == null) continue;
+                        if (!IsWater(x, y)) continue;
+                        // 要求周围也是水（排除地图边缘/小水洼）
+                        int around = 0;
+                        for (int dy = -2; dy <= 2; dy++)
+                            for (int dx = -2; dx <= 2; dx++)
+                                if (IsWater(x + dx, y + dy)) around++;
+                        if (around < 16) continue;
                         float d = Math.Abs(x - p.X) + Math.Abs(y - p.Y);
                         if (d < bestD) { bestD = d; best = new Vector2(x, y); }
                     }
+                }
             }
             catch (Exception ex) { this.Monitor.Log($"go_fish 扫描失败：{ex.Message}", LogLevel.Warn); }
-            if (best.X < 0) { this.Monitor.Log("go_fish: 这张图没有水面", LogLevel.Warn); return; }
+            if (best.X < 0) { this.Monitor.Log("go_fish: 这张图没有开阔水面", LogLevel.Warn); return; }
             this.fishSpot = best;
             foreach (var d in new[] { new Vector2(0, 1), new Vector2(0, -1), new Vector2(1, 0), new Vector2(-1, 0) })
             {
                 var t = best + d;
                 if (!this.IsSafeTile(loc, (int)t.X, (int)t.Y)) continue;
                 Game1.player.controller = new StardewValley.Pathfinding.PathFindController(Game1.player, loc, new Point((int)t.X, (int)t.Y), 3);
-                this.Monitor.Log($"go_fish: 水面 ({best.X},{best.Y})，走向水边 ({t.X},{t.Y})", LogLevel.Info);
+                this.Monitor.Log($"go_fish: 水面 ({best.X},{best.Y}) 开阔度 {bestD:F0}，走向水边 ({t.X},{t.Y})", LogLevel.Info);
                 return;
             }
             this.Monitor.Log("go_fish: 水边没有可站的格", LogLevel.Warn);
@@ -968,12 +1047,14 @@ namespace WhalePlayer
             this.Face(this.fishSpot);
             try
             {
-                rod.DoFunction(p.currentLocation, (int)this.fishSpot.X, (int)this.fishSpot.Y, 1, p);
-                this.Monitor.Log($"fish: 对水面 ({this.fishSpot.X},{this.fishSpot.Y}) 抛竿 → isFishing={rod.isFishing}", LogLevel.Info);
+                bool ok = rod.beginUsing(p.currentLocation, (int)this.fishSpot.X, (int)this.fishSpot.Y, p);
+                this.castingPending = 45;   // 等挥杆动画结束
+                this.Monitor.Log($"fish: beginUsing={ok}，等挥杆动画…", LogLevel.Info);
             }
             catch (Exception ex) { this.Monitor.Log($"fish 异常：{ex.Message}", LogLevel.Warn); }
             this.fishingPump = true;
-            this.biteCountdown = 150;
+            this.biteCountdown = 120;
+            ScriptedFishing = true;
         }
 
         private void ShopBuy(JObject jo)
