@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>WhaleAutoLoad</AssemblyName>
+    <RootNamespace>WhaleAutoLoad</RootNamespace>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <PlatformTarget>x64</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="StardewModdingAPI"><HintPath>$(GamePath)\StardewModdingAPI.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="Stardew Valley"><HintPath>$(GamePath)\Stardew Valley.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="StardewValley.GameData"><HintPath>$(GamePath)\StardewValley.GameData.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="MonoGame.Framework"><HintPath>$(GamePath)\MonoGame.Framework.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>$(GamePath)\smapi-internal\Newtonsoft.Json.dll</HintPath><Private>false</Private><SpecificVersion>false</SpecificVersion></Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="Manifest.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+  </ItemGroup>
+</Project>

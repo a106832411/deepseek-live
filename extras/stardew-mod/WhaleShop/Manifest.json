@@ -1,0 +1,10 @@
+{
+  "Name": "WhaleShop",
+  "Author": "鲸live",
+  "Version": "0.1.0",
+  "Description": "给星露谷 AI 用的商店动作：按 JSON 订单买种子/物品（配合 deepseek-live 的 stardew_agent.py）",
+  "UniqueID": "Whale.WhaleShop",
+  "EntryDll": "WhaleShop.dll",
+  "MinimumApiVersion": "4.0.0",
+  "UpdateKeys": []
+}

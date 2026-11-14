@@ -1,0 +1,10 @@
+{
+  "Name": "WhaleAutoLoad",
+  "Author": "鲸live",
+  "Version": "0.1.0",
+  "Description": "启动后自动加载最近（或指定）存档，方便 AI 无人值守跑测试。删掉本目录即可恢复手动选存档。",
+  "UniqueID": "Whale.WhaleAutoLoad",
+  "EntryDll": "WhaleAutoLoad.dll",
+  "MinimumApiVersion": "4.0.0",
+  "UpdateKeys": []
+}
