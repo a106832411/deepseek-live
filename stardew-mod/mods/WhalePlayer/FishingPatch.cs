@@ -110,17 +110,29 @@ namespace WhalePlayer
     [HarmonyPatch(typeof(BobberBar), "update")]
     internal static class BobberBarPatch
     {
-        private static void Postfix(BobberBar __instance, Microsoft.Xna.Framework.GameTime time)
+        private static void Postfix(BobberBar __instance)
         {
             try
             {
                 float target = __instance.bobberPosition - (__instance.bobberBarHeight / 2f - 8f);
                 __instance.bobberBarPos = Math.Clamp(target, 0f, 548f - __instance.bobberBarHeight);
                 __instance.bobberBarSpeed = 0f;
-                if (__instance.distanceFromCatching < 0.99f)
-                    __instance.distanceFromCatching = Math.Min(1f, __instance.distanceFromCatching + 0.02f);
-                if (__instance.treasure && __instance.treasureCatchLevel > 0.01f)
-                    __instance.treasureCatchLevel = Math.Min(1f, __instance.treasureCatchLevel + 0.03f);
+                __instance.distanceFromCatching = 1f;   // 每帧钉满，防止 fadeOut 期间被算回去
+
+                // 进度满了就触发收盘动画（原版在 fadeOut 结束时结算）
+                if (__instance.distanceFromCatching >= 0.99f)
+                {
+                    var t = typeof(BobberBar);
+                    var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                    var ff = t.GetField("fadeOut", bf);
+                    if (ff != null)
+                    {
+                        var cur = ff.GetValue(__instance);
+                        var vp = cur?.GetType().GetProperty("Value");
+                        if (vp != null && vp.CanWrite) vp.SetValue(cur, true);
+                        else ff.SetValue(__instance, true);
+                    }
+                }
             }
             catch (Exception) { }
         }
