@@ -197,8 +197,7 @@ def crop_table_text():
             for (n, s, d, p, r, g) in CROPS[season]
         )
         lines.append(f"[{cn}季] {rows}")
-    lines.append("季末规则：
-0. 钓鱼只在海边（goto Beach 后 fish）；不要在农场池塘钓鱼。剩余天数 < 成熟天数就别种了。")
+    lines.append("季末规则：剩余天数 < 成熟天数就别种了。")
     return "\n".join(lines)
 
 
@@ -222,6 +221,7 @@ SYSTEM_PROMPT = """你是星露谷物语的 AI 农场管家，操控**玩家角�
 """ + crop_table_text() + """
 
 规则：
+0. 钓鱼只在海边（goto Beach 后 fish）；不要在农场池塘钓鱼。
 1. 人在屋里（location=FarmHouse）→ 先 exit，再走路去农场。
 2. 做事前必须 walk_to 到目标格相邻（1 格内），否则工具不生效。
 3. 收成优先：tiles 里 cropReady=true 的 → interact；收完 ship 卖作物。
