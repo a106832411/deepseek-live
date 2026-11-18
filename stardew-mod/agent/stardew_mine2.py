@@ -61,6 +61,31 @@ def stand_next(x, y):
     return False
 
 
+def clear_blockers(rounds=2, radius=2):
+    """走不过去时，先把身边的石头/矿石敲掉（矿洞里被石头围住最常见）。"""
+    swings = 0
+    for _ in range(rounds):
+        s = state()
+        px, py = pos(s)
+        blockers = []
+        for t in s.get("tiles") or []:
+            if not t.get("breakable") or t.get("interactable"):
+                continue
+            if abs(t["x"] - px) > radius or abs(t["y"] - py) > radius:
+                continue
+            name = str(t.get("obj") or "")
+            if any(k in name for k in ("石头", "圆石", "矿", "Geode", "Stone", "Boulder", "Rock")):
+                blockers.append(t)
+        if not blockers:
+            break
+        t = blockers[0]
+        log("    [开路] 镐敲 (%d,%d) %s" % (t["x"], t["y"], t.get("obj")))
+        A.send_order({"actionType": "use_tool", "tool": "pickaxe", "x": t["x"], "y": t["y"]})
+        time.sleep(0.6)
+        swings += 1
+    return swings
+
+
 def find_tile(s, kinds):
     out = []
     for t in s.get("tiles") or []:
@@ -162,7 +187,12 @@ def mine_one(t, tries=3, budget=10.0):
         px, py = pos(s)
         if abs(px - x) + abs(py - y) > 2:
             if not go(x, y, 5) and not stand_next(x, y):
-                continue
+                # 走不过去：先把挡路的石头敲掉，再试一次
+                if clear_blockers():
+                    if not go(x, y, 5) and not stand_next(x, y):
+                        continue
+                else:
+                    continue
         s = state()
         px, py = pos(s)
         if abs(px - x) + abs(py - y) > 2:
