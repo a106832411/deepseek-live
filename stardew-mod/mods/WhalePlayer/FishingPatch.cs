@@ -94,8 +94,28 @@ namespace WhalePlayer
                 rod.isNibbling = false;
                 rod.hit = false;
                 rod.isReeling = true;
-                rod.pullFishFromWater(fish.ItemId, 10, 0, 30, false, false, false, fish.SetFlagOnPickup, false, 1);
-                WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 直接结算 " + fish.Name);
+                // 直接进背包：原版 pullFishFromWater 是在「举鱼动画」的 endFunction 里才真正发鱼，
+                // 脚本频繁复位鱼竿会把动画打断，导致日志有结算、包里没鱼（2026-11-18 实测）
+                bool added = false;
+                try
+                {
+                    var obj = fish as StardewValley.Object;
+                    if (obj != null) added = who.addItemToInventoryBool(obj, false);
+                }
+                catch { }
+                if (!added)
+                {
+                    try { Game1.createItemDebris(fish, who.Position, who.FacingDirection); } catch { }
+                }
+                try
+                {
+                    if (who.fishCaught != null && !who.fishCaught.ContainsKey(fish.ItemId))
+                        who.fishCaught[fish.ItemId] = new int[] { 1, 0 };
+                    else if (who.fishCaught != null)
+                        who.fishCaught[fish.ItemId][0]++;
+                }
+                catch { }
+                WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 入包 " + fish.Name + (added ? "" : "（背包满，掉地上）"));
 
                 try { rod.doneFishing(who, true); } catch { }
                 try { rod.isFishing = false; rod.isReeling = false; } catch { }
