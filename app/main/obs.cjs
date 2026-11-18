@@ -356,8 +356,14 @@ async function resolveWindow(client, inputName, match) {
   try {
     const props = await client.request('GetInputPropertiesListPropertyItems', { inputName, propertyName: 'window' });
     const items = props.propertyItems || [];
-    const hit = items.find((i) => String(i.itemName || '').includes(match))
-      || items.find((i) => String(i.itemValue || '').includes(match));
+    // 优先真正的游戏窗口（SDL_app / StardewModdingAPI.exe），避开 SMAPI 控制台（WindowsTerminal）
+    const isGame = (i) => /SDL_app|StardewModdingAPI\.exe/i.test(String(i.itemValue || '')) ||
+                          /StardewModdingAPI\.exe/.test(String(i.itemName || ''));
+    const isTerm = (i) => /WindowsTerminal|CASCADIA/i.test(String(i.itemValue || ''));
+    const hit = items.find((i) => isGame(i) && String(i.itemName || '').includes(match))
+      || items.find(isGame)
+      || items.find((i) => !isTerm(i) && String(i.itemName || '').includes(match))
+      || items.find((i) => !isTerm(i) && String(i.itemValue || '').includes(match));
     if (hit) {
       await client.request('SetInputSettings', { inputName, inputSettings: { window: hit.itemValue }, overlay: false });
       return hit.itemName;

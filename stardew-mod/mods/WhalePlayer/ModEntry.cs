@@ -35,7 +35,8 @@ namespace WhalePlayer
         private string ordersDir;
         private string statePath;
         private int toolTicks = -1;
-        private int stuckToolTicks = 0;   // 挥动/蓄力卡死看门狗计数
+        private int stuckToolTicks = 0;
+        private int barTicks = 0;   // 钓鱼小游戏看门狗   // 挥动/蓄力卡死看门狗计数
         private string pendingKind = "";
         private Vector2 pendingTile;
         private GameLocation pendingLoc;
@@ -221,7 +222,25 @@ namespace WhalePlayer
                 else if (Game1.activeClickableMenu != null)
                 {
                     var menu = Game1.activeClickableMenu;
-                    if (menu is StardewValley.Menus.BobberBar) { }
+                    if (menu is StardewValley.Menus.BobberBar)
+                    {
+                        // 卡死看门狗：小游戏超过 ~10 秒没结束就强制关掉，防止整夜卡在钓鱼条里
+                        this.barTicks++;
+                        if (this.barTicks > 600)
+                        {
+                            this.barTicks = 0;
+                            try { Game1.exitActiveMenu(); } catch { }
+                            try
+                            {
+                                var rod2 = Game1.player.Items.OfType<StardewValley.Tools.FishingRod>().FirstOrDefault();
+                                if (rod2 != null) { rod2.isFishing = false; rod2.isNibbling = false; rod2.hit = false; rod2.isReeling = false; }
+                            }
+                            catch { }
+                            try { Game1.player.UsingTool = false; Game1.player.canMove = true; } catch { }
+                            this.Monitor.Log("看门狗：钓鱼小游戏卡住，强制关闭", LogLevel.Warn);
+                        }
+                    }
+                    else this.barTicks = 0;
                     else if (menu is StardewValley.Menus.ItemGrabMenu grab)
                     {
                         int taken = 0;
@@ -2601,6 +2620,7 @@ namespace WhalePlayer
             this.fishingPump = false;
             this.castingPending = -1;
             this.castCooldown = 0;
+            try { WhalePlayer.ModEntry.AssistFishing = false; } catch { }
             try
             {
                 var rd = Game1.player.Items.OfType<StardewValley.Tools.FishingRod>().FirstOrDefault();
@@ -2629,6 +2649,9 @@ namespace WhalePlayer
             this.fishingPump = true;
             this.biteCountdown = 120;
             ScriptedFishing = true;
+            // 启用自研「咬钩直接结算」补丁：CJB 1.38 的 InstantCatch 与 1.6 的 BobberBar 不兼容，
+            // 不开这个会永远卡在小游戏里（2026-11-18 实测）
+            WhalePlayer.ModEntry.AssistFishing = true;
         }
 
         private void ShopBuy(JObject jo)
