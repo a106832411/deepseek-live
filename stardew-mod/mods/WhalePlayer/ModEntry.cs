@@ -222,6 +222,7 @@ namespace WhalePlayer
                 else if (Game1.activeClickableMenu != null)
                 {
                     var menu = Game1.activeClickableMenu;
+                    if (!(menu is StardewValley.Menus.BobberBar)) this.barTicks = 0;
                     if (menu is StardewValley.Menus.BobberBar)
                     {
                         // 卡死看门狗：小游戏超过 ~10 秒没结束就强制关掉，防止整夜卡在钓鱼条里
@@ -240,7 +241,6 @@ namespace WhalePlayer
                             this.Monitor.Log("看门狗：钓鱼小游戏卡住，强制关闭", LogLevel.Warn);
                         }
                     }
-                    else this.barTicks = 0;
                     else if (menu is StardewValley.Menus.ItemGrabMenu grab)
                     {
                         int taken = 0;
