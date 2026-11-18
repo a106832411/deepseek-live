@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>弹幕 + 点歌 + 数据</title>
+<style>
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:transparent; overflow:hidden; font-family:"Microsoft YaHei","PingFang SC",sans-serif; }
+  .card { height:100%; padding:10px 12px; display:flex; flex-direction:column; gap:6px;
+          background:linear-gradient(160deg, rgba(22,20,16,.86), rgba(10,10,10,.8));
+          border:1px solid rgba(216,178,90,.5); border-radius:16px;
+          box-shadow:0 8px 24px rgba(0,0,0,.45); color:#f3ecd8; }
+  .head { display:flex; align-items:center; gap:6px; font-size:14px; font-weight:800; color:#d8b25a; letter-spacing:.5px; flex:none; }
+  .head .n { margin-left:auto; font-size:11.5px; color:#8d8272; font-weight:400; letter-spacing:0; }
+
+  #chat { flex:1; min-height:0; display:flex; flex-direction:column; }
+  #lines { flex:1; display:flex; flex-direction:column; justify-content:flex-end; gap:3px; overflow:hidden; }
+  .line { font-size:15px; line-height:1.3; color:#f1e9d6; text-shadow:0 1px 3px rgba(0,0,0,.95); word-break:break-all; }
+  .nick { color:#8fd0ff; font-weight:700; }
+  .line.gift { color:#ffd977; } .line.gift .nick { color:#ffcc66; }
+  .line.enter { color:#aa9f8a; font-size:12.5px; }
+  .line.me { color:#fff3cf; } .line.me .nick { color:#ffd479; }
+  .fade { animation:fade .3s ease-out; }
+  @keyframes fade { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+
+  .sep { height:1px; background:linear-gradient(90deg, rgba(216,178,90,.38), rgba(216,178,90,.05)); flex:none; }
+
+  #mus { flex:none; display:flex; flex-direction:column; gap:5px; }
+  .mhead { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:800; color:#d8b25a; }
+  .mhead .n { margin-left:auto; font-size:11px; color:#8d8272; font-weight:400; }
+  .now { display:flex; align-items:center; gap:8px; padding:7px 9px; border-radius:10px;
+         background:rgba(255,212,121,.07); border:1px solid rgba(255,212,121,.22); }
+  .eq { display:flex; align-items:flex-end; gap:2px; height:24px; width:22px; flex:none; }
+  .eq i { width:3.5px; background:linear-gradient(180deg,#ffe9a8,#d9a94a); border-radius:99px; height:20%; }
+  .eq.play i { animation:bounce .9s ease-in-out infinite; }
+  .eq i:nth-child(2){animation-delay:.15s} .eq i:nth-child(3){animation-delay:.3s} .eq i:nth-child(4){animation-delay:.45s}
+  @keyframes bounce { 0%,100%{height:22%} 50%{height:100%} }
+  .meta { min-width:0; }
+  .title { font-size:16.5px; font-weight:800; color:#ffd977; text-shadow:0 1px 3px rgba(0,0,0,.95);
+           white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sub { font-size:11.5px; color:#c9bda4; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sub .by { color:#ffd479; font-weight:700; }
+  #q { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:3px; overflow:hidden; }
+  #q li { display:flex; align-items:baseline; gap:6px; font-size:13px; color:#efe6d2; text-shadow:0 1px 3px rgba(0,0,0,.95); }
+  #q li .n { color:#8d8272; font-size:11px; width:14px; flex:none; text-align:right; }
+  #q li .s { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #q li .by { color:#a89f8b; font-size:11px; margin-left:auto; flex:none; }
+  .empty { color:#8d8272; font-size:12.5px; }
+
+  .stats { display:flex; align-items:center; gap:18px; font-size:16px; color:#c9bda4; flex:none; padding-top:2px; }
+  .stats b { color:#ffd977; font-weight:800; font-size:18px; }
+  .stats .lab { color:#8d8272; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head"><span>💬 弹幕</span><span class="n" id="cnt"></span></div>
+  <div id="chat"><div id="lines"></div></div>
+  <div class="sep"></div>
+  <div id="mus">
+    <div class="mhead"><span>🎵 点歌台</span><span class="n" id="qn"></span></div>
+    <div class="now">
+      <div class="eq" id="eq"><i></i><i></i><i></i><i></i></div>
+      <div class="meta">
+        <div class="title" id="now">还没有点歌</div>
+        <div class="sub" id="sub">在弹幕里发「点歌 歌名」</div>
+      </div>
+    </div>
+    <ol id="q"><li class="empty">队列是空的</li></ol>
+  </div>
+  <div class="sep"></div>
+  <div class="stats">
+    <span><span class="lab">⏱ 开播 </span><b id="up">00:00:00</b></span>
+    <span><span class="lab">收入 </span><b id="earned">0</b><span class="lab"> tok</span></span>
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+const linesEl = $('lines');
+const seen = new Map();
+let ws = null, total = 0;
+function addLine(html, cls) {
+  const d = document.createElement('div');
+  d.className = 'line fade' + (cls ? ' ' + cls : '');
+  d.innerHTML = html;
+  linesEl.appendChild(d);
+  while (linesEl.children.length > 7) linesEl.removeChild(linesEl.firstChild);
+  total++; $('cnt').textContent = total + ' 条';
+  setTimeout(() => { try { d.remove(); } catch (e) {} }, 60000);
+}
+function onEvent(ev) {
+  if (!ev) return;
+  if (ev.type === 'danmaku') {
+    const text = String(ev.text || '');
+    if (!text) return;
+    const key = 'd:' + (ev.name || '') + ':' + text, now = Date.now();
+    if (seen.has(key) && now - seen.get(key) < 60000) return;
+    seen.set(key, now);
+    addLine('<span class="nick">' + esc(ev.name) + '</span>　' + esc(text.replace(/（.*?元.*?）/g, '')));
+  } else if (ev.type === 'gift') {
+    addLine('<span class="nick">' + esc(ev.name) + '</span>　送出 ' + esc(ev.gift || '礼物') + (ev.num > 1 ? ' ×' + ev.num : '') + ' 🎁', 'gift');
+  } else if (ev.type === 'enter') {
+    addLine('<span class="nick">' + esc(ev.name) + '</span>　来了 👋', 'enter');
+  }
+}
+function connect() {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.onmessage = (m) => {
+    try {
+      const j = JSON.parse(m.data);
+      if (j.kind === 'event') onEvent(j.event);
+      else if (j.kind === 'reply') addLine('<span class="nick">小深</span>　' + esc(j.text), 'me');
+      else if (j.kind === 'hello' && Array.isArray(j.recent)) {
+        j.recent.slice().reverse().forEach((x) => { if (x.kind === 'event') onEvent({ type:'danmaku', name:x.name, text:x.text }); });
+      }
+    } catch (e) {}
+  };
+  ws.onclose = () => setTimeout(connect, 3000);
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
+}
+
+function renderMusic(d) {
+  const cur = d.current || null;
+  const name = (cur && cur.song && cur.song.name) || (cur && cur.name) || '';
+  const artist = (cur && cur.song && cur.song.artist) || (cur && cur.artist) || '';
+  const by = (cur && cur.by) || '';
+  if (name) {
+    $('now').textContent = name;
+    $('sub').innerHTML = (artist ? esc(artist) + '　' : '') + (by ? '<span class="by">' + esc(by) + '</span> 点的' : '正在播放');
+    $('eq').classList.add('play');
+  } else {
+    $('now').textContent = d.mode === 'play' ? '当前没有播放' : '当前没有清唱';
+    $('sub').textContent = '在弹幕里发「点歌 歌名」';
+    $('eq').classList.remove('play');
+  }
+  const q = Array.isArray(d.queue) ? d.queue : [];
+  $('qn').textContent = q.length ? (q.length + ' 首') : '';
+  if (!q.length) {
+    $('q').innerHTML = '<li class="empty">队列是空的</li>';
+  } else {
+    $('q').innerHTML = q.slice(0, 2).map((x, i) =>
+      '<li><span class="n">' + (i + 1) + '</span><span class="s">' + esc(x.name) + '</span>' +
+      (x.by ? '<span class="by">' + esc(x.by) + '</span>' : '') + '</li>').join('');
+  }
+}
+async function tickMusic() {
+  try {
+    const r = await fetch('/api/songs/state', { cache:'no-store' });
+    renderMusic(await r.json());
+  } catch (e) {}
+}
+
+function fmtTok(n) {
+  n = Number(n) || 0;
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(Math.round(n));
+}
+function fmtUp(s) {
+  s = Math.max(0, Math.floor(s || 0));
+  return String(Math.floor(s / 3600)).padStart(2,'0') + ':' +
+         String(Math.floor(s % 3600 / 60)).padStart(2,'0') + ':' +
+         String(s % 60).padStart(2,'0');
+}
+let metrics = null, metricsAt = Date.now();
+async function tickMetrics() {
+  try {
+    const r = await fetch('/api/metrics', { cache:'no-store' });
+    metrics = await r.json(); metricsAt = Date.now();
+  } catch (e) {}
+}
+function renderMetrics() {
+  if (!metrics) return;
+  const up = (metrics.uptimeSec || 0) + (metrics.running ? (Date.now() - metricsAt) / 1000 : 0);
+  $('up').textContent = fmtUp(up);
+  $('earned').textContent = fmtTok(metrics.gifts && metrics.gifts.tokens);
+}
+
+connect();
+setInterval(() => { if (!ws || ws.readyState > 1) connect(); }, 15000);
+tickMusic(); setInterval(tickMusic, 2500);
+tickMetrics(); setInterval(tickMetrics, 5000);
+setInterval(renderMetrics, 1000);
+</script>
+</body>
+</html>

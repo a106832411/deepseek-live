@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>鲸live · 星露谷</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: transparent; overflow: hidden; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    color: #f3ecd8;
+    display: flex; align-items: flex-start; justify-content: flex-start;
+  }
+  .panel {
+    width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; text-align: left;
+    min-width: 0;
+    padding: 16px 18px 16px;
+    border-radius: 18px;
+    background: linear-gradient(160deg, rgba(22,20,16,.62), rgba(10,10,10,.55));
+    border: 1px solid rgba(216,178,90,.65);
+    box-shadow: 0 10px 30px rgba(0,0,0,.55);
+  }
+  .head { display: flex; align-items: center; justify-content: flex-start; gap: 8px; margin-bottom: 10px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #6fcf7f; box-shadow: 0 0 10px #6fcf7f; }
+  .dot.off { background: #e06666; box-shadow: 0 0 10px #e06666; }
+  .title { color: #d8b25a; font-weight: 800; font-size: 17px; letter-spacing: 1px; }
+  .doing { font-size: 24px; font-weight: 800; margin: 6px 0 2px; }
+  .doing .big { color: #ffd977; }
+  .sub { font-size: 16px; color: #ddd4bd; margin-top: 4px; }
+  .sub b { color: #ffd977; font-weight: 700; }
+  .bar { margin-top: 12px; height: 10px; border-radius: 6px; background: rgba(255,255,255,.12); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: linear-gradient(90deg, #d8b25a, #f6e2a8); border-radius: 6px; transition: width .6s; }
+  .lab { font-size: 12.5px; color: #a89f8b; margin-top: 6px; }
+  .foot { margin-top: 10px; font-size: 13px; color: #9a9282; }
+  .offline { font-size: 20px; font-weight: 800; color: #e06666; }
+  .season { margin-left: 10px; font-size: 14px; font-weight: 700; color: #ffd977; border: 1px solid rgba(216,178,90,.55); border-radius: 99px; padding: 2px 10px; background: rgba(255,212,121,.1); }
+  .metrics { margin-top: 8px; display: flex; gap: 16px; justify-content: flex-start; font-size: 13px; color: #a89f8b; }
+  .metrics b { color: #ffd977; font-weight: 700; }
+</style>
+</head>
+<body>
+  <div class="panel">
+    <div class="head"><span class="dot" id="dot"></span><span class="title">星露谷 · 大肥鱼体验中</span><span class="season" id="season"></span></div>
+    <div class="doing" id="doing">正在进入游戏…</div>
+    <div class="sub" id="sub"></div>
+    <div class="foot" id="order" style="color:#ffe9a8"></div>
+    <div class="foot" id="foot"></div>
+  </div>
+<script>
+const SEASON_CN = { spring: '春', summer: '夏', fall: '秋', winter: '冬' };
+const WEATHER_CN = { sunny: '☀ 晴', rainy: '🌧 雨', stormy: '⛈ 雷雨', snowy: '❄ 雪', windy: '🌬 风' };
+const $ = (id) => document.getElementById(id);
+const SCENE = {
+  FarmHouse: '农舍', Farm: '农场', Beach: '海边', Town: '镇上', Mountain: '山上',
+  BusStop: '巴士站', Backwoods: '后山', Forest: '森林', Blacksmith: '铁匠铺',
+  SeedShop: '种子店', AnimalShop: '牧场', Saloon: '酒吧', Mine: '矿洞入口',
+  FarmCave: '农场山洞', Railroad: '铁路'
+};
+function sceneName(loc) {
+  if (!loc) return '未知地方';
+  if (loc.startsWith('UndergroundMine')) return '矿洞里';
+  return SCENE[loc] || loc;
+}
+function timeText(t) {
+  const hh = Math.floor(t / 100) % 24, mm = t % 100;
+  const period = hh < 6 ? '凌晨' : hh < 11 ? '上午' : hh < 14 ? '中午' : hh < 18 ? '下午' : hh < 22 ? '晚上' : '深夜';
+  return `${period} ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+}
+function doingText(d) {
+  if (!d.ok) return '';
+  const loc = d.location || '';
+  const f = (d.fishing) || {};
+  if (d.menu === 'BobberBar' || f.minigame) return ['正在钓鱼', '🎣 和鱼较劲中'];
+  if (f.inUse) return ['正在钓鱼', '🎣 在等鱼上钩'];
+  if (d.menu) return ['正在看菜单', '📖 收拾东西'];
+  if (loc.startsWith('UndergroundMine')) return ['正在挖矿', '⛏ 敲石头、找矿石'];
+  if (loc === 'Beach') return ['在海边钓鱼', '🌊 海边风景不错'];
+  if (loc === 'Farm' || loc === 'FarmHouse') {
+    if (d.tool === '十字镐') return ['在农场挖石头', '⛏ 清理农场'];
+    if (d.tool === '斧头') return ['在农场砍树', '🪓 砍柴攒木材'];
+    if (d.tool === '锄头') return ['在农场翻地', '🌱 准备种地'];
+    if (d.tool === '喷壶') return ['在给作物浇水', '💧 浇水'];
+    return ['在农场干活', '🌾 种地/收菜'];
+  }
+  if (loc === 'Town' || loc === 'BusStop' || loc === 'Mountain' || loc === 'Backwoods')
+    return ['正在赶路', '🚶 走去下一个地方'];
+  return ['自己玩着呢', '🎮 星露谷'];
+}
+async function tick() {
+  try {
+    const r = await fetch('/api/stardew', { cache: 'no-store' });
+    const d = await r.json();
+    if (!d.ok) {
+      $('dot').className = 'dot off';
+      $('doing').innerHTML = '<span class="offline">游戏还没开</span>';
+      $('sub').textContent = '';
+      return;
+    }
+    const fresh = d.age < 30;
+    $('dot').className = 'dot' + (fresh ? '' : ' off');
+    const [doing, act] = doingText(d);
+    $('doing').innerHTML = `<span class="big">${doing}</span>　<small>${act}</small>`;
+    $('sub').innerHTML = `${sceneName(d.location)} · 第 <b>${d.day}</b> 天 · ${timeText(d.time)} · 金币 <b>${(d.money || 0).toLocaleString()}</b>`;
+    const se = $('season');
+    if (se) se.textContent = [(SEASON_CN[d.season] || '') + '季', WEATHER_CN[d.weather] || ''].filter(Boolean).join(' · ');
+    const o = d.lastOrder || d.order || '';
+    $('order').textContent = o ? ('最近指令：' + o) : '';
+  } catch (e) {
+    $('dot').className = 'dot off';
+    $('doing').innerHTML = '<span class="offline">连接不上</span>';
+  }
+}
+let metrics = null;
+function fmtTok(n) {
+  n = Number(n) || 0;
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(Math.round(n));
+}
+function fmtUp(s) {
+  s = Math.max(0, Math.floor(s || 0));
+  const hh = String(Math.floor(s / 3600)).padStart(2, '0');
+  const mm = String(Math.floor(s % 3600 / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return hh + ':' + mm + ':' + ss;
+}
+async function tickMetrics() {
+  try {
+    const r = await fetch('/api/metrics', { cache: 'no-store' });
+    metrics = await r.json();
+  } catch (e) {}
+}
+function renderMetrics() {
+  const el = $('metrics');
+  if (!el) return;
+  if (!metrics) { el.textContent = ''; return; }
+  const up = (metrics.uptimeSec || 0) + (metrics.running ? (Date.now() - metricsAt) / 1000 : 0);
+  const spent = (metrics.tokens && metrics.tokens.total) || 0;
+  const earned = (metrics.gifts && metrics.gifts.tokens) || 0;
+  el.innerHTML = '<span>⏱ <b>' + fmtUp(up) + '</b></span>' +
+                 '<span>消耗 <b>' + fmtTok(spent) + '</b> tok</span>' +
+                 '<span>礼物 <b>' + fmtTok(earned) + '</b> tok</span>';
+}
+let metricsAt = Date.now();
+tickMetrics().then(() => { metricsAt = Date.now(); });
+setInterval(() => { tickMetrics().then(() => { metricsAt = Date.now(); }); }, 5000);
+setInterval(renderMetrics, 1000);
+
+tick();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>

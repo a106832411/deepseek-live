@@ -1,0 +1,527 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using Microsoft.Xna.Framework.Graphics;
+using StardewModdingAPI;
+using HarmonyLib;
+using StardewModdingAPI.Events;
+using StardewValley;
+using StardewValley.GameData.Characters;
+
+namespace StardewMCPBridge
+{
+    public class ModEntry : Mod
+    {
+        private string bridgePath;
+        private DateTime lastSyncErrorLog = DateTime.MinValue;
+        private string actionDir;
+        private BotManager botManager;
+        private Texture2D companion1Portrait;
+        private Texture2D companion2Portrait;
+        private Texture2D companion1Sprite;
+        private Texture2D companion2Sprite;
+
+        public override void Entry(IModHelper helper)
+        {
+            this.botManager = new BotManager(this.Monitor, helper);
+            this.bridgePath = Path.Combine(helper.DirectoryPath, "bridge_data.json");
+            try { new Harmony("StardewMCPBridge.Patches").PatchAll(); this.Monitor.Log("Harmony patches applied", LogLevel.Info); } catch (Exception ex) { this.Monitor.Log("Harmony patch failed: " + ex.Message, LogLevel.Error); }
+            this.actionDir = Path.Combine(helper.DirectoryPath, "actions");
+
+            helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
+            helper.Events.GameLoop.UpdateTicked += this.OnUpdateTicked;
+            helper.Events.GameLoop.DayStarted += this.OnDayStarted;
+            helper.Events.GameLoop.UpdateTicking += (s2, e2) => { this.botManager.TickFishingHelp(); this.botManager.TickNudge(); };
+            helper.Events.GameLoop.Saving += (s, e) => this.botManager.RemoveCompanionsForSave();
+            helper.Events.GameLoop.Saved += (s, e) => this.botManager.RestoreCompanionsAfterSave();
+            helper.Events.GameLoop.DayEnding += this.OnDayEnding;
+            helper.Events.GameLoop.TimeChanged += this.OnTimeChanged;
+            helper.Events.GameLoop.ReturnedToTitle += this.OnReturnedToTitle;
+            helper.Events.Content.AssetRequested += this.OnAssetRequested;
+
+            this.Monitor.Log("Stardew MCP Bridge initialized. Content pipeline registered.", LogLevel.Debug);
+        }
+
+        private void OnGameLaunched(object sender, GameLaunchedEventArgs e)
+        {
+            this.companion1Portrait = this.Helper.ModContent.Load<Texture2D>("assets/Companion1_portrait.png");
+            this.companion2Portrait = this.Helper.ModContent.Load<Texture2D>("assets/Companion2_portrait.png");
+            this.companion1Sprite = this.Helper.ModContent.Load<Texture2D>("assets/Companion1_sprite.png");
+            this.companion2Sprite = this.Helper.ModContent.Load<Texture2D>("assets/Companion2_sprite.png");
+            this.Monitor.Log("Bridge online. Portraits and sprites loaded. Waiting for world.", LogLevel.Info);
+        }
+
+        private void OnAssetRequested(object sender, AssetRequestedEventArgs e)
+        {
+            // Inject portrait textures
+            if (e.NameWithoutLocale.IsEquivalentTo("Portraits/Companion1"))
+            {
+                e.LoadFrom(() => this.companion1Portrait, AssetLoadPriority.Exclusive);
+            }
+            else if (e.NameWithoutLocale.IsEquivalentTo("Portraits/Companion2"))
+            {
+                e.LoadFrom(() => this.companion2Portrait, AssetLoadPriority.Exclusive);
+            }
+            // Custom sprite sheets for walking animation
+            else if (e.NameWithoutLocale.IsEquivalentTo("Characters/Companion1"))
+            {
+                e.LoadFrom(() => this.companion1Sprite, AssetLoadPriority.Exclusive);
+            }
+            else if (e.NameWithoutLocale.IsEquivalentTo("Characters/Companion2"))
+            {
+                e.LoadFrom(() => this.companion2Sprite, AssetLoadPriority.Exclusive);
+            }
+            // Inject NPC data so the game considers us valid
+            else if (e.NameWithoutLocale.IsEquivalentTo("Data/Characters"))
+            {
+                e.Edit(asset =>
+                {
+                    var data = asset.AsDictionary<string, CharacterData>();
+
+                    if (!data.Data.ContainsKey("Companion1"))
+                    {
+                        data.Data["Companion1"] = new CharacterData
+                        {
+                            DisplayName = "Companion1",
+                            HomeRegion = "Town",
+                        };
+                    }
+
+                    if (!data.Data.ContainsKey("Companion2"))
+                    {
+                        data.Data["Companion2"] = new CharacterData
+                        {
+                            DisplayName = "Companion2",
+                            HomeRegion = "Town",
+                        };
+                    }
+                });
+            }
+        }
+
+        private void OnUpdateTicked(object sender, UpdateTickedEventArgs e)
+        {
+            this.botManager.AutoDismissDialogue();
+            this.botManager.TickFishingHelp();
+            if (!Context.IsWorldReady) return;
+
+            // AI ticks every frame (60/sec) for responsive combat, pathfinding, stuck detection
+            this.botManager.Update();
+
+            // Bridge I/O every 30 ticks (~0.5s) to avoid thrashing disk
+            if (e.IsMultipleOf(30))
+            {
+                this.SyncGameState();
+                this.ProcessActions();
+            }
+        }
+
+        private void OnTimeChanged(object sender, TimeChangedEventArgs e)
+        {
+            // Safety net: if it's 2:00 AM (forced pass-out time), signal bots ready
+            if (e.NewTime >= 2600)
+                this.botManager.SignalAllSleepReady();
+        }
+
+        private void OnDayEnding(object sender, DayEndingEventArgs e)
+        {
+            // Signal all bot farmers as sleep-ready so the game doesn't deadlock
+            this.botManager.SignalAllSleepReady();
+            this.Monitor.Log("Day ending: bot farmers signaled sleep ready", LogLevel.Debug);
+        }
+
+        private void OnDayStarted(object sender, DayStartedEventArgs e)
+        {
+            this.botManager.OnDayStarted();
+            this.Monitor.Log("New day: companion stamina restored", LogLevel.Info);
+        }
+
+        private void OnReturnedToTitle(object sender, ReturnedToTitleEventArgs e)
+        {
+            this.botManager.Cleanup();
+            this.Monitor.Log("Returned to title: companions cleaned up", LogLevel.Info);
+        }
+
+        private static float GetBobberField(string name)
+        {
+            try
+            {
+                if (Game1.activeClickableMenu is StardewValley.Menus.BobberBar bar)
+                {
+                    var f = typeof(StardewValley.Menus.BobberBar).GetField(name,
+                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                    if (f != null)
+                    {
+                        var v = f.GetValue(bar);
+                        if (v is float fv) return fv;
+                        if (v is int iv) return iv;
+                    }
+                }
+            }
+            catch { }
+            return 0f;
+        }
+
+        private static int CountCrops(GameLocation location)
+        {
+            if (location == null) return 0;
+            int n = 0;
+            foreach (var kv in location.terrainFeatures.Pairs)
+            {
+                if (kv.Value is StardewValley.TerrainFeatures.HoeDirt d && d.crop != null) n++;
+            }
+            return n;
+        }
+
+        private static object GetMineField(string name)
+        {
+            try
+            {
+                var bt = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                var f = Game1.currentLocation?.GetType().GetField(name, bt);
+                if (f == null) return null;
+                var v = f.GetValue(Game1.currentLocation);
+                return v;
+            }
+            catch { return null; }
+        }
+
+        private static int GetMinePoint(string name, bool x)
+        {
+            try
+            {
+                var bt = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                var f = Game1.currentLocation?.GetType().GetField(name, bt);
+                if (f == null) return -1;
+                var v = f.GetValue(Game1.currentLocation);
+                if (v == null) return -1;
+                var xp = v.GetType().GetProperty("X");
+                var yp = v.GetType().GetProperty("Y");
+                if (xp == null || yp == null) return -1;
+                return (int)((x ? xp.GetValue(v) : yp.GetValue(v)) ?? -1);
+            }
+            catch { return -1; }
+        }
+
+        private static System.Collections.Generic.List<object> CollectChestTotals(GameLocation loc)
+        {
+            var list = new System.Collections.Generic.List<object>();
+            try
+            {
+                if (loc == null) return list;
+                var totals = new System.Collections.Generic.Dictionary<string, int>();
+                foreach (var kv in loc.Objects.Pairs)
+                {
+                    if (kv.Value is not StardewValley.Objects.Chest ch) continue;
+                    foreach (var it in ch.Items)
+                    {
+                        if (it == null) continue;
+                        string nm = it.DisplayName ?? it.Name ?? "";
+                        int stack = it.Stack;
+                        if (!totals.ContainsKey(nm)) totals[nm] = 0;
+                        totals[nm] += stack;
+                    }
+                }
+                foreach (var kv in totals) list.Add(new { name = kv.Key, stack = kv.Value });
+            }
+            catch { }
+            return list;
+        }
+
+        private static System.Collections.Generic.List<object> FindStairs(GameLocation loc)
+        {
+            var list = new System.Collections.Generic.List<object>();
+            if (loc == null) return list;
+            try
+            {
+                int w = loc.Map.Layers[0].LayerWidth, h = loc.Map.Layers[0].LayerHeight;
+                for (int y = 0; y < h; y++)
+                    for (int x = 0; x < w; x++)
+                    {
+                        bool hit = false;
+                        foreach (var lay in new[] { "Back", "Buildings", "Front", "AlwaysFront" })
+                        {
+                            var act = loc.doesTileHaveProperty(x, y, "Action", lay);
+                            if (!string.IsNullOrEmpty(act) &&
+                                (act.IndexOf("Ladder", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                 act.IndexOf("Shaft", StringComparison.OrdinalIgnoreCase) >= 0)) { hit = true; break; }
+                        }
+                        if (!hit && loc.Objects.TryGetValue(new Microsoft.Xna.Framework.Vector2(x, y), out var o) && o != null)
+                        {
+                            string on = o.Name ?? "";
+                            if (on.IndexOf("Ladder", StringComparison.OrdinalIgnoreCase) >= 0 || on.IndexOf("Shaft", StringComparison.OrdinalIgnoreCase) >= 0) hit = true;
+                        }
+                        if (hit) list.Add(new { x, y });
+                    }
+            }
+            catch { }
+            return list;
+        }
+
+        private static System.Collections.Generic.List<object> CollectExits(GameLocation loc)
+        {
+            var list = new System.Collections.Generic.List<object>();
+            if (loc == null) return list;
+            // 普通 warp
+            foreach (var w in loc.warps)
+                list.Add(new { x = w.X, y = w.Y, target = w.TargetName, tx = w.TargetX, ty = w.TargetY });
+            // Action 型 warp（农舍门、矿洞入口等建筑门）
+            try
+            {
+                int wid = loc.Map.Layers[0].LayerWidth, hei = loc.Map.Layers[0].LayerHeight;
+                for (int y = 0; y < hei; y++)
+                    for (int x = 0; x < wid; x++)
+                    {
+                        string act = loc.doesTileHaveProperty(x, y, "Action", "Buildings");
+                        if (string.IsNullOrEmpty(act)) continue;
+                        if (act.IndexOf("Warp", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                        var parts = act.Split(' ');
+                        if (parts.Length >= 4)
+                            list.Add(new { x, y, target = parts[3], tx = 0, ty = 0 });
+                    }
+            }
+            catch { }
+            return list;
+        }
+
+        private static int GetWateringCanWater()
+        {
+            try
+            {
+                foreach (var it in Game1.player.Items)
+                {
+                    if (it is StardewValley.Tools.WateringCan can) return can.WaterLeft;
+                }
+            }
+            catch { }
+            return -1;
+        }
+
+        private static void TryUnpauseOptions()
+        {
+            try
+            {
+                if (Game1.options == null) return;
+                Game1.options.pauseWhenOutOfFocus = false;
+            }
+            catch { }
+        }
+
+        private void SyncGameState()
+        {
+            TryUnpauseOptions();
+            try
+            {
+                var state = new
+                {
+                    time = Game1.timeOfDay,
+                    day = Game1.dayOfMonth,
+                    dialogueUp = Game1.dialogueUp,
+                    ladderSpawned = GetMineField("ladderHasSpawned"),
+                    ladderPosText = GetMineField("netTileBeneathLadder")?.ToString(),
+                    ladderX = GetMinePoint("netTileBeneathLadder", true),
+                    ladderY = GetMinePoint("netTileBeneathLadder", false),
+                    chestTotals = CollectChestTotals(Game1.currentLocation),
+                    mapWidth = Game1.currentLocation?.Map?.Layers[0].LayerWidth ?? 0,
+                    mapHeight = Game1.currentLocation?.Map?.Layers[0].LayerHeight ?? 0,
+                    season = Game1.currentSeason,
+                    weather = Game1.isLightning ? "storm" : Game1.isRaining ? "rain" : Game1.isSnowing ? "snow" : Game1.isDebrisWeather ? "windy" : "sunny",
+                    luck = Game1.player.DailyLuck,
+                    location = Game1.currentLocation?.Name,
+                    player = new
+                    {
+                        name = Game1.player.Name,
+                        wateringCanLeft = GetWateringCanWater(),
+                    health = Game1.player.health,
+                        stamina = Game1.player.Stamina,
+                        money = Game1.player.Money,
+                        tile = new { x = (int)Game1.player.Tile.X, y = (int)Game1.player.Tile.Y },
+                        position = new { x = Game1.player.Position.X, y = Game1.player.Position.Y },
+                        inventory = Game1.player.Items.Where(it => it != null).Take(36).Select(it => new
+                        {
+                            name = it.DisplayName,
+                            id = it.ItemId,
+                            stack = it.Stack,
+                            category = it is StardewValley.Object obj ? obj.Category : 0
+                        }).ToList(),
+                        crops = CountCrops(Game1.player.currentLocation),
+                        xp = Game1.player.experiencePoints,
+                        mouse = new { x = Game1.getMouseX(), y = Game1.getMouseY() },
+                        currentTool = Game1.player.CurrentTool?.DisplayName,
+                        currentToolIndex = Game1.player.CurrentToolIndex,
+                        viewport = new { x = Game1.viewport.X, y = Game1.viewport.Y, w = Game1.viewport.Width, h = Game1.viewport.Height },
+                        skills = new
+                        {
+                            farming = Game1.player.FarmingLevel,
+                            mining = Game1.player.MiningLevel,
+                            fishing = Game1.player.FishingLevel,
+                            foraging = Game1.player.ForagingLevel,
+                            combat = Game1.player.CombatLevel
+                        },
+                        tools = Game1.player.Items.Where(it => it is StardewValley.Tool).Select(it => new { name = it.DisplayName, level = (it as StardewValley.Tool).UpgradeLevel }).ToList(),
+                        toolUpgrading = Game1.player.toolBeingUpgraded != null,
+                        toolUpgradeDays = Game1.player.daysLeftForToolUpgrade,
+                        fishing = new
+                        {
+                            rod = Game1.player.CurrentTool is StardewValley.Tools.FishingRod,
+                            inUse = (Game1.player.CurrentTool as StardewValley.Tools.FishingRod)?.inUse() ?? false,
+                            nibbling = (Game1.player.CurrentTool as StardewValley.Tools.FishingRod)?.isNibbling ?? false,
+                            minigame = Game1.activeClickableMenu is StardewValley.Menus.BobberBar,
+                            barPos = GetBobberField("bobberBarPos"),
+                            fishPos = GetBobberField("bobberPosition"),
+                            distance = GetBobberField("distanceFromCatching"),
+                            activeMenu = Game1.activeClickableMenu?.GetType().Name
+                        }
+                    },
+                    companions = this.botManager.GetBotStatus(),
+                    surroundings = SurroundingsScanner.Scan(Game1.player.currentLocation, Game1.player.Tile, 9),
+                    exits = CollectExits(Game1.player.currentLocation),
+                    stairs = FindStairs(Game1.player.currentLocation),
+                    monsters = Game1.currentLocation?.characters
+                        .Where(c => c.IsMonster)
+                        .Select(c => new { name = c.Name, x = (int)c.Tile.X, y = (int)c.Tile.Y,
+                                           health = (c as StardewValley.Monsters.Monster)?.Health ?? 0 })
+                        .ToList(),
+                    health = Game1.player.health,
+                    maxHealth = Game1.player.maxHealth,
+                    npcs = Game1.currentLocation?.characters.Select(c => new {
+                        name = c.Name,
+                        position = new { x = c.Position.X, y = c.Position.Y }
+                    }).ToList(),
+                    syncedAt = DateTime.UtcNow.ToString("o")
+                };
+
+                string json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
+                // Atomic write with retries (reader/AV may lock the file)
+                string tmpPath = this.bridgePath + ".tmp";
+                bool wrote = false;
+                for (int attempt = 0; attempt < 12; attempt++)
+                {
+                    try
+                    {
+                        File.WriteAllText(tmpPath, json);
+                        File.Move(tmpPath, this.bridgePath, true);
+                        wrote = true;
+                        break;
+                    }
+                    catch (IOException)
+                    {
+                        System.Threading.Thread.Sleep(30 * (attempt + 1));
+                    }
+                }
+                if (!wrote)
+                {
+                    // 最后兜底：直接覆盖写
+                    try
+                    {
+                        File.WriteAllText(this.bridgePath, json);
+                        wrote = true;
+                    }
+                    catch (Exception ex2)
+                    {
+                        if ((DateTime.UtcNow - this.lastSyncErrorLog).TotalSeconds > 30)
+                        {
+                            this.lastSyncErrorLog = DateTime.UtcNow;
+                            this.Monitor.Log("Bridge Sync Error: " + ex2.Message, LogLevel.Warn);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"Bridge Sync Error: {ex.Message}", LogLevel.Error);
+            }
+        }
+
+        private void ProcessActions()
+        {
+            try
+            {
+                if (!Directory.Exists(this.actionDir))
+                    return;
+
+                // Drain the queue oldest-first. Each command is its own file named
+                // <timestamp>-<seq>.json, so ordinal filename sort is chronological.
+                string[] files = Directory.GetFiles(this.actionDir, "*.json");
+                if (files.Length == 0)
+                    return;
+                Array.Sort(files, StringComparer.Ordinal);
+
+                // 防刷屏/防卡顿：每 tick 最多处理 3 条；清理超过 10 分钟的陈旧指令
+                int processed = 0;
+                foreach (string file in files)
+                {
+                    if (processed >= 3)
+                        break;
+                    try
+                    {
+                        if ((DateTime.UtcNow - File.GetLastWriteTimeUtc(file)).TotalMinutes > 10)
+                        {
+                            File.Delete(file);
+                            continue;
+                        }
+                    }
+                    catch { }
+                    processed++;
+                    string json;
+                    try
+                    {
+                        json = File.ReadAllText(file);
+                        // Delete immediately so each command is consumed exactly once,
+                        // even if handling below throws.
+                        File.Delete(file);
+                    }
+                    catch (Exception ex)
+                    {
+                        this.Monitor.Log($"Action read error ({Path.GetFileName(file)}): {ex.Message}", LogLevel.Error);
+                        continue;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(json))
+                        continue;
+
+                    try
+                    {
+                        this.HandleAction(json);
+                    }
+                    catch (Exception ex)
+                    {
+                        this.Monitor.Log($"Action handling error: {ex.Message}", LogLevel.Error);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"Action Processing Error: {ex.Message}", LogLevel.Error);
+            }
+        }
+
+        private void HandleAction(string json)
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (!root.TryGetProperty("actionType", out var actionType))
+                return;
+
+            // Route to bot manager for companion actions
+            this.botManager.ProcessAction(json);
+
+            // Handle chat separately (not a companion action)
+            if (actionType.GetString() == "chat")
+            {
+                if (root.TryGetProperty("metadata", out var meta) &&
+                    meta.TryGetProperty("message", out var msg))
+                {
+                    string text = msg.GetString();
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        Game1.chatBox?.addMessage(text, Microsoft.Xna.Framework.Color.Gold);
+                        this.Monitor.Log($"Chat sent: {text}", LogLevel.Info);
+                    }
+                }
+            }
+        }
+    }
+}

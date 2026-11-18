@@ -1,0 +1,86 @@
+              for t in (bb.get("surroundings") or {}).get("Tiles") or [])
+            if not still:
+                gone = True
+                break
+        # 等树/石头倒下落地，再捡附近的木头/石头
+        time.sleep(2.2)
+        send({"actionType": "collect_debris", "radius": 4}, 0.7)
+        send({"actionType": "collect_debris", "radius": 4}, 0.6)
+        if gone:
+            broken += 1
+            log(f"  已清 {s['X']},{s['Y']} ({s.get('ObjectType') or s.get('Terrain')})")
+    return broken
+
+
+def route_to(start, target):
+    q = [(start, [])]
+    seen = {start}
+    while q:
+        cur, path = q.pop(0)
+        for nxt in ROUTES.get(cur, []):
+            if nxt in seen:
+                continue
+            if nxt == target:
+                return path + [nxt]
+            seen.add(nxt)
+            q.append((nxt, path + [nxt]))
+    return None
+
+
+ALTERNATES = {
+    ("Farm", "Mountain"): [["BusStop", "Town", "Mountain"], ["Forest", "Town", "Mountain"]],
+    ("FarmHouse", "Mountain"): [["Farm", "BusStop", "Town", "Mountain"]],
+    ("Farm", "Town"): [["BusStop", "Town"], ["Forest", "Town"]],
+    ("Forest", "Mountain"): [["Town", "Mountain"]],
+    ("Mountain", "Farm"): [["Town", "BusStop", "Farm"]],
+}
+
+
+def goto(target):
+    """走路径；被挡就换备用路线（比如农场北边被大木桩堵死就走镇上绕）。"""
+    for _attempt in range(3):
+        b = rd() or {}
+        cur = b.get("location")
+        if cur == target:
+            return True
+        paths = []
+        base = route_to(cur, target)
+        if base:
+            paths.append(base)
+        paths += [list(p) for p in ALTERNATES.get((cur, target), [])]
+        for path in paths:
+            log(f"  路线: {cur} -> {' -> '.join(path)}")
+            ok = True
+            for h in path:
+                if not hop(h):
+                    ok = False
+                    break
+                safe_check()
+                if (rd() or {}).get("location") != h:
+                    ok = False
+                    break
+            if ok and (rd() or {}).get("location") == target:
+                return True
+    return False
+
+
+def hop(target, timeout=30):
+    """走到本图通往 target 的出口；一到出口立刻触发过图，不干等。"""
+    for attempt in range(3):
+        live()
+        b = safe_check()
+        cur_loc = b.get("location")
+        if cur_loc == target:
+            return True
+        # 农舍门口不在 warps 列表里：走到门口再触发进屋
+        if cur_loc == "Farm" and target == "FarmHouse":
+            walk_until(64, 15, 25)
+            send({"actionType": "enter_house"}, 1.2)
+            b2 = rd() or {}
+            if b2.get("location") == "FarmHouse":
+                return True
+            continue
+        e = find_exit(b, target)
+        if not e:
+            log(f"  {cur_loc} 没有通往 {target} 的出口")
+            return Fa

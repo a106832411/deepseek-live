@@ -1,0 +1,1461 @@
+<script setup>
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { invoke } from './api';
+
+const API = (typeof window !== 'undefined' && window.whale && window.whale.base)
+  || (location.port === '5173' ? 'http://127.0.0.1:8788' : location.origin);
+
+const MENU = [
+  { title: '直播控制', icon: '🎛', items: [
+    { key: 'session', label: '会话总览', icon: '📊' },
+    { key: 'events', label: '实时事件', icon: '💬' }
+  ] },
+  { title: '形象与画面', icon: '🎭', items: [
+    { key: 'live2d', label: 'Live2D 皮套', icon: '🎙' },
+    { key: 'overlay', label: 'OBS 叠加层', icon: '🖼' },
+      { key: 'obs', label: 'OBS 一键配置', icon: '🎬' },
+    { key: 'stardew', label: '星露谷状态', icon: '🎮' }
+  ] },
+  { title: '互动玩法', icon: '🎁', items: [
+    { key: 'songs', label: '清唱队列', icon: '🎤' },
+    { key: 'say', label: '手动说话', icon: '🗣' }
+  ] },
+  { title: '系统设置', icon: '⚙', items: [
+    { key: 'env', label: '运行环境', icon: '🧰' },
+    { key: 'config', label: '全部配置', icon: '📝' }
+  ] }
+];
+const openGroup = ref({ '直播控制': true, '形象与画面': true, '互动玩法': true, '系统设置': true });
+const current = ref('session');
+const currentLabel = computed(() => {
+  for (const g of MENU) for (const it of g.items) if (it.key === current.value) return it.label;
+  return '';
+});
+
+const STAT_META = [
+  { key: 'enter', label: '进房', icon: '🚪', color: 'c1' },
+  { key: 'danmaku', label: '弹幕', icon: '💬', color: 'c2' },
+  { key: 'gift', label: '礼物', icon: '🎁', color: 'c3' },
+  { key: 'follow', label: '关注', icon: '⭐', color: 'c4' },
+  { key: 'like', label: '点赞', icon: '👍', color: 'c5' },
+  { key: 'say', label: '说话', icon: '🔊', color: 'c6' }
+];
+
+const running = ref(false);
+const connected = ref(false);
+const mode = ref('relay');
+const uptime = ref(0);
+const version = ref('');
+const stats = ref({});
+const statsHistory = ref([]);
+const feed = ref([]);
+const toast = ref('');
+const songState = ref({ current: null, queue: [] });
+const iframeKey = ref(0);
+const l2dScale = ref(0.92);
+const l2dModels = ref([]);
+const l2dModel = ref('');
+const obsLog = ref('');
+const obsBusy = ref(false);
+const sayText = ref('');
+const manualSong = ref('');
+const eventFilter = ref('all');
+const EVENT_FILTERS = [
+  { key: 'all', label: '全部' },
+  { key: 'danmaku', label: '弹幕' },
+  { key: 'enter', label: '进房' },
+  { key: 'gift', label: '礼物' },
+  { key: 'follow', label: '关注' },
+  { key: 'say', label: '说话' }
+];
+
+// 配置表单
+const cfg = ref({});
+const dirty = ref(false);
+const showJson = ref(false);
+const jsonText = ref('');
+const enterTpl = ref('');
+const followTpl = ref('');
+const blockText = ref('');
+const fixedRows = ref([]);
+const saving = ref(false);
+
+const SOURCE_LIST = [
+  { key: 'netease', label: '网易云', na: false },
+  { key: 'qq', label: 'QQ 音乐', na: false },
+  { key: 'kugou', label: '酷狗', na: true },
+  { key: 'qishui', label: '汽水音乐', na: true }
+];
+
+const EVENT_META = [
+  { key: 'danmaku', label: '弹幕回复', icon: '💬' },
+  { key: 'enter', label: '进房欢迎', icon: '🚪' },
+  { key: 'gift', label: '礼物感谢', icon: '🎁' },
+  { key: 'follow', label: '关注感谢', icon: '⭐' },
+  { key: 'like', label: '点赞提一下', icon: '👍' }
+];
+
+let timer = null;
+let songTimer = null;
+let depsTimer = null;
+
+function toastShow(msg) {
+  toast.value = msg;
+  setTimeout(() => (toast.value = ''), 1800);
+}
+async function refresh() {
+  try {
+    const st = await invoke('status');
+    version.value = st.version || version.value;
+    running.value = !!st.running;
+    connected.value = !!st.connected;
+    mode.value = st.mode || 'relay';
+    uptime.value = st.uptime || 0;
+    stats.value = st.stats || {};
+    feed.value = st.recent || [];
+  } catch (e) {}
+}
+async function refreshStatsHistory() {
+  try {
+    const r = await invoke('stats:history', { limit: 8 });
+    const items = (r && (r.items || r)) || [];
+    statsHistory.value = Array.isArray(items) ? items : [];
+  } catch (e) {
+    statsHistory.value = [];
+  }
+}
+async function stopSession() {
+  try {
+    await invoke('session:stop');
+    await refresh();
+    refreshStatsHistory();
+  } catch (e) {}
+}
+async function refreshSongs() {
+  try {
+    const d = await invoke('songs:state');
+    const s = d || {};
+    // 字段兜底：旧后端没有 mode/lyrics，前端不会白屏
+    songState.value = {
+      ...s,
+      mode: typeof s.mode === 'string' ? s.mode : '',
+      current: s.current || null,
+      queue: Array.isArray(s.queue) ? s.queue : []
+    };
+  } catch (e) {}
+}
+// 是否清唱视图：明确 play 按旧行为；mode 缺失时看有没有歌词
+function isSingState(st) {
+  const s = st || {};
+  if (s.mode === 'play') return false;
+  if (s.mode === 'sing') return true;
+  const cur = s.current;
+  return !!(cur && Array.isArray(cur.lyrics) && cur.lyrics.length);
+}
+function lyricLineOf(cur) {
+  if (!cur || !Array.isArray(cur.lyrics) || !cur.lyrics.length) return '';
+  let i = Number(cur.lyricIndex);
+  if (!isFinite(i) || i < 0 || i >= cur.lyrics.length) i = 0;
+  return cur.lyrics[Math.floor(i)] || '';
+}
+const singMode = computed(() => isSingState(songState.value));
+const curLyric = computed(() => lyricLineOf(songState.value.current));
+function normalize(c) {
+  c = c || {};
+  c.ai = c.ai || {};
+  if (c.ai.temperature == null) c.ai.temperature = 0.8;
+  if (c.ai.max_chars == null) c.ai.max_chars = 20;
+  if (c.ai.memory == null) c.ai.memory = 6;
+  if (c.ai.context == null) c.ai.context = 3;
+  c.tts = c.tts || {};
+  if (c.tts.speed == null) c.tts.speed = 0.95;
+  if (c.tts.queue_max == null) c.tts.queue_max = 3;
+  if (c.tts.stale_ms == null) c.tts.stale_ms = 15000;
+  if (c.tts.sample_steps == null) c.tts.sample_steps = 32;
+  if (c.tts.top_k == null) c.tts.top_k = 20;
+  if (c.tts.temperature == null) c.tts.temperature = 1.0;
+  c.events = c.events || {};
+  const defs = {
+    danmaku: { mode: 'ai', probability: 100, cooldown_user: 5 },
+    enter: { mode: 'template', probability: 100, cooldown_user: 30 },
+    gift: { mode: 'ai', probability: 100, cooldown_user: 10 },
+    follow: { mode: 'template', probability: 100, cooldown_user: 60 },
+    like: { mode: 'ai', probability: 100, cooldown_user: 60 }
+  };
+  for (const k of Object.keys(defs)) {
+    c.events[k] = c.events[k] || {};
+    for (const f of Object.keys(defs[k])) {
+      if (c.events[k][f] == null) c.events[k][f] = defs[k][f];
+    }
+  }
+  c.songs = c.songs || {};
+  if (c.songs.max_queue == null) c.songs.max_queue = 20;
+  if (c.songs.enabled == null) c.songs.enabled = true;
+  if (c.songs.dedupe == null) c.songs.dedupe = true;
+  if (c.songs.internal == null) c.songs.internal = true;
+  if (!c.songs.perform) c.songs.perform = 'sing';
+  if (!Array.isArray(c.songs.sources) || !c.songs.sources.length) c.songs.sources = ['netease', 'qq'];
+  c.sing = c.sing || {};
+  if (c.sing.enabled == null) c.sing.enabled = true;
+  if (!c.sing.mode) c.sing.mode = 'melody';
+  if (!c.sing.lyrics) c.sing.lyrics = 'netease';
+  if (!c.sing.melody) c.sing.melody = 'auto';
+  if (c.sing.max_lines == null) c.sing.max_lines = 6;
+  if (c.sing.max_chars == null) c.sing.max_chars = 100;
+  if (c.sing.bpm == null) c.sing.bpm = 92;
+  if (c.sing.v2 == null) c.sing.v2 = true;
+  if (c.sing.natural == null) c.sing.natural = true;
+  if (c.sing.beat_scale == null) c.sing.beat_scale = 0.75;
+  if (!c.sing.engine) c.sing.engine = 'tts';
+  if (!c.sing.ace) c.sing.ace = {};
+  if (!c.sing.rvc) c.sing.rvc = {};
+  c.obs = c.obs || {};
+  if (!c.obs.host) c.obs.host = '127.0.0.1';
+  if (c.obs.port == null) c.obs.port = 4455;
+  if (c.obs.password == null) c.obs.password = '';
+  if (!c.obs.scene) c.obs.scene = '鲸live';
+  if (!c.obs.bgColor) c.obs.bgColor = '0b0c0e';
+  if (!c.obs.preset) c.obs.preset = 'simple';
+  if (c.douyin == null) c.douyin = { mode: 'relay', web_rid: '' };
+  if (c.persona == null) c.persona = { system: '' };
+  c.deps = c.deps || {};
+  if (c.deps.tts_start_cmd == null) c.deps.tts_start_cmd = '';
+  if (c.deps.obs_start_cmd == null) c.deps.obs_start_cmd = '';
+  if (c.deps.ollama_start_cmd == null) c.deps.ollama_start_cmd = '';
+  return c;
+}
+
+async function loadCfg() {
+  const c = normalize(await invoke('config:get'));
+  cfg.value = JSON.parse(JSON.stringify(c || {}));
+  enterTpl.value = ((c.events && c.events.enter && c.events.enter.templates) || []).join('\n');
+  followTpl.value = ((c.events && c.events.follow && c.events.follow.templates) || []).join('\n');
+  blockText.value = (((c.filter && c.filter.blocklist) || [])).join('\n');
+  fixedRows.value = ((c.fixed_replies || [])).map((r) => ({
+    keywords: Array.isArray(r.keywords) ? r.keywords.join('，') : String(r.keywords || ''),
+    reply: r.reply || ''
+  }));
+  jsonText.value = JSON.stringify(cfg.value, null, 2);
+  dirty.value = false;
+}
+function markDirty() { dirty.value = true; }
+async function saveCfg() {
+  saving.value = true;
+  try {
+    const body = JSON.parse(JSON.stringify(cfg.value));
+    body.events = body.events || {};
+    body.events.enter = body.events.enter || {};
+    body.events.follow = body.events.follow || {};
+    body.events.enter.templates = enterTpl.value.split('\n').map((s) => s.trim()).filter(Boolean);
+    body.events.follow.templates = followTpl.value.split('\n').map((s) => s.trim()).filter(Boolean);
+    body.filter = { blocklist: blockText.value.split('\n').map((s) => s.trim()).filter(Boolean) };
+    body.fixed_replies = fixedRows.value
+      .map((r) => ({ keywords: String(r.keywords).split(/[,，\s]+/).filter(Boolean), reply: String(r.reply).trim() }))
+      .filter((r) => r.keywords.length && r.reply);
+    await invoke('config:set', body);
+    cfg.value = body;
+    jsonText.value = JSON.stringify(body, null, 2);
+    dirty.value = false;
+    toastShow('✅ 配置已保存并生效');
+  } catch (e) {
+    toastShow('保存失败: ' + e.message);
+  } finally {
+    saving.value = false;
+  }
+}
+function addFixed() { fixedRows.value.push({ keywords: '', reply: '' }); }
+function removeFixed(i) { fixedRows.value.splice(i, 1); }
+function addTpl(which) {
+  if (which === 'enter') enterTpl.value += (enterTpl.value ? '\n' : '') + '欢迎{name}，随便坐别客气～';
+  else followTpl.value += (followTpl.value ? '\n' : '') + '谢谢{name}的关注！';
+}
+function applyJson() {
+  try {
+    cfg.value = JSON.parse(jsonText.value);
+    loadFromCfg();
+    toastShow('已应用 JSON（记得保存）');
+  } catch (e) { toastShow('JSON 错误: ' + e.message); }
+}
+function loadFromCfg() {
+  const c = normalize(cfg.value);
+  cfg.value = c;
+  enterTpl.value = ((c.events && c.events.enter && c.events.enter.templates) || []).join('\n');
+  followTpl.value = ((c.events && c.events.follow && c.events.follow.templates) || []).join('\n');
+  blockText.value = (((c.filter && c.filter.blocklist) || [])).join('\n');
+  fixedRows.value = ((c.fixed_replies || [])).map((r) => ({
+    keywords: Array.isArray(r.keywords) ? r.keywords.join('，') : String(r.keywords || ''),
+    reply: r.reply || ''
+  }));
+}
+async function doSay() {
+  if (!sayText.value.trim()) return;
+  await invoke('say', { text: sayText.value.trim() });
+  sayText.value = '';
+  toastShow('🔊 已提交 TTS');
+}
+async function quickSay(t) { await invoke('say', { text: t }); toastShow('🔊 ' + t); }
+async function testEvent(kind) {
+  const map = {
+    danmaku: { type: 'danmaku', name: '测试观众', text: '你好呀' },
+    enter: { type: 'enter', name: '进房测试鱼' },
+    gift: { type: 'gift', name: '送礼测试鱼', gift: '小心心', num: 1, value: 0.1 },
+    follow: { type: 'follow', name: '关注测试鱼' }
+  };
+  await invoke('event:test', { event: map[kind] });
+  toastShow('已发送测试事件');
+}
+async function requestSong() {
+  const q = manualSong.value.trim();
+  if (!q) return;
+  const r = await invoke('songs:request', { name: '手动清唱', query: q });
+  if (r && r.ok) { toastShow(`✅ 已入队：${(r.song && r.song.name) || q}`); manualSong.value = ''; }
+  else toastShow('清唱失败: ' + ((r && r.error) || '未知'));
+  refreshSongs();
+}
+function obsPayload() {
+  const o = cfg.value.obs || {};
+  return {
+    host: o.host || '127.0.0.1',
+    port: Number(o.port || 4455),
+    password: o.password || '',
+    scene: o.scene || '鲸live直播'
+  };
+}
+async function obsTest() {
+  obsBusy.value = true;
+  obsLog.value = '连接中…';
+  try {
+    const r = await invoke('obs:status', obsPayload());
+    if (r && r.ok) {
+      obsLog.value =
+        '✅ 已连接 OBS ' + r.version + '（obs-websocket ' + r.websocket + '）\n' +
+        '画布：' + r.canvas[0] + '×' + r.canvas[1] + '\n' +
+        '当前场景：' + r.current + '\n' +
+        '场景列表：' + (r.scenes || []).join('、');
+    } else {
+      obsLog.value = '❌ ' + ((r && r.error) || '连接失败');
+    }
+  } finally {
+    obsBusy.value = false;
+  }
+}
+async function obsSetup() {
+  obsBusy.value = true;
+  obsLog.value = '正在配置 OBS…';
+  try {
+    const r = await invoke('obs:setup', obsPayload());
+    obsLog.value = ((r && r.logs) || []).join('\n') || JSON.stringify(r);
+    toastShow(r && r.ok ? '✅ OBS 场景已配置' : '❌ ' + ((r && r.error) || '配置失败'));
+  } finally {
+    obsBusy.value = false;
+  }
+}
+async function obsSave() {
+  const o = cfg.value.obs || {};
+  await invoke('config:set', {
+    obs: { host: o.host, port: Number(o.port), password: o.password, scene: o.scene, bgColor: o.bgColor || '0b0c0e', preset: o.preset || 'simple' }
+  });
+  toastShow('OBS 设置已保存');
+}
+function reloadFrames() { iframeKey.value++; }
+
+// ---------------- 皮套模型 ----------------
+async function loadL2dModels() {
+  try {
+    const r = await invoke('live2d:models');
+    l2dModels.value = (r && r.models) || [];
+    l2dModel.value = ((r && r.current) || '').replace(/^\//, '');
+  } catch (e) {
+    l2dModels.value = [];
+  }
+}
+async function changeL2dModel() {
+  const path = '/' + l2dModel.value.replace(/^\//, '');
+  try {
+    const r = await invoke('live2d:set', { path });
+    if (r && r.ok) {
+      toastShow('✅ 皮套已切换');
+      reloadFrames();
+    } else {
+      toastShow('❌ ' + ((r && r.error) || '切换失败'));
+    }
+  } catch (e) {
+    toastShow('❌ ' + e.message);
+  }
+}
+function l2dSrc() {
+  let s = API + '/live2d?scale=' + l2dScale.value;
+  if (l2dModel.value) s += '&model=/' + encodeURI(l2dModel.value.replace(/^\//, ''));
+  return s;
+}
+
+// ---------------- 运行环境（依赖服务：TTS / OBS / Ollama / Python） ----------------
+const depsState = ref({ services: [] });
+const depsBusy = ref('');
+const depsByKey = computed(() => {
+  const m = {};
+  for (const s of depsState.value.services || []) m[s.key] = s;
+  return m;
+});
+async function refreshDeps() {
+  try {
+    const r = await invoke('deps:get');
+    if (r && r.services) depsState.value = r;
+  } catch (e) {
+    depsState.value = { services: [] };
+  }
+}
+async function startDep(key) {
+  depsBusy.value = key;
+  try {
+    const r = await invoke('deps:start', { name: key });
+    if (r && r.services) depsState.value = { services: r.services };
+    if (r && r.ok) {
+      const svc = (r.services || []).find((x) => x.key === key);
+      toastShow(svc && svc.ok ? `✅ ${svc.name} 已启动` : `⏳ ${key} 启动中：端口还没起来，稍后点刷新（首次加载模型 1~3 分钟）`);
+    } else {
+      toastShow('❌ ' + ((r && r.error) || '启动失败'));
+    }
+  } catch (e) {
+    toastShow('❌ ' + e.message);
+  } finally {
+    depsBusy.value = '';
+    refreshDeps();
+  }
+}
+async function stopDep(key) {
+  depsBusy.value = key;
+  try {
+    const r = await invoke('deps:stop', { name: key });
+    if (r && r.services) depsState.value = { services: r.services };
+    toastShow(r && r.ok ? '已停止' : '❌ ' + ((r && r.error) || '停止失败'));
+  } catch (e) {
+    toastShow('❌ ' + e.message);
+  } finally {
+    depsBusy.value = '';
+    refreshDeps();
+  }
+}
+
+const checks = computed(() => [
+  { label: '会话已开始', ok: running.value, hint: running.value ? '' : '点右上角开始会话' },
+  { label: '抖音连接（relay）', ok: connected.value, hint: connected.value ? '' : '中继未就绪' },
+  { label: 'AI Key 已配置', ok: !!(cfg.value.ai && cfg.value.ai.openai_key), hint: '' },
+  { label: '语音服务在线（TTS）', ok: !!(depsByKey.value.tts && depsByKey.value.tts.ok), hint: depsByKey.value.tts && depsByKey.value.tts.ok ? '' : '到「运行环境」一键启动' },
+  { label: 'OBS 已连接', ok: !!(depsByKey.value.obs && depsByKey.value.obs.ok), hint: depsByKey.value.obs && depsByKey.value.obs.ok ? '' : 'OBS 没开也行，只是没有叠加上屏' },
+  { label: '清唱配置就绪', ok: !!cfg.value.sing, hint: '' },
+  { label: '皮套模型已内置', ok: l2dModels.value.length > 0, hint: l2dModels.value.length ? '' : '去「Live2D 皮套」页看看模型目录' }
+]);
+
+const eventCounts = computed(() => {
+  const c = { all: feed.value.length, danmaku: 0, enter: 0, gift: 0, follow: 0, say: 0 };
+  for (const x of feed.value) {
+    if (c[x.kind] === undefined) c[x.kind] = 0;
+    c[x.kind] += 1;
+  }
+  return c;
+});
+
+const filteredFeed = computed(() =>
+  eventFilter.value === 'all' ? feed.value : feed.value.filter((x) => x.kind === eventFilter.value)
+);
+
+onMounted(async () => {
+  await Promise.all([loadCfg(), refresh(), refreshSongs()]);
+  refreshDeps();
+  loadL2dModels();
+  refreshStatsHistory();
+  timer = setInterval(refresh, 1500);
+  songTimer = setInterval(refreshSongs, 3000);
+  // 依赖服务探测稍微费（要 spawn python --version），只在这两个页面开着时轮询
+  depsTimer = setInterval(() => {
+    if (current.value === 'env' || current.value === 'session') refreshDeps();
+  }, 6000);
+});
+onUnmounted(() => {
+  clearInterval(timer);
+  clearInterval(songTimer);
+  clearInterval(depsTimer);
+});
+</script>
+
+<template>
+  <div class="app theme-ink">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo">🎙</div>
+        <div>
+          <div class="name">鲸live</div>
+          <div class="ver">deepseek-live · v{{ version || '0.2.0' }}</div>
+        </div>
+      </div>
+      <nav class="tree">
+        <div v-for="g in MENU" :key="g.title" class="group">
+          <button class="group-head" @click="openGroup[g.title] = !openGroup[g.title]">
+            <span class="chev" :class="{ open: openGroup[g.title] }">▸</span>
+            <span class="gicon">{{ g.icon }}</span><span class="gtitle">{{ g.title }}</span>
+          </button>
+          <div v-show="openGroup[g.title]" class="children">
+            <button v-for="it in g.items" :key="it.key" class="leaf" :class="{ active: current === it.key }" @click="current = it.key">
+              <span class="licon">{{ it.icon }}</span><span>{{ it.label }}</span>
+            </button>
+          </div>
+        </div>
+      </nav>
+      <div class="side-foot">
+        <span class="dot" :class="running ? 'on' : 'off'"></span>
+        <div>
+          <div>{{ running ? '会话进行中' : '未开始' }}</div>
+          <div class="tiny">{{ mode }} · {{ uptime }}s</div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="main">
+      <header class="topbar">
+        <div class="crumb"><span class="muted">鲸live</span><span class="sep">/</span><b>{{ currentLabel }}</b></div>
+        <div class="top-actions">
+          <button v-if="running" class="ghost warn" @click="stopSession">结束会话</button>
+          <button v-else class="primary" @click="invoke('session:start').then(refresh)">▶ 开始会话</button>
+          <span class="pill" :class="running ? 'on' : 'off'">{{ running ? 'LIVE' : 'OFF' }}</span>
+        </div>
+      </header>
+
+      <div class="content">
+        <!-- 会话总览 -->
+        <template v-if="current === 'session'">
+          <div class="stat-grid">
+            <div v-for="m in STAT_META" :key="m.key" class="stat-card" :class="m.color">
+              <div class="s-dot"></div>
+              <div class="s-num">{{ (stats && stats[m.key]) || 0 }}</div>
+              <div class="s-label">{{ m.label }}</div>
+            </div>
+          </div>
+          <div class="session-cols">
+            <div class="card">
+              <div class="card-head"><h2>开播自检</h2><span class="hint">全绿即可开播</span></div>
+              <ul class="checklist">
+                <li v-for="c in checks" :key="c.label">
+                  <span class="ck" :class="c.ok ? 'yes' : 'no'">{{ c.ok ? '✓' : '✕' }}</span>
+                  <span class="ck-label">{{ c.label }}</span>
+                  <span class="ck-hint" v-if="c.hint">{{ c.hint }}</span>
+                </li>
+              </ul>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2>最近清唱</h2><span class="hint">{{ songState.queue.length }} 首排队</span></div>
+              <div class="now-playing" v-if="songState.current">
+                <span class="eq">▍▍▍</span>
+                <span>{{ singMode ? '正在清唱：' : '正在播放：' }}<b>{{ songState.current.name }}</b></span>
+                <span class="muted" v-if="songState.current.by"> · {{ songState.current.by }} 点</span>
+                <div class="now-lyric" v-if="singMode && curLyric">🎤 {{ curLyric }}</div>
+              </div>
+              <ul class="mini-queue">
+                <li v-for="(x, i) in songState.queue.slice(0, 5)" :key="i">
+                  <span class="idx">{{ i + 1 }}</span><span class="qname">{{ x && x.name }}</span><span class="muted" v-if="x && x.by">{{ x.by }}</span>
+                </li>
+              </ul>
+              <div v-if="!songState.current && !songState.queue.length" class="empty-hint">
+                还没有人清唱，弹幕发「唱歌 歌名」试试
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2>快捷测试</h2><span class="hint">不用开播也能测</span></div>
+              <div class="chips">
+                <button class="chip" @click="testEvent('danmaku')">💬 模拟弹幕</button>
+                <button class="chip" @click="testEvent('enter')">🚪 模拟进房</button>
+                <button class="chip" @click="testEvent('gift')">🎁 模拟礼物</button>
+                <button class="chip" @click="testEvent('follow')">⭐ 模拟关注</button>
+              </div>
+              <div class="card-head" style="margin-top:16px"><h2>统计</h2></div>
+              <button class="ghost" @click="invoke('stats:reset').then(refresh)">清空统计</button>
+              <div class="hint">结束会话/清空统计时，本场数据会自动写进 <code>logs/stats-history.jsonl</code></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2>最近场次</h2><span class="hint">每场结束自动存档（可复盘）</span></div>
+              <ul class="feed">
+                <li v-for="(h, i) in statsHistory" :key="i">
+                  <span class="tag">{{ String(h.at || '').slice(5, 16).replace('T', ' ') }}</span>
+                  <span class="txt">时长 {{ Math.round((h.durationSec || 0) / 60) }} 分 · 弹幕 {{ (h.stats || {}).danmaku || 0 }} · 礼物 {{ (h.stats || {}).gift || 0 }} · 关注 {{ (h.stats || {}).follow || 0 }}</span>
+                </li>
+                <li v-if="!statsHistory.length" class="empty">还没有历史场次，结束一场后会出现在这里</li>
+              </ul>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2>快捷入口</h2><span class="hint">OBS / 浏览器直接打开</span></div>
+              <div class="link-list">
+                <a :href="API + '/console'" target="_blank">🖥 网页控制台 <span>/console</span></a>
+                <a :href="API + '/overlay'" target="_blank">💬 弹幕层 <span>/overlay</span></a>
+                <a :href="API + '/songs'" target="_blank">🎤 清唱列表 <span>/songs</span></a>
+                <a :href="API + '/stats'" target="_blank">📈 本场统计 <span>/stats</span></a>
+                <a :href="API + '/stardew'" target="_blank">🎮 星露谷状态 <span>/stardew</span></a>
+                <a :href="API + '/live2d'" target="_blank">🎭 皮套 <span>/live2d</span></a>
+                <a href="https://github.com/a106832411/deepseek-live" target="_blank">📦 仓库 <span>GitHub</span></a>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2>使用提示</h2><span class="hint">常用操作</span></div>
+              <ul class="tips">
+                <li>弹幕发「唱歌 歌名」/「清唱 歌名」，AI 清唱给你听</li>
+                <li>抖音接入：运行环境页「📺 抖音弹幕中继」一键启动（内置中继，见 docs/抖音接入.md）</li>
+                <li>密钥/人设/TTS 路径改 <code>.env</code> 后重启生效</li>
+                <li>OBS 浏览器源：弹幕层 <code>/overlay</code>、清唱列表 <code>/songs</code>、皮套 <code>/live2d</code></li>
+              </ul>
+            </div>
+            <div class="card">
+              <div class="card-head"><h2>最近事件</h2><span class="hint">实时</span></div>
+              <ul class="feed">
+                <li v-for="(x, i) in feed.slice(0, 30)" :key="i">
+                  <span class="tag" :class="x.kind">{{ x.kind }}</span>
+                  <span class="nick" v-if="x.name">{{ x.name }}</span>
+                  <span class="txt">{{ x.text }}</span>
+                  <span class="time">{{ x.t }}</span>
+                </li>
+                <li v-if="!feed.length" class="empty">暂无事件，点上面的按钮试试</li>
+              </ul>
+            </div>
+          </div>
+        </template>
+
+        <!-- 事件 -->
+        <div v-if="current === 'events'" class="card">
+          <div class="card-head"><h2>事件流</h2><span class="hint">最近 50 条</span></div>
+          <div class="filter-row">
+            <button v-for="f in EVENT_FILTERS" :key="f.key" class="filter-chip" :class="{ active: eventFilter === f.key }"
+              @click="eventFilter = f.key">{{ f.label }} <b>{{ eventCounts[f.key] || 0 }}</b></button>
+          </div>
+          <ul class="feed">
+            <li v-for="(x, i) in filteredFeed" :key="i">
+              <span class="tag" :class="x.kind">{{ x.kind }}</span>
+              <span class="nick" v-if="x.name">{{ x.name }}</span>
+              <span class="txt">{{ x.text }}</span>
+              <span class="time">{{ x.t }}</span>
+            </li>
+            <li v-if="!feed.length" class="empty">暂无事件</li>
+          </ul>
+        </div>
+
+        <!-- 皮套 -->
+        <div v-if="current === 'live2d'" class="card">
+          <div class="card-head"><h2>Live2D 皮套</h2><span class="hint">OBS 浏览器源：{{ API }}/live2d</span></div>
+          <div class="row">
+            <label class="field inline" style="min-width:280px"><span>模型</span>
+              <select v-model="l2dModel" @change="changeL2dModel">
+                <option v-for="m in l2dModels" :key="m.path" :value="m.path.replace(/^\//, '')">{{ m.name }}</option>
+                <option v-if="!l2dModels.length" value="">（没找到模型）</option>
+              </select>
+            </label>
+            <label class="field inline"><span>缩放</span>
+              <input type="range" min="0.5" max="1.2" step="0.02" v-model.number="l2dScale" style="width:180px" />
+              <b>{{ l2dScale.toFixed(2) }}</b>
+            </label>
+            <button class="ghost" @click="reloadFrames">重新加载</button>
+            <a :href="API + '/live2d'" target="_blank">新窗口打开</a>
+          </div>
+          <div class="hint-text">
+            · 换模型：把 Live2D 模型目录（含 <code>*.model3.json</code>）丢进 <code>public/live2d/models/</code>，刷新这个下拉框即可看到<br>
+            · 切换后会自动写进 <code>config.json</code> 的 <code>live2d.model</code>，OBS 里的 <code>/live2d</code> 源不用改 URL
+          </div>
+          <iframe :key="'l2d' + iframeKey + l2dScale + l2dModel" class="frame checker" :src="l2dSrc()"></iframe>
+        </div>
+
+        <!-- 叠加层 -->
+        <div v-if="current === 'overlay'" class="card">
+          <div class="card-head"><h2>OBS 叠加层</h2><span class="hint">弹幕层 / 清唱列表 / 本场统计 / 星露谷状态</span></div>
+          <div class="frames">
+            <div class="fcol"><div class="flabel">弹幕层 <code>/overlay</code></div><iframe :key="'ov' + iframeKey" class="frame" :src="API + '/overlay'"></iframe></div>
+            <div class="fcol"><div class="flabel">清唱列表 <code>/songs</code></div><iframe :key="'sg' + iframeKey" class="frame" :src="API + '/songs'"></iframe></div>
+            <div class="fcol"><div class="flabel">本场统计 <code>/stats</code></div><iframe :key="'st' + iframeKey" class="frame" :src="API + '/stats'"></iframe></div>
+            <div class="fcol"><div class="flabel">星露谷状态 <code>/stardew</code></div><iframe :key="'sd' + iframeKey" class="frame" :src="API + '/stardew'"></iframe></div>
+          </div>
+        </div>
+
+        <!-- 星露谷状态 -->
+        <div v-if="current === 'stardew'" class="card">
+          <div class="card-head"><h2>星露谷 AI 状态</h2><span class="hint">OBS 浏览器源：{{ API }}/stardew 或 http://127.0.0.1:8790/stardew</span></div>
+          <div class="row" style="margin-bottom:12px">
+            <a :href="API + '/stardew'" target="_blank">新窗口打开</a>
+            <a href="http://127.0.0.1:8790/stardew" target="_blank">独立状态服务（OBS 推荐）</a>
+          </div>
+          <iframe :key="'stardew' + iframeKey" class="frame" style="height:420px" :src="API + '/stardew'"></iframe>
+          <div class="hint-text">
+            · OBS 里加「浏览器源」→ URL 填 <code>http://127.0.0.1:8790/stardew</code>，宽 480 高 300 放左下角<br>
+            · 也可以直接用一键脚本：<code>node scripts/add_stardew_obs.cjs</code>
+          </div>
+        </div>
+
+        <!-- OBS 一键配置 -->
+        <div v-if="current === 'obs'" class="card">
+          <div class="card-head"><h2>OBS 一键配置</h2><span class="hint">自动建场景 + 浏览器源 + 摆位</span></div>
+          <div class="row2">
+            <label class="field"><span>Host</span><input v-model="cfg.obs.host" @input="markDirty" /></label>
+            <label class="field"><span>WebSocket 端口</span><input type="number" v-model.number="cfg.obs.port" @input="markDirty" /></label>
+            <label class="field"><span>WebSocket 密码</span><input type="password" v-model="cfg.obs.password" @input="markDirty" placeholder="OBS → 工具 → WebSocket 服务器设置" /></label>
+            <label class="field"><span>场景名</span><input v-model="cfg.obs.scene" @input="markDirty" /></label>
+            <label class="field"><span>布局预设</span>
+              <select v-model="cfg.obs.preset" @change="markDirty">
+                <option value="simple">简单直播（皮套 + 弹幕 + 歌单）</option>
+                <option value="game">完整直播 · 旧版竖屏场景（游戏画面 + 文字叠加 + 字幕/弹幕 + 数据）</option>
+              </select>
+            </label>
+          </div>
+          <div class="row" style="margin-top:16px">
+            <button class="ghost" :disabled="obsBusy" @click="obsTest">连接测试</button>
+            <button class="ghost" :disabled="obsBusy" @click="obsSave">保存设置</button>
+            <button class="primary" :disabled="obsBusy" @click="obsSetup">{{ obsBusy ? '处理中…' : '⚡ 一键配置 OBS' }}</button>
+          </div>
+          <div class="hint-text">
+            会在 OBS 里创建/复用场景「{{ cfg.obs.scene }}」。<br>
+            · <b>简单直播</b>：背景 + 皮套 + 弹幕层 + 歌单<br>
+            · <b>完整直播（旧版竖屏场景）</b>：背景 + 游戏画面（gamecam 9800/cam）+ 文字叠加 + 皮套 + 本场数据 + 歌单 + 字幕 + 弹幕 + 游戏面板（隐藏），位置按旧版布局还原<br>
+            服务地址：<code>{{ API }}</code>
+          </div>
+          <pre class="obs-log" v-if="obsLog">{{ obsLog }}</pre>
+        </div>
+
+        <!-- 清唱 -->
+        <div v-if="current === 'songs'" class="card">
+          <div class="card-head"><h2>清唱队列</h2><span class="hint">AI 用主播声音清唱 · 无需登录</span></div>
+          <div class="row">
+            <input v-model="manualSong" placeholder="输入歌名，回车清唱" @keyup.enter="requestSong" />
+            <button class="primary" @click="requestSong">清唱</button>
+          </div>
+          <div class="now-playing" v-if="songState.current">
+            <span class="eq">▍▍▍</span>
+            <span>{{ singMode ? '正在清唱：' : '正在播放：' }}<b>{{ songState.current.name }}</b></span>
+            <span class="muted" v-if="songState.current.by"> · {{ songState.current.by }} 点</span>
+            <div class="now-lyric" v-if="singMode && curLyric">🎤 {{ curLyric }}</div>
+          </div>
+          <ul class="queue">
+            <li v-for="(x, i) in songState.queue" :key="i">
+              <span class="idx">{{ i + 1 }}</span><span class="qname">{{ x && x.name }}</span><span class="muted" v-if="x && x.by">{{ x.by }} 点</span>
+            </li>
+            <li v-if="!songState.queue.length" class="empty">队列为空，弹幕发「唱歌 歌名」会自动入队</li>
+          </ul>
+        </div>
+
+        <!-- 说话 -->
+        <div v-if="current === 'say'" class="card">
+          <div class="card-head"><h2>手动说话</h2><span class="hint">走 GPT-SoVITS 9881</span></div>
+          <div class="row">
+            <input v-model="sayText" placeholder="输入要播报的内容" @keyup.enter="doSay" />
+            <button class="primary" @click="doSay">🔊 说话</button>
+          </div>
+          <div class="chips" style="margin-top:12px">
+            <button class="chip" @click="quickSay('欢迎来到直播间，宝子们晚上好呀')">欢迎语</button>
+            <button class="chip" @click="quickSay('谢谢宝子的礼物，嘿嘿～')">感谢礼物</button>
+            <button class="chip" @click="quickSay('想听什么？弹幕发「唱歌 歌名」，我清唱给你听')">清唱引导</button>
+          </div>
+        </div>
+
+        <!-- 运行环境 -->
+        <div v-if="current === 'env'" class="card">
+          <div class="card-head">
+            <h2>运行环境</h2>
+            <span class="hint">依赖服务状态 / 一键启动</span>
+            <button class="ghost sm" @click="refreshDeps">↻ 刷新</button>
+          </div>
+          <div class="dep-list">
+            <div v-for="s in depsState.services" :key="s.key" class="dep-row">
+              <span class="dot" :class="s.ok ? 'on' : 'off'"></span>
+              <span class="dep-ico">{{ s.icon }}</span>
+              <div class="dep-main">
+                <div class="dep-title">
+                  {{ s.name }}
+                  <span class="pill sm" :class="s.ok ? 'on' : 'off'">{{ s.ok ? '在线' : '离线' }}</span>
+                  <span v-if="s.managed" class="tag mini">鲸live 启动</span>
+                </div>
+                <div class="dep-detail muted">{{ s.detail }}</div>
+                <div class="dep-hint muted" v-if="s.hint">💡 {{ s.hint }}</div>
+              </div>
+              <div class="dep-actions">
+                <button v-if="!s.ok && s.startable" class="primary sm" :disabled="depsBusy === s.key" @click="startDep(s.key)">
+                  {{ depsBusy === s.key ? '启动中…' : '一键启动' }}
+                </button>
+                <button v-if="s.managed" class="ghost sm warn" @click="stopDep(s.key)">停止</button>
+              </div>
+            </div>
+            <div v-if="!depsState.services.length" class="empty-hint">正在检测依赖服务…</div>
+          </div>
+          <div class="deps-tip muted">
+            启动命令留空会自动发现本机路径（TTS 找仓库旁的 whaletalk/gsv_gpu、OBS 找常见安装目录、Ollama 找 LOCALAPPDATA）；
+            发现不了就去「全部配置 → 🧰 运行环境」手填。启动日志：<code>logs/deps-*.log</code>
+          </div>
+        </div>
+
+        <!-- 配置 -->
+        <template v-if="current === 'config'">
+          <div class="cfg-actions">
+            <button class="ghost" @click="loadCfg">重新读取</button>
+            <button class="ghost" @click="showJson = !showJson">{{ showJson ? '隐藏 JSON' : '高级 JSON' }}</button>
+            <button class="primary" :disabled="saving" @click="saveCfg">{{ saving ? '保存中…' : '💾 保存配置' }}</button>
+            <span class="dirty" v-if="dirty">● 有未保存修改</span>
+          </div>
+
+          <div v-show="showJson" class="card">
+            <div class="card-head"><h2>高级 JSON</h2><span class="hint">整份 config，可直接编辑</span></div>
+            <textarea v-model="jsonText" class="json"></textarea>
+            <button class="ghost" @click="applyJson">应用到表单</button>
+          </div>
+
+          <div class="cfg-sections">
+            <section class="card">
+              <div class="card-head"><h2>📡 直播连接</h2></div>
+              <label class="field"><span>平台</span><input v-model="cfg.platform" @input="markDirty" /></label>
+              <label class="field"><span>抖音模式</span>
+                <select v-model="cfg.douyin.mode" @change="markDirty">
+                  <option value="relay">relay（中继投递）</option>
+                  <option value="browser">browser（自带网页钩子）</option>
+                </select>
+              </label>
+              <label class="field"><span>直播间号</span><input v-model="cfg.douyin.web_rid" @input="markDirty" /></label>
+              <label class="field"><span>合并窗口(秒)</span><input type="number" v-model.number="cfg.merge_window" @input="markDirty" /></label>
+            </section>
+
+            <section class="card">
+              <div class="card-head"><h2>🧠 AI 大脑</h2></div>
+              <label class="field"><span>接口地址</span><input v-model="cfg.ai.openai_base" @input="markDirty" /></label>
+              <label class="field"><span>模型</span><input v-model="cfg.ai.openai_model" @input="markDirty" /></label>
+              <label class="field"><span>API Key</span><input type="password" v-model="cfg.ai.openai_key" @input="markDirty" placeholder="sk-..." /></label>
+              <div class="row2">
+                <label class="field"><span>回复字数上限</span><input type="number" v-model.number="cfg.ai.max_chars" @input="markDirty" /></label>
+                <label class="field"><span>温度</span><input type="number" step="0.1" v-model.number="cfg.ai.temperature" @input="markDirty" /></label>
+              </div>
+              <div class="row2">
+                <label class="field"><span>短期记忆（轮）</span><input type="number" min="0" v-model.number="cfg.ai.memory" @input="markDirty" /></label>
+                <label class="field"><span>事件上下文（条）</span><input type="number" min="0" v-model.number="cfg.ai.context" @input="markDirty" /></label>
+              </div>
+              <div class="hint">记忆：记住最近几轮对话（0 = 不记，每句独立）；事件上下文：把最近几条弹幕/礼物也塞给 AI，接话更自然</div>
+              <label class="field"><span>人设（system prompt）</span><textarea v-model="cfg.persona.system" @input="markDirty"></textarea></label>
+            </section>
+
+            <section class="card">
+              <div class="card-head"><h2>🔊 语音 TTS</h2></div>
+              <label class="field"><span>接口地址</span><input v-model="cfg.tts.api_url" @input="markDirty" /></label>
+              <label class="field"><span>参考音频路径</span><input v-model="cfg.tts.ref_audio" @input="markDirty" /></label>
+              <label class="field"><span>参考音频对应文字</span><input v-model="cfg.tts.prompt_text" @input="markDirty" /></label>
+              <div class="row2">
+                <label class="field"><span>语速</span><input type="number" step="0.01" v-model.number="cfg.tts.speed" @input="markDirty" /></label>
+                <label class="field"><span>采样步数</span><input type="number" v-model.number="cfg.tts.sample_steps" @input="markDirty" /></label>
+                <label class="field"><span>top_k</span><input type="number" v-model.number="cfg.tts.top_k" @input="markDirty" /></label>
+                <label class="field"><span>温度</span><input type="number" step="0.1" v-model.number="cfg.tts.temperature" @input="markDirty" /></label>
+              </div>
+              <label class="check"><input type="checkbox" v-model="cfg.tts.auto_play" @change="markDirty" /> 合成后自动播放</label>
+              <div class="row2">
+                <label class="field"><span>排队上限（句）</span><input type="number" min="1" v-model.number="cfg.tts.queue_max" @input="markDirty" /></label>
+                <label class="field"><span>过期丢弃（毫秒）</span><input type="number" min="1000" step="1000" v-model.number="cfg.tts.stale_ms" @input="markDirty" /></label>
+              </div>
+              <div class="hint">弹幕刷屏时防止话越积越多：超过排队上限就丢新话，排队超过「过期丢弃」时长就不说了（默认 3 句 / 15 秒）</div>
+            </section>
+
+            <section class="card">
+              <div class="card-head"><h2>🎯 事件触发</h2><span class="hint">每个事件的开关 / 模式 / 冷却</span></div>
+              <div v-for="em in EVENT_META" :key="em.key" class="event-row">
+                <div class="ev-left">
+                  <div class="ev-title">{{ em.icon }} {{ em.label }}</div>
+                  <label class="check"><input type="checkbox" v-model="cfg.events[em.key].enabled" @change="markDirty" /> 启用</label>
+                </div>
+                <div class="ev-right">
+                  <label class="field inline"><span>模式</span>
+                    <select v-model="cfg.events[em.key].mode" @change="markDirty">
+                      <option value="ai">AI 生成</option>
+                      <option value="template">模板</option>
+                    </select>
+                  </label>
+                  <label class="field inline"><span>概率</span><input type="number" min="1" max="100" v-model.number="cfg.events[em.key].probability" @input="markDirty" /></label>
+                  <label class="field inline"><span>冷却</span><input type="number" v-model.number="cfg.events[em.key].cooldown_user" @input="markDirty" /></label>
+                </div>
+              </div>
+              <div class="field">
+                <span>进房欢迎模板（每行一条，{name} 会替换成昵称）</span>
+                <textarea v-model="enterTpl" @input="markDirty"></textarea>
+                <button class="ghost sm" @click="addTpl('enter')">+ 加一条</button>
+              </div>
+              <div class="field">
+                <span>关注感谢模板</span>
+                <textarea v-model="followTpl" @input="markDirty"></textarea>
+                <button class="ghost sm" @click="addTpl('follow')">+ 加一条</button>
+              </div>
+            </section>
+
+            <section class="card">
+              <div class="card-head"><h2>💬 固定回复</h2><span class="hint">命中关键词直接回固定句</span></div>
+              <div v-for="(r, i) in fixedRows" :key="i" class="fixed-row">
+                <input v-model="r.keywords" placeholder="关键词，逗号分隔" @input="markDirty" />
+                <input v-model="r.reply" placeholder="回复内容" @input="markDirty" />
+                <button class="ghost sm" @click="removeFixed(i); markDirty()">删</button>
+              </div>
+              <button class="ghost sm" @click="addFixed(); markDirty()">+ 添加一条</button>
+            </section>
+
+            <section class="card">
+              <div class="card-head"><h2>🎤 清唱</h2><span class="hint">AI 用主播声音清唱（无伴奏）</span></div>
+              <label class="field"><span>表演模式</span>
+                <select v-model="cfg.songs.perform" @change="markDirty">
+                  <option value="sing">清唱（TTS 合成，默认）</option>
+                  <option value="play">播放原曲（旧行为）</option>
+                </select>
+              </label>
+              <div class="row">
+                <label class="check"><input type="checkbox" v-model="cfg.songs.enabled" @change="markDirty" /> 点歌/清唱总开关</label>
+                <label class="check"><input type="checkbox" v-model="cfg.sing.enabled" @change="markDirty" /> 启用清唱</label>
+              </div>
+              <div class="row2">
+                <label class="field"><span>清唱引擎</span>
+                  <select v-model="cfg.sing.engine" @change="markDirty">
+                    <option value="tts">TTS 清唱（默认，快）</option>
+                    <option value="ace">真唱 ACE-Step（本地部署，慢但真唱）</option>
+                    <option value="rvc">真唱 RVC 翻唱（原曲分离+换声，WSL/GPU）</option>
+                  </select>
+                </label>
+                <label class="field"><span>唱法模式</span>
+                  <select v-model="cfg.sing.mode" @change="markDirty">
+                    <option value="melody">带旋律</option>
+                    <option value="read">纯念唱</option>
+                  </select>
+                </label>
+                <label class="field"><span>歌词来源</span>
+                  <select v-model="cfg.sing.lyrics" @change="markDirty">
+                    <option value="netease">抓原歌词</option>
+                    <option value="ai">AI 现编</option>
+                  </select>
+                </label>
+                <label class="field"><span>旋律</span>
+                  <select v-model="cfg.sing.melody" @change="markDirty">
+                    <option value="auto">自动选</option>
+                    <option value="xiaoxingxing">小星星</option>
+                    <option value="shengri">生日快乐</option>
+                    <option value="folk1">民谣 1</option>
+                    <option value="folk2">民谣 2</option>
+                  </select>
+                </label>
+                <label class="field"><span>节拍 BPM</span><input type="number" v-model.number="cfg.sing.bpm" @input="markDirty" /></label>
+                <label class="field"><span>唱腔档位</span>
+                  <select v-model.number="cfg.sing.beat_scale" @change="markDirty">
+                    <option :value="0.55">保守（拖短一点）</option>
+                    <option :value="0.75">中等（推荐）</option>
+                    <option :value="0.95">明显（拖更长）</option>
+                  </select>
+                </label>
+                <label class="field"><span>每首句数</span><input type="number" v-model.number="cfg.sing.max_lines" @input="markDirty" /></label>
+                <label class="field"><span>整首字数</span><input type="number" v-model.number="cfg.sing.max_chars" @input="markDirty" /></label>
+              </div>
+              <div class="row2" style="margin-top:8px" v-if="cfg.sing.engine === 'rvc'">
+                <label class="field"><span>RVC 运行方式</span>
+                  <select v-model="cfg.sing.rvc.mode" @change="markDirty">
+                    <option value="wsl">WSL（ROCm GPU，推荐）</option>
+                    <option value="local">Windows 本地 python（CPU）</option>
+                  </select>
+                </label>
+                <label class="field"><span>RVC 声线名</span><input v-model="cfg.sing.rvc.voice" @input="markDirty" placeholder="voices.json 里的键" /></label>
+                <label class="field"><span>声线表 voices.json</span><input v-model="cfg.sing.rvc.voices_file" @input="markDirty" placeholder="D:/models/rvc/voices.json" /></label>
+                <label class="field"><span>升降调（半音）</span><input type="number" v-model.number="cfg.sing.rvc.f0" @input="markDirty" /></label>
+                <label class="field"><span>设备</span><input v-model="cfg.sing.rvc.device" @input="markDirty" placeholder="cuda:0 / cpu:0" /></label>
+                <label class="field"><span>WSL 发行版</span><input v-model="cfg.sing.rvc.distro" @input="markDirty" placeholder="Ubuntu-22.04" /></label>
+              </div>
+              <div class="row">
+                <label class="check"><input type="checkbox" v-model="cfg.sing.v2" @change="markDirty" /> 唱腔化 v2（拉长元音+连唱，更像在唱）</label>
+                <label class="check"><input type="checkbox" v-model="cfg.sing.natural" @change="markDirty" /> 自然旋律（关掉 v2 时生效）</label>
+              </div>
+              <label class="check"><input type="checkbox" v-model="cfg.songs.dedupe" @change="markDirty" /> 本场同歌去重</label>
+              <label class="check"><input type="checkbox" v-model="cfg.songs.internal" @change="markDirty" /> 使用内嵌网易云搜索</label>
+              <div class="field">
+                <span>音源优先级（勾选启用，按此顺序依次尝试）</span>
+                <div class="chips">
+                  <label v-for="src in SOURCE_LIST" :key="src.key" class="check" :class="{ dim: src.na }">
+                    <input type="checkbox" :value="src.key" v-model="cfg.songs.sources" :disabled="src.na" @change="markDirty" />
+                    {{ src.label }}<span v-if="src.na" class="muted">（暂无可用接口）</span>
+                  </label>
+                </div>
+              </div>
+              <div class="row2">
+                <label class="field"><span>最大排队数</span><input type="number" v-model.number="cfg.songs.max_queue" @input="markDirty" /></label>
+                <label class="field"><span>自动播放</span>
+                  <select v-model="cfg.songs.auto_play" @change="markDirty">
+                    <option :value="true">是</option>
+                    <option :value="false">否</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <section class="card">
+              <div class="card-head"><h2>🧰 运行环境</h2><span class="hint">留空 = 自动发现本机路径</span></div>
+              <label class="field"><span>TTS 启动命令</span><input v-model="cfg.deps.tts_start_cmd" @input="markDirty" placeholder="powershell -NoProfile -ExecutionPolicy Bypass -File D:\...\run_gpu_api.ps1" /></label>
+              <label class="field"><span>OBS 启动命令</span><input v-model="cfg.deps.obs_start_cmd" @input="markDirty" placeholder="D:\obs-studio\bin\64bit\obs64.exe" /></label>
+              <label class="field"><span>Ollama 启动命令</span><input v-model="cfg.deps.ollama_start_cmd" @input="markDirty" placeholder="ollama serve" /></label>
+              <div class="hint">这三项是「运行环境」页一键启动用的；不填也行，会自动找常见位置。</div>
+            </section>
+
+            <section class="card">
+              <div class="card-head"><h2>🛡 过滤词</h2><span class="hint">弹幕命中就丢弃，每行一个</span></div>
+              <textarea v-model="blockText" @input="markDirty"></textarea>
+            </section>
+          </div>
+        </template>
+
+        <!-- 关于 -->
+        <div v-if="current === 'about'" class="card">
+          <div class="card-head"><h2>关于</h2></div>
+          <ul class="about">
+            <li><b>deepseek-live</b> · 鲸live控制台（Vue 3 + Electron 33）</li>
+            <li>核心：<code>app/main/core.cjs</code>（零依赖 Node，HTTP + WS + AI + TTS + 清唱）</li>
+            <li>控制：IPC（window.whale.invoke）· OBS 叠加层走 HTTP</li>
+            <li>皮套：pixi-live2d-display + Cubism 4（内置模型）</li>
+            <li>仓库：<a href="https://github.com/a106832411/deepseek-live" target="_blank">github.com/a106832411/deepseek-live</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <footer class="app-footer">
+        <button class="foot-link" @click="current = 'about'">ℹ 关于</button>
+        <span class="foot-sep">·</span>
+        <a :href="API + '/overlay'" target="_blank">弹幕层</a>
+        <a :href="API + '/songs'" target="_blank">清唱</a>
+        <a :href="API + '/live2d'" target="_blank">皮套</a>
+        <span class="foot-right">
+          <span class="dot" :class="running ? 'on' : 'off'"></span>
+          {{ running ? 'LIVE' : 'OFF' }} · {{ mode }} · deepseek-live v{{ version || '0.2.0' }}
+        </span>
+      </footer>
+    </section>
+
+    <transition name="fade">
+      <div v-if="dirty" class="save-bar">
+        <span>有未保存的配置修改</span>
+        <button class="primary" :disabled="saving" @click="saveCfg">{{ saving ? '保存中…' : '保存' }}</button>
+        <button class="ghost" @click="loadCfg">放弃</button>
+      </div>
+    </transition>
+    <transition name="fade"><div v-if="toast" class="toast">{{ toast }}</div></transition>
+  </div>
+</template>
+
+<style>
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; }
+body {
+  margin: 0; overflow: hidden;
+  font-family: "Microsoft YaHei", "Segoe UI Emoji", system-ui, sans-serif;
+  background: #0a0b0d;
+  color: var(--text);
+}
+
+/* ================= 主题：低饱和 · 克制 ================= */
+.app {
+  --bg: #0a0b0d;
+  --bg-soft: #0f1114;
+  --panel: #171a1f;
+  --panel-2: #1d222a;
+  --line: rgba(255, 255, 255, .08);
+  --line-2: rgba(255, 255, 255, .17);
+  --text: #f0ece4;
+  --muted: #9c968c;
+  --accent: #c9a45c;
+  --accent-soft: rgba(201, 164, 92, .13);
+  --accent-line: rgba(201, 164, 92, .36);
+  --ok: #8fae8b;
+  --warn: #c9a86a;
+  --err: #b98a8a;
+  position: relative;
+  display: flex; height: 100vh;
+  background:
+    radial-gradient(1100px 520px at 82% -12%, rgba(255, 255, 255, .035), transparent 62%),
+    radial-gradient(900px 460px at 8% 108%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 60%),
+    linear-gradient(180deg, #0b0c0e 0%, #0d0f12 100%);
+}
+.theme-indigo {
+  --accent: #8fa7c4;
+  --accent-soft: rgba(143, 167, 196, .12);
+  --accent-line: rgba(143, 167, 196, .34);
+  --ok: #8aa9a0; --warn: #bfa67e; --err: #b28f8f;
+}
+.theme-moss {
+  --accent: #93ab8e;
+  --accent-soft: rgba(147, 171, 142, .12);
+  --accent-line: rgba(147, 171, 142, .34);
+  --ok: #8aa98a; --warn: #c2a878; --err: #b39090;
+}
+.theme-wine {
+  --accent: #b39191;
+  --accent-soft: rgba(179, 145, 145, .13);
+  --accent-line: rgba(179, 145, 145, .36);
+  --ok: #94a98f; --warn: #c19f74; --err: #b78a8a;
+}
+
+/* 极细颗粒质感（很淡，不抢视线） */
+.app::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 1;
+  opacity: .35;
+  background-image: radial-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px);
+  background-size: 3px 3px;
+}
+
+/* ================= 侧栏 ================= */
+.sidebar {
+  position: relative; z-index: 2;
+  width: 232px; flex: 0 0 232px;
+  display: flex; flex-direction: column;
+  background: linear-gradient(180deg, #0e1013 0%, #0b0d10 100%);
+  border-right: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 11px; padding: 20px 16px 16px; border-bottom: 1px solid var(--line); }
+.brand .logo {
+  width: 34px; height: 34px; display: grid; place-items: center; font-size: 17px;
+  border-radius: 10px;
+  background: #1a1d22;
+  border: 1px solid var(--line-2);
+  color: var(--accent);
+}
+.brand .name { font-size: 14px; font-weight: 700; letter-spacing: 2px; color: #f0ede7; }
+.brand .ver { font-size: 10px; color: var(--muted); margin-top: 3px; letter-spacing: 1.4px; }
+
+.tree { flex: 1; overflow-y: auto; padding: 10px 10px 6px; }
+.tree::-webkit-scrollbar { width: 5px; }
+.tree::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .08); border-radius: 3px; }
+.group { margin-bottom: 10px; }
+.group-head {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: transparent; border: 0; color: #7d776d;
+  font-size: 11px; letter-spacing: 2px; padding: 8px 10px; cursor: pointer; border-radius: 8px;
+  transition: color .16s;
+}
+.group-head:hover { color: var(--text); }
+.chev { font-size: 9px; transition: transform .2s ease; color: #6a645b; }
+.chev.open { transform: rotate(90deg); color: var(--accent); }
+.children { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; margin-left: 15px; border-left: 1px solid var(--line); }
+.leaf {
+  position: relative; display: flex; align-items: center; gap: 9px; width: 100%;
+  text-align: left; background: transparent; border: 0; color: #b9b3a9;
+  font-size: 13px; padding: 9px 11px; border-radius: 8px; cursor: pointer;
+  transition: background .16s, color .16s;
+}
+.leaf:hover { background: rgba(255, 255, 255, .035); color: #f0ede7; }
+.leaf.active { background: rgba(255, 255, 255, .055); color: #fff; }
+.leaf.active .licon { filter: none; opacity: 1; }
+.leaf.active::before {
+  content: ''; position: absolute; left: -1px; top: 26%; bottom: 26%; width: 2px;
+  background: var(--accent); border-radius: 2px;
+}
+.licon { font-size: 13px; opacity: .8; filter: grayscale(.35); }
+
+.theme-switch { display: flex; align-items: center; gap: 8px; padding: 10px 16px 6px; border-top: 1px solid var(--line); }
+.ts-label { font-size: 10px; color: var(--muted); letter-spacing: 2px; }
+.ts-dot { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .2); cursor: pointer; padding: 0; opacity: .7; transition: opacity .15s, transform .15s; }
+.ts-dot:hover { opacity: 1; transform: scale(1.1); }
+.ts-dot.active { opacity: 1; border-color: rgba(255, 255, 255, .75); }
+
+.side-foot {
+  margin: 8px 12px 14px; padding: 12px 14px; border-radius: 10px;
+  background: #101216; border: 1px solid var(--line);
+  display: flex; gap: 10px; align-items: center; font-size: 12px; color: #cfc9bf;
+}
+.side-foot .tiny { font-size: 10px; color: var(--muted); margin-top: 2px; letter-spacing: 1px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: #6b6560; flex: 0 0 7px; }
+.dot.on { background: var(--ok); box-shadow: 0 0 0 3px rgba(143, 174, 139, .12); }
+
+/* ================= 主区 ================= */
+.main { position: relative; z-index: 2; flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.topbar {
+  height: 58px; flex: 0 0 58px; display: flex; align-items: center; padding: 0 26px;
+  background: rgba(11, 13, 16, .72); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.crumb { font-size: 12px; color: var(--muted); display: flex; align-items: center; letter-spacing: 1px; }
+.crumb b { font-size: 15px; color: #f2efe9; font-weight: 600; letter-spacing: 2px; }
+.crumb .sep { color: #45403a; margin: 0 10px; }
+.top-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.pill {
+  font-size: 10px; font-weight: 700; letter-spacing: 2px; padding: 6px 12px; border-radius: 6px;
+  border: 1px solid var(--line-2); color: var(--muted); background: transparent;
+}
+.pill.on { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+.pill.off { color: #8f8880; }
+
+.content { flex: 1; overflow-y: auto; padding: 26px; animation: rise .25s ease-out; }
+.content::-webkit-scrollbar { width: 7px; }
+.content::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .08); border-radius: 4px; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* 按钮：克制、无霓虹 */
+button { font-family: inherit; }
+.primary {
+  background: var(--accent); color: #14120e; font-weight: 700;
+  border: 1px solid transparent; border-radius: 8px; padding: 10px 18px; font-size: 13px;
+  cursor: pointer; letter-spacing: .5px;
+  transition: filter .15s, transform .12s;
+}
+.primary:hover { filter: brightness(1.06); }
+.primary:disabled { opacity: .5; cursor: default; }
+.ghost {
+  background: transparent; color: #cfc9bf; border: 1px solid var(--line-2);
+  border-radius: 8px; padding: 9px 15px; font-size: 13px; cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.ghost:hover { border-color: var(--accent-line); color: #f0ede7; background: rgba(255, 255, 255, .03); }
+.ghost.warn { border-color: rgba(185, 138, 138, .35); color: #d9b3b3; }
+.ghost.sm { padding: 6px 11px; font-size: 12px; }
+
+/* 统计卡：扁平静奢 */
+.stat-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-bottom: 22px; }
+.stat-card {
+  position: relative; border-radius: 12px; padding: 16px 18px;
+  background: var(--panel); border: 1px solid var(--line);
+  background-image: radial-gradient(220px 110px at 0% 0%, color-mix(in srgb, var(--ac) 12%, transparent), transparent 72%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset;
+  transition: border-color .18s, transform .18s, background .18s;
+}
+.stat-card:hover { transform: translateY(-2px); border-color: var(--line-2); background: var(--panel-2); }
+.stat-card::after {
+  content: ''; position: absolute; left: 18px; right: 18px; top: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--ac) 45%, transparent), transparent);
+}
+.stat-card.c1 { --ac: #a9bccd; }
+.stat-card.c2 { --ac: #9fb6ab; }
+.stat-card.c3 { --ac: #c9ad7a; }
+.stat-card.c4 { --ac: #b3a9c4; }
+.stat-card.c5 { --ac: #bfa2a2; }
+.stat-card.c6 { --ac: #a8b8a2; }
+.s-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ac); opacity: .85; }
+.s-num { font-size: 28px; font-weight: 600; margin-top: 10px; color: #f7f4ef; letter-spacing: 1px; }
+.s-label { font-size: 11px; color: var(--muted); margin-top: 4px; letter-spacing: 1.5px; }
+
+/* 卡片 */
+.grid2 { display: grid; grid-template-columns: 1fr 1.15fr; gap: 18px; align-items: start; }
+.session-cols { column-count: 2; column-gap: 18px; }
+.session-cols > .card { break-inside: avoid; margin: 0 0 18px; }
+.card {
+  position: relative; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 12px; padding: 20px;
+  background-image:
+    radial-gradient(520px 180px at 0% 0%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, .018), transparent 40%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 10px 30px rgba(0, 0, 0, .18);
+}
+.card-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.card-head h2 { position: relative; font-size: 13px; margin: 0; font-weight: 700; letter-spacing: 2px; color: #efece6; padding-left: 12px; }
+.card-head h2::before {
+  content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 13px; border-radius: 2px; background: var(--accent); opacity: .85;
+}
+.card-head .hint { font-size: 11px; color: var(--muted); letter-spacing: .5px; }
+
+.chips { display: flex; gap: 9px; flex-wrap: wrap; }
+.chip {
+  background: transparent; border: 1px solid var(--line-2); color: #cfc9bf;
+  border-radius: 7px; padding: 9px 15px; font-size: 13px; cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.chip:hover { border-color: var(--accent-line); color: #f0ede7; background: var(--accent-soft); }
+
+/* 页脚 */
+.app-footer {
+  flex: 0 0 46px; display: flex; align-items: center; gap: 12px;
+  padding: 0 24px; border-top: 1px solid var(--line);
+  background: rgba(11, 13, 16, .75); backdrop-filter: blur(10px);
+  font-size: 12px; color: var(--muted);
+}
+.foot-link { background: transparent; border: 0; color: var(--muted); font-size: 12px; cursor: pointer; padding: 4px 0; }
+.foot-link:hover { color: var(--accent); }
+.foot-sep { color: #3c3a36; }
+.app-footer a { color: var(--muted); font-size: 12px; }
+.app-footer a:hover { color: var(--accent); text-decoration: none; }
+.foot-right { margin-left: auto; display: flex; align-items: center; gap: 7px; letter-spacing: .5px; }
+
+/* 开播自检 */
+.checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.checklist li { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 0; border: 0; }
+.ck { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; font-size: 11px; flex: 0 0 18px; }
+.ck.yes { background: rgba(143, 174, 139, .16); color: var(--ok); border: 1px solid rgba(143, 174, 139, .4); }
+.ck.no { background: rgba(185, 138, 138, .14); color: var(--err); border: 1px solid rgba(185, 138, 138, .38); }
+.ck-label { color: #d7d2c9; }
+.ck-hint { color: var(--muted); font-size: 11px; margin-left: auto; text-align: right; }
+
+/* OBS 配置 */
+.hint-text { margin-top: 12px; font-size: 12px; line-height: 1.8; color: var(--muted); }
+.hint-text b { color: #d7d2c9; }
+.hint-text code { background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 4px; }
+.obs-log {
+  margin: 14px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px;
+  background: #0c0f13; color: #c9c4ba; font-size: 12px; line-height: 1.75;
+  white-space: pre-wrap; word-break: break-all; max-height: 340px; overflow: auto;
+  font-family: Consolas, "Microsoft YaHei", monospace;
+}
+
+/* 快捷入口 / 提示 */
+.link-list { display: flex; flex-direction: column; gap: 2px; }
+.link-list a { display: flex; justify-content: space-between; align-items: center; padding: 9px 2px; border-bottom: 1px dashed var(--line); color: #d7d2c9; font-size: 13px; }
+.link-list a:hover { color: var(--accent); text-decoration: none; }
+.link-list a span { color: var(--muted); font-size: 11px; }
+.tips { list-style: none; margin: 0; padding: 0; }
+.tips li { position: relative; padding: 8px 0 8px 16px; border-bottom: 1px dashed var(--line); font-size: 12px; color: #bdb7ad; line-height: 1.6; }
+.tips li::before { content: ''; position: absolute; left: 2px; top: 17px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); opacity: .7; }
+.tips code, .link-list code { background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+
+/* 最近点歌 */
+.mini-queue { list-style: none; margin: 8px 0 0; padding: 0; }
+.mini-queue li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.empty-hint { color: var(--muted); font-size: 12px; padding: 14px 0; }
+
+/* 事件过滤 */
+.filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.filter-chip {
+  background: transparent; border: 1px solid var(--line-2); color: var(--muted);
+  border-radius: 999px; padding: 6px 13px; font-size: 12px; cursor: pointer;
+}
+.filter-chip b { color: #d7d2c9; font-weight: 600; margin-left: 4px; }
+.filter-chip:hover { border-color: var(--accent-line); color: #e6e2da; }
+.filter-chip.active { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); }
+.filter-chip.active b { color: var(--accent); }
+
+/* 事件 */
+.feed { list-style: none; margin: 0; padding: 0; max-height: 460px; overflow: auto; }
+.feed li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.feed li.empty { color: var(--muted); }
+.tag {
+  font-size: 10px; padding: 3px 8px; border-radius: 4px; letter-spacing: 1.5px;
+  background: rgba(255, 255, 255, .05); color: #a39d93; flex: 0 0 auto;
+}
+.tag.enter { color: #a8bda4; background: rgba(143, 174, 139, .1); }
+.tag.gift { color: #cfb98a; background: rgba(201, 173, 122, .1); }
+.tag.follow { color: #b9aec9; background: rgba(179, 169, 196, .1); }
+.tag.say { color: #cfc0a4; background: rgba(255, 255, 255, .06); }
+.nick { color: #d8d2c7; font-weight: 600; flex: 0 0 auto; }
+.txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d7d2c9; }
+.time { color: #6f6a63; font-size: 11px; flex: 0 0 auto; }
+
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.frames { display: flex; gap: 16px; flex-wrap: wrap; }
+.fcol { flex: 1 1 320px; }
+.flabel { font-size: 11px; color: var(--muted); margin-bottom: 8px; letter-spacing: 1px; }
+.frame { width: 100%; height: 560px; border: 1px solid var(--line-2); border-radius: 10px; background: #0b0d10; }
+.checker { background: repeating-conic-gradient(#15181d 0% 25%, #101216 0% 50%) 50% / 26px 26px; }
+
+/* 点歌 */
+.now-playing {
+  margin: 14px 0; padding: 14px 16px; border-radius: 10px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.now-lyric {
+  flex: 1 0 100%; margin-top: 4px; padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  font-size: 14px; line-height: 1.6; color: #e8d9b0; word-break: break-word;
+}
+.eq { color: var(--accent); letter-spacing: -2px; }
+.queue { list-style: none; margin: 12px 0 0; padding: 0; }
+.queue li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.queue li.empty { color: var(--muted); }
+.idx { width: 22px; color: #8d877e; font-weight: 600; }
+.qname { flex: 1; }
+
+/* 配置 */
+.cfg-actions {
+  display: flex; gap: 12px; align-items: center; margin: 0 0 16px;
+  position: sticky; top: 0; padding: 12px 0 10px;
+  background: rgba(10, 11, 13, .96);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(8px);
+  z-index: 5;
+}
+.dirty { color: var(--warn); font-size: 12px; letter-spacing: .5px; }
+.cfg-sections { column-count: 2; column-gap: 18px; }
+.cfg-sections > .card { break-inside: avoid; margin: 0 0 18px; }
+.cfg-sections .card { display: flex; flex-direction: column; gap: 13px; }
+.field { display: flex; flex-direction: column; gap: 7px; font-size: 11px; color: var(--muted); }
+.field > span { color: var(--muted); letter-spacing: 1px; }
+.field.inline { flex-direction: row; align-items: center; gap: 10px; }
+.field.inline > span { flex: 0 0 auto; }
+.field.inline input, .field.inline select { width: auto; min-width: 0; flex: 1 1 auto; }
+.field.inline b { color: #f0ede7; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+input, select, textarea {
+  width: 100%; color: #e8e4dd;
+  background: #0e1013;
+  border: 1px solid var(--line-2);
+  border-radius: 8px; padding: 10px 12px; font-size: 13px; font-family: inherit; outline: none;
+  transition: border-color .15s;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--accent-line); }
+input::placeholder, textarea::placeholder { color: #5f5a53; }
+textarea { min-height: 96px; line-height: 1.65; resize: vertical; }
+textarea.json { min-height: 300px; font-family: Consolas, monospace; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #cfc9bf; }
+.check input { width: auto; accent-color: var(--accent); }
+.check.dim { opacity: .45; }
+.chips .check { background: #101216; border: 1px solid var(--line-2); border-radius: 7px; padding: 8px 13px; }
+.chips .check input { margin-right: 4px; }
+.event-row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--line);
+}
+.ev-left { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; }
+.ev-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ev-title { font-size: 13px; color: #d7d2c9; white-space: nowrap; }
+.event-row .check { flex: 0 0 auto; white-space: nowrap; font-size: 12px; }
+.event-row .field.inline { flex: 0 0 auto; gap: 6px; font-size: 11px; }
+.event-row .field.inline > span { white-space: nowrap; }
+.event-row .field.inline select { width: 100px; }
+.event-row .field.inline input { width: 72px; text-align: center; }
+.event-row input[type=number]::-webkit-inner-spin-button,
+.event-row input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.fixed-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto; gap: 10px; align-items: center; margin-bottom: 10px; }
+.fixed-row input { min-width: 0; }
+
+.about { list-style: none; margin: 0; padding: 0; }
+.about li { padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 13px; color: #d7d2c9; }
+.muted { color: var(--muted); font-size: 11px; letter-spacing: .5px; }
+a { color: var(--accent); font-size: 13px; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.save-bar {
+  position: fixed; right: 26px; bottom: 24px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 17px; border-radius: 10px;
+  background: #14171c; border: 1px solid var(--line-2);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .55);
+  font-size: 12px; color: #e6e2da; letter-spacing: .5px;
+}
+.toast {
+  position: fixed; right: 26px; bottom: 92px;
+  background: #14171c; border: 1px solid var(--line-2);
+  padding: 11px 16px; border-radius: 9px; font-size: 12px; color: #e6e2da;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .5);
+}
+@media (max-width: 1360px) {
+  .stat-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 1180px) {
+  .grid2 { grid-template-columns: 1fr; }
+  .cfg-sections, .session-cols { column-count: 1; }
+}
+@media (max-width: 820px) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .sidebar { width: 200px; flex-basis: 200px; }
+  .ev-title { flex-basis: 100%; }
+  .topbar { flex-wrap: wrap; height: auto; min-height: 58px; padding: 8px 16px; gap: 8px; }
+}
+.fade-enter-active, .fade-leave-active { transition: opacity .18s, transform .18s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(5px); }
+
+/* 运行环境（依赖服务） */
+.dep-list { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.dep-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
+  background: rgba(255, 255, 255, .015);
+}
+.dep-ico { font-size: 20px; line-height: 1.2; width: 24px; text-align: center; flex: 0 0 24px; }
+.dep-main { flex: 1 1 auto; min-width: 0; }
+.dep-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; flex-wrap: wrap; }
+.dep-detail { font-size: 12.5px; margin-top: 3px; word-break: break-all; }
+.dep-hint { font-size: 12px; margin-top: 2px; opacity: .85; }
+.dep-actions { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+.pill.sm { font-size: 11px; padding: 1px 7px; }
+.tag.mini { font-size: 10.5px; padding: 1px 6px; opacity: .9; }
+.primary.sm { padding: 7px 12px; font-size: 12.5px; }
+.deps-tip { margin-top: 14px; font-size: 12px; line-height: 1.7; }
+</style>

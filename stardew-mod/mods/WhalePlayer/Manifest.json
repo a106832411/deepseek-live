@@ -1,0 +1,10 @@
+{
+  "Name": "WhalePlayer",
+  "Author": "鲸live",
+  "Version": "0.1.0",
+  "Description": "直接驱动玩家角色做可见操作（走路/工具/商店/出货/睡觉），给直播用。",
+  "UniqueID": "Whale.WhalePlayer",
+  "EntryDll": "WhalePlayer.dll",
+  "MinimumApiVersion": "4.0.0",
+  "UpdateKeys": []
+}

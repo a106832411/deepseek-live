@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>本场数据</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden;
+    font-family: "Microsoft YaHei", system-ui, sans-serif; color: #fff; }
+  .wrap { height: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; box-sizing: border-box; }
+  .card { background: rgba(10, 14, 22, .72); border: 1px solid rgba(255,255,255,.12); border-radius: 14px;
+    padding: 14px 16px; display: flex; flex-direction: column; justify-content: center; backdrop-filter: blur(6px); }
+  .card .num { font-size: 42px; font-weight: 800; line-height: 1; letter-spacing: 1px;
+    background: linear-gradient(135deg, #ffd479, #ff9d6b); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .card .label { margin-top: 8px; font-size: 15px; color: #b9c7dc; letter-spacing: 2px; }
+  .wide { grid-column: span 2; flex-direction: row; align-items: center; justify-content: space-between; }
+  .wide .num { font-size: 26px; }
+  .wide .label { margin: 0; }
+  .brand { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #b9c7dc; letter-spacing: 1px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #35e39a; box-shadow: 0 0 8px #35e39a; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card"><div class="num" id="enter">0</div><div class="label">进房</div></div>
+  <div class="card"><div class="num" id="danmaku">0</div><div class="label">弹幕</div></div>
+  <div class="card"><div class="num" id="gift">0</div><div class="label">礼物</div></div>
+  <div class="card"><div class="num" id="follow">0</div><div class="label">关注</div></div>
+  <div class="card"><div class="num" id="like">0</div><div class="label">点赞</div></div>
+  <div class="card"><div class="num" id="say">0</div><div class="label">说话</div></div>
+  <div class="card wide">
+    <div class="brand"><span class="dot"></span>本场数据</div>
+    <div class="num" id="time">--:--:--</div>
+  </div>
+</div>
+<script>
+  const API = location.origin;
+  const ids = ['enter', 'danmaku', 'gift', 'follow', 'like', 'say'];
+  const startedAt = Date.now();
+  let ws = null;
+
+  function setStats(s) {
+    ids.forEach((k) => { const el = document.getElementById(k); if (el) el.textContent = (s && s[k]) || 0; });
+  }
+  async function poll() {
+    try {
+      const r = await fetch(API + '/api/status');
+      const j = await r.json();
+      setStats(j.stats);
+      if (j.startedAt) startedAtFallback = j.startedAt;
+    } catch (e) {}
+  }
+  let startedAtFallback = Date.now();
+  function tick() {
+    const t = Math.max(0, Math.floor((Date.now() - startedAtFallback) / 1000));
+    const h = String(Math.floor(t / 3600)).padStart(2, '0');
+    const m = String(Math.floor((t % 3600) / 60)).padStart(2, '0');
+    const s = String(t % 60).padStart(2, '0');
+    const el = document.getElementById('time');
+    if (el) el.textContent = h + ':' + m + ':' + s;
+  }
+  function connect() {
+    try {
+      ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.kind === 'status' && msg.stats) setStats(msg.stats);
+          if (msg.stats) setStats(msg.stats);
+        } catch (e) {}
+      };
+      ws.onclose = () => setTimeout(connect, 2000);
+    } catch (e) { setTimeout(connect, 3000); }
+  }
+  poll();
+  setInterval(poll, 3000);
+  setInterval(tick, 1000);
+  tick();
+  connect();
+</script>
+</body>
+</html>

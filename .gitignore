@@ -1,0 +1,55 @@
+node_modules/
+dist/
+config.json
+logs/
+*.log
+__pycache__/
+*.pyc
+.vite/
+shots/
+temp/
+_srv.*
+_out.log
+_err.log
+*.tmp
+_el.*
+*.ps1.log
+.env
+.env.local
+_envtest.*
+_obs*.cjs
+extras/python/stardew_tokens.jsonl
+
+# �峪���� demo / ʵ�����
+_singtry/
+_singtry_test.wav
+
+# electron-builder 产物
+release/
+release-noasar/
+
+electron-data/
+
+# 声线模型/索引（体积大，不进 git）
+assets/rvc/
+assets/voice_ref/xiaonaiyin_clean/
+assets/voice_ref/xiaonaiyin_train/
+
+# 大体积素材/模型（不进 git）
+assets/emoji/
+assets/voice_ref/chattts/
+assets/voice_ref/real_src/
+assets/voice_ref/ref_candidates/
+public/live2d/models/chan/
+public/live2d/models/dafeiyu/
+
+# 调试页/备份
+public/live2d/debug_size.html
+public/live2d/mouth_test.html
+extras/python/status_server.py.bak
+
+# 参考音频（个人录音，不进 git）
+assets/voice_ref/ref_*.wav
+
+# 人声分离/降噪中间产物
+assets/voice_ref/clean_work/

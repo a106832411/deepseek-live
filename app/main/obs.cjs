@@ -1,0 +1,561 @@
+/**
+ * 极简 obs-websocket v5 客户端（零 npm 依赖）
+ * 只实现控制台需要的：连接 / 请求 / 建场景 / 建浏览器源
+ */
+const crypto = require('crypto');
+const fs = require('fs');
+const net = require('net');
+const path = require('path');
+
+// ---------------- 完整直播预设的图片素材路径 ----------------
+// 两张图随包放在 仓库根/assets/obs/ 下（源码运行直接读；打包后由 electron-builder
+// 的 asarUnpack 解到 resources/app.asar.unpacked/assets/obs/）。
+// 源码运行时 ROOT = 仓库根（obs.cjs 的 ../..）；打包后 ROOT = app.asar。
+const ROOT = path.resolve(__dirname, '..', '..');
+const PACKED = /app\.asar/i.test(__dirname);
+
+// 历史遗留的本机绝对路径：只作兜底（本机还没重新打包、或有人删了 assets/obs 里的图时仍能用）
+const LEGACY_PRESET_ASSETS = {
+  'bg3_星空鲸海.png':
+    'D:/live/deepseek-live/assets/obs/bg3_星空鲸海.png',
+  '叠加层_竖屏_文字_v2.png':
+    'D:/live/deepseek-live/assets/obs/叠加层_竖屏_文字_v2.png'
+};
+
+/**
+ * 解析完整直播预设里图片源的运行时真实路径。
+ * OBS 的 image_source 只吃真实文件路径：asar 里的文件（/app.asar/assets/...）OBS 读不到，
+ * 所以打包后走 app.asar.unpacked（electron-builder.yml 的 asarUnpack: assets/obs/**）。
+ * @param {string} name assets/obs/ 下的文件名
+ * @returns {string} 优先返回随包路径；随包路径不存在时退回旧的本机绝对路径；都不存在则返回预期路径
+ */
+function presetAsset(name) {
+  const bundled = PACKED
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', 'obs', name) // 打包后：resources/app.asar.unpacked/assets/obs/
+    : path.join(ROOT, 'assets', 'obs', name); // 源码运行：仓库根/assets/obs/
+  if (fs.existsSync(bundled)) return bundled;
+  const legacy = LEGACY_PRESET_ASSETS[name];
+  if (legacy && fs.existsSync(legacy)) return legacy; // 兜底：旧的 D 盘绝对路径还在就用它
+  return bundled; // 都不存在时返回随包路径，上层会提示「图片不存在」
+}
+
+const OP = { HELLO: 0, IDENTIFY: 1, IDENTIFIED: 2, REIDENTIFY: 3, EVENT: 5, REQUEST: 6, RESPONSE: 7 };
+
+function frame(payload) {
+  const data = Buffer.from(payload, 'utf8');
+  const len = data.length;
+  let head;
+  if (len < 126) {
+    head = Buffer.alloc(2);
+    head[1] = 0x80 | len;
+  } else if (len < 65536) {
+    head = Buffer.alloc(4);
+    head[1] = 0x80 | 126;
+    head.writeUInt16BE(len, 2);
+  } else {
+    head = Buffer.alloc(10);
+    head[1] = 0x80 | 127;
+    head.writeBigUInt64BE(BigInt(len), 2);
+  }
+  head[0] = 0x81; // FIN + text
+  const mask = crypto.randomBytes(4);
+  const masked = Buffer.alloc(len);
+  for (let i = 0; i < len; i++) masked[i] = data[i] ^ mask[i % 4];
+  return Buffer.concat([head, mask, masked]);
+}
+
+function parseFrames(buf) {
+  const out = [];
+  let offset = 0;
+  while (offset + 2 <= buf.length) {
+    const b0 = buf[offset];
+    const b1 = buf[offset + 1];
+    const opcode = b0 & 0x0f;
+    const masked = (b1 & 0x80) !== 0;
+    let len = b1 & 0x7f;
+    let pos = offset + 2;
+    if (len === 126) {
+      if (pos + 2 > buf.length) break;
+      len = buf.readUInt16BE(pos);
+      pos += 2;
+    } else if (len === 127) {
+      if (pos + 8 > buf.length) break;
+      len = Number(buf.readBigUInt64BE(pos));
+      pos += 8;
+    }
+    let mask = null;
+    if (masked) {
+      if (pos + 4 > buf.length) break;
+      mask = buf.slice(pos, pos + 4);
+      pos += 4;
+    }
+    if (pos + len > buf.length) break;
+    let payload = buf.slice(pos, pos + len);
+    if (mask) {
+      const d = Buffer.alloc(len);
+      for (let i = 0; i < len; i++) d[i] = payload[i] ^ mask[i % 4];
+      payload = d;
+    }
+    out.push({ opcode, payload });
+    offset = pos + len;
+  }
+  return { frames: out, rest: buf.slice(offset) };
+}
+
+class ObsClient {
+  constructor(opts) {
+    this.opts = Object.assign({ host: '127.0.0.1', port: 4455, password: '', timeout: 8000 }, opts || {});
+    this.sock = null;
+    this.pending = new Map();
+    this.queue = Promise.resolve();
+    this.seq = 0;
+    this.hello = null;
+    this.events = [];
+  }
+
+  connect() {
+    return new Promise((resolve, reject) => {
+      this._rejectConnect = reject;
+      const guard = setTimeout(() => {
+        if (!this.identified) {
+          try { this.sock && this.sock.destroy(); } catch (e) {}
+          reject(new Error('OBS 认证超时（检查密码 / 连接地址）'));
+        }
+      }, this.opts.timeout || 8000);
+      const done = (fn) => (v) => { clearTimeout(guard); fn(v); };
+      const { host, port, timeout } = this.opts;
+      const sock = net.connect({ host, port });
+      this.sock = sock;
+      let buf = Buffer.alloc(0);
+      const key = crypto.randomBytes(16).toString('base64');
+      sock.setTimeout(timeout);
+      sock.once('timeout', () => {
+        try { sock.destroy(); } catch (e) {}
+        reject(new Error('OBS 连接超时'));
+      });
+      sock.once('error', (e) => reject(e));
+      sock.once('connect', () => {
+        sock.write(
+          'GET / HTTP/1.1\r\n' +
+            'Host: ' + host + ':' + port + '\r\n' +
+            'Upgrade: websocket\r\nConnection: Upgrade\r\n' +
+            'Sec-WebSocket-Key: ' + key + '\r\nSec-WebSocket-Version: 13\r\n\r\n'
+        );
+      });
+      const onData = (chunk) => {
+        buf = Buffer.concat([buf, chunk]);
+        if (!this.handshaked) {
+          const idx = buf.indexOf('\r\n\r\n');
+          if (idx < 0) return;
+          const head = buf.slice(0, idx).toString('latin1');
+          buf = buf.slice(idx + 4);
+          if (!/101/.test(head.split('\r\n')[0])) {
+            try { sock.destroy(); } catch (e) {}
+            return reject(new Error('OBS WebSocket 握手失败: ' + head.split('\r\n')[0]));
+          }
+          this.handshaked = true;
+          sock.removeAllListeners('timeout');
+          sock.setTimeout(0);
+        }
+        const parsed = parseFrames(buf);
+        buf = parsed.rest;
+        for (const f of parsed.frames) this.onFrame(f, resolve, reject);
+      };
+      sock.on('data', (chunk) => {
+        try {
+          onData(chunk);
+        } catch (e) {
+          reject(e);
+        }
+      });
+      sock.on('close', () => {
+        this.sock = null;
+        for (const [, p] of this.pending) p.reject(new Error('OBS 连接已关闭'));
+        this.pending.clear();
+        if (!this.identified && this._rejectConnect) {
+          this._rejectConnect(new Error('OBS 在认证阶段关闭了连接（密码错误或未开启 WebSocket？）'));
+        }
+      });
+    });
+  }
+
+  onFrame(f, resolveConnect, rejectConnect) {
+    if (f.opcode === 9) {
+      // ping → pong
+      this.rawPong(f.payload);
+      return;
+    }
+    if (f.opcode === 8) {
+      if (this.sock) this.sock.destroy();
+      return;
+    }
+    if (f.opcode !== 1) return;
+    let msg;
+    try { msg = JSON.parse(f.payload.toString('utf8')); } catch (e) { return; }
+
+    if (msg.op === OP.HELLO) {
+      this.hello = msg.d;
+      const payload = { rpcVersion: 1, eventSubscriptions: 0 };
+      if (this.hello.authentication && this.opts.password) {
+        const chal = this.hello.authentication;
+        const secret = crypto.createHash('sha256').update(this.opts.password + chal.salt).digest('base64');
+        payload.authentication = crypto.createHash('sha256').update(secret + chal.challenge).digest('base64');
+      }
+      this.sendRaw({ op: OP.IDENTIFY, d: payload });
+      return;
+    }
+    if (msg.op === OP.IDENTIFIED) {
+      this.identified = true;
+      if (resolveConnect) resolveConnect(this);
+      return;
+    }
+    if (msg.op === OP.RESPONSE) {
+      const p = this.pending.get(msg.d.requestId);
+      if (!p) return;
+      this.pending.delete(msg.d.requestId);
+      if (msg.d.requestStatus && msg.d.requestStatus.result) {
+        p.resolve(msg.d.responseData || {});
+      } else {
+        p.reject(new Error((msg.d.requestStatus && msg.d.requestStatus.comment) || 'OBS 请求失败'));
+      }
+      return;
+    }
+    if (msg.op === OP.EVENT) this.events.push(msg.d);
+  }
+
+  rawPong(payload) {
+    try {
+      this.sock.write(Buffer.concat([Buffer.from([0x8a, 0x80 | Math.min(payload.length, 125)]), crypto.randomBytes(4), payload]));
+    } catch (e) {}
+  }
+
+  sendRaw(obj) {
+    if (!this.sock) throw new Error('OBS 未连接');
+    this.sock.write(frame(JSON.stringify(obj)));
+  }
+
+  request(requestType, requestData) {
+    const p = new Promise((resolve, reject) => {
+      const requestId = 'r' + ++this.seq;
+      this.pending.set(requestId, { resolve, reject });
+      setTimeout(() => {
+        if (this.pending.has(requestId)) {
+          this.pending.delete(requestId);
+          reject(new Error('OBS 请求超时: ' + requestType));
+        }
+      }, 8000);
+      try {
+        this.sendRaw({ op: OP.REQUEST, d: { requestType, requestId, requestData: requestData || {} } });
+      } catch (e) {
+        this.pending.delete(requestId);
+        reject(e);
+      }
+    });
+    this.queue = this.queue.then(() => p, () => p);
+    return p;
+  }
+
+  close() {
+    try { this.sock && this.sock.destroy(); } catch (e) {}
+    this.sock = null;
+  }
+}
+
+function bgAbgr(hexLike) {
+  const hex = String(hexLike || '0b0c0e').replace('#', '').padStart(6, '0');
+  const r = parseInt(hex.slice(0, 2), 16) || 0x0b;
+  const g = parseInt(hex.slice(2, 4), 16) || 0x0c;
+  const b = parseInt(hex.slice(4, 6), 16) || 0x0e;
+  return (0xff000000 + (b << 16) + (g << 8) + r) >>> 0;
+}
+
+function layoutFor(canvasW, canvasH) {
+  const portrait = canvasH > canvasW;
+  const W = canvasW;
+  const H = canvasH;
+  const r = (v) => Math.round(v);
+  if (portrait) {
+    return [
+      { name: '皮套', url: '/live2d?scale=0.95', w: r(W * 0.9), h: r(H * 0.55), x: r(W * 0.05), y: r(H * 0.30) },
+      { name: '弹幕层', url: '/overlay', w: r(W * 0.94), h: r(H * 0.2), x: r(W * 0.03), y: r(H * 0.02) },
+      { name: '歌单', url: '/songs', w: r(W * 0.4), h: r(H * 0.22), x: r(W * 0.57), y: r(H * 0.76) }
+    ];
+  }
+  return [
+    { name: '皮套', url: '/live2d?scale=0.95', w: r(W * 0.42), h: r(H * 0.78), x: r(W * 0.29), y: r(H * 0.2) },
+    { name: '弹幕层', url: '/overlay', w: r(W * 0.35), h: r(H * 0.28), x: r(W * 0.02), y: r(H * 0.7) },
+    { name: '歌单', url: '/songs', w: r(W * 0.2), h: r(H * 0.22), x: r(W * 0.78), y: r(H * 0.04) }
+  ];
+}
+
+/** 一键配置：创建（或复用）场景 + 三个浏览器源并按画布摆好 */
+function scaleSpec(spec, W, H) {
+  // 旧场景基准 1080x1920
+  const sx = W / 1080;
+  const sy = H / 1920;
+  const out = Object.assign({}, spec);
+  if (out.x != null) out.x = Math.round(out.x * sx);
+  if (out.y != null) out.y = Math.round(out.y * sy);
+  if (out.w != null) out.w = Math.round(out.w * sx);
+  if (out.h != null) out.h = Math.round(out.h * sy);
+  return out;
+}
+
+function presetSources(preset, W, H, api) {
+  const p = preset === 'game' ? 'game' : preset === 'stardew' ? 'stardew' : 'simple';
+  if (p === 'stardew') {
+    return [
+      { name: '游戏画面', kind: 'window', windowMatch: 'Stardew Valley', w: W, h: H, x: 0, y: 0 },
+      { name: '星露谷状态', kind: 'browser', url: '/stardew',
+        css: 'body{zoom:1.45;}', w: 545, h: 220, x: 32, y: 32 },
+      { name: '弹幕点歌', kind: 'browser', url: '/ov_panel', w: 440, h: 470, x: 12, y: 292 },
+      { name: '皮套', kind: 'browser', url: '/live2d?scale=0.95&zoom=1.75&dy=500',
+        w: 560, h: 600, x: 1427, y: 480 }
+    ];
+  }
+  if (p === 'simple') {
+    // 横屏（1920x1080 之类）：直接按画布像素摆放，不能再走 portrait 的 scaleSpec，
+    // 否则 x 会被 W/1080 放大，歌单会跑到画布外（旧 bug）。
+    if (W >= H) {
+      return [
+        { name: '皮套', kind: 'browser', url: '/live2d?scale=0.95', iw: 972, ih: 1056,
+          w: Math.round(W * 0.34), h: Math.round(H * 0.92), x: Math.round(W * 0.02), y: Math.round(H * 0.04) },
+        { name: '弹幕层', kind: 'browser', url: '/overlay', iw: 1015, ih: 384,
+          w: Math.round(W * 0.38), h: Math.round(H * 0.24), x: Math.round(W * 0.02), y: Math.round(H * 0.72) },
+        { name: '歌单', kind: 'browser', url: '/songs', iw: 432, ih: 422,
+          w: Math.round(W * 0.26), h: Math.round(H * 0.50), x: Math.round(W * 0.72), y: Math.round(H * 0.04) }
+      ];
+    }
+    return [
+      { name: '皮套', kind: 'browser', url: '/live2d?scale=0.95', iw: 972, ih: 1056, w: Math.round(W * 0.9), h: Math.round(H * 0.55), x: Math.round(W * 0.05), y: Math.round(H * 0.30) },
+      { name: '弹幕层', kind: 'browser', url: '/overlay', iw: 1015, ih: 384, w: Math.round(W * 0.94), h: Math.round(H * 0.20), x: Math.round(W * 0.03), y: Math.round(H * 0.02) },
+      { name: '歌单', kind: 'browser', url: '/songs', iw: 432, ih: 422, w: Math.round(W * 0.40), h: Math.round(H * 0.22), x: Math.round(W * 0.57), y: Math.round(H * 0.76) }
+    ];
+  }
+
+  // 完整直播：复刻旧版「AI主播直播间-竖屏」布局（1080x1920 基准）
+  const base = [
+    { name: '背景板', kind: 'image', file: presetAsset('bg3_星空鲸海.png'), w: 1080, h: 1920, x: 0, y: 0 },
+    { name: '游戏画面', kind: 'browser', url: 'http://127.0.0.1:9800/cam', iw: 800, ih: 600, w: 1080, h: 810, x: 0, y: 190 },
+    { name: '文字叠加', kind: 'image', file: presetAsset('叠加层_竖屏_文字_v2.png'), w: 1080, h: 1920, x: -5, y: 0 },
+    { name: '皮套', kind: 'browser', url: '/live2d?scale=0.95', iw: 1080, ih: 1080, w: 324, h: 324, x: 745, y: 1500 },
+    { name: '本场数据', kind: 'text', text: '本场数据', w: 234, h: 126, x: 640, y: 950 },
+    { name: '歌单', kind: 'browser', url: '/songs', iw: 432, ih: 422, w: 268, h: 262, x: 575, y: 1050 },
+    { name: '字幕', kind: 'browser', url: '/overlay', iw: 1280, ih: 200, w: 1024, h: 160, x: 0, y: 1005 },
+    { name: '弹幕', kind: 'browser', url: '/overlay', iw: 420, ih: 400, w: 260, h: 248, x: 10, y: 1050 },
+    { name: '游戏面板', kind: 'browser', url: '/overlay', iw: 760, ih: 700, w: 760, h: 700, x: 160, y: 600, hidden: true }
+  ];
+  return base.map((x) => scaleSpec(x, W, H)).map((x) => {
+    if (x.kind === 'browser' && x.url && !x.url.startsWith('http')) x.url = '/live2d' === x.url ? x.url : x.url;
+    return x;
+  });
+}
+
+async function resolveWindow(client, inputName, match) {
+  // 把 window_capture 的窗口指到标题包含 match 的那个窗口
+  try {
+    const props = await client.request('GetInputPropertiesListPropertyItems', { inputName, propertyName: 'window' });
+    const items = props.propertyItems || [];
+    const hit = items.find((i) => String(i.itemName || '').includes(match))
+      || items.find((i) => String(i.itemValue || '').includes(match));
+    if (hit) {
+      await client.request('SetInputSettings', { inputName, inputSettings: { window: hit.itemValue }, overlay: false });
+      return hit.itemName;
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function createOrUpdateSource(client, sceneName, spec, api, existing) {
+  const fullUrl = spec.url && spec.url.startsWith('http') ? spec.url : spec.url ? api + spec.url : '';
+  const isBrowser = spec.kind === 'browser';
+  const isImage = spec.kind === 'image';
+  const isText = spec.kind === 'text';
+
+  const isWindow = spec.kind === 'window';
+  let inputKind = 'browser_source';
+  if (isImage) inputKind = 'image_source';
+  if (isText) inputKind = 'text_gdiplus_v3';
+  if (isWindow) inputKind = 'window_capture';
+
+  let settings = {};
+  // 浏览器源按「目标尺寸」渲染（原来固定 800x600，会被拉伸导致内容变小/变形）
+  if (isBrowser) settings = { url: fullUrl, width: spec.w || spec.iw || 800, height: spec.h || spec.ih || 600, reroute_audio: false };
+  if (isBrowser && spec.css) settings.css = spec.css;
+  if (isWindow) settings = { cursor: false, capture_method: 'automatic' };
+  if (isImage) settings = { file: spec.file, unload: false };
+  if (isText) settings = {
+    text: spec.text || sceneName,
+    font: { face: 'Microsoft YaHei', size: 46, style: 'Bold' },
+    color: 0xffffffff,
+    align: 'center',
+    valign: 'center',
+    outline: true,
+    outline_color: 0xff000000,
+    outline_size: 2
+  };
+
+  if (existing.has(spec.name)) {
+    if (isBrowser || isImage || isText) {
+      // overlay:true 会让 width/height 这类尺寸字段不生效，这里必须用 false
+      await client.request('SetInputSettings', { inputName: spec.name, inputSettings: settings, overlay: false }).catch(() => {});
+    }
+    const idRes = await client.request('GetSceneItemId', { sceneName, sourceName: spec.name });
+    await client.request('SetSceneItemTransform', {
+      sceneName,
+      sceneItemId: idRes.sceneItemId,
+      sceneItemTransform: { positionX: spec.x || 0, positionY: spec.y || 0, boundsType: 'OBS_BOUNDS_SCALE_INNER', boundsAlignment: 0, boundsWidth: spec.w || 1, boundsHeight: spec.h || 1 }
+    });
+    await client.request('SetSceneItemEnabled', { sceneName, sceneItemId: idRes.sceneItemId, sceneItemEnabled: !spec.hidden }).catch(() => {});
+    if (isWindow) await resolveWindow(client, spec.name, spec.windowMatch);
+    return '更新';
+  }
+
+  try {
+    await client.request('CreateInput', {
+      sceneName,
+      inputName: spec.name,
+      inputKind,
+      inputSettings: settings,
+      sceneItemEnabled: !spec.hidden
+    });
+  } catch (e) {
+    if (!/already exists/i.test(e.message)) throw e;
+    await client.request('CreateSceneItem', { sceneName, sourceName: spec.name, sceneItemEnabled: !spec.hidden });
+  }
+  const idRes = await client.request('GetSceneItemId', { sceneName, sourceName: spec.name });
+  await client.request('SetSceneItemTransform', {
+    sceneName,
+    sceneItemId: idRes.sceneItemId,
+    sceneItemTransform: { positionX: spec.x || 0, positionY: spec.y || 0, boundsType: 'OBS_BOUNDS_SCALE_INNER', boundsAlignment: 0, boundsWidth: spec.w || 1, boundsHeight: spec.h || 1 }
+  });
+  await client.request('SetSceneItemEnabled', { sceneName, sceneItemId: idRes.sceneItemId, sceneItemEnabled: !spec.hidden }).catch(() => {});
+  if (isWindow) await resolveWindow(client, spec.name, spec.windowMatch);
+  return '添加';
+}
+
+async function setupScene(opts) {
+  const o = Object.assign({}, opts || {});
+  const logs = [];
+  const client = new ObsClient(o);
+  const say = (m) => { logs.push(m); return m; };
+  try {
+    say('连接 OBS ' + o.host + ':' + o.port + ' …');
+    await client.connect();
+    const ver = await client.request('GetVersion');
+    say('已连接：OBS ' + (ver.obsVersion || '?') + ' / obs-websocket ' + (ver.obsWebSocketVersion || '?'));
+
+    const video = await client.request('GetVideoSettings');
+    const W = Number(video.baseWidth) || 1080;
+    const H = Number(video.baseHeight) || 1920;
+    say('画布：' + W + '×' + H + '，布局：' + (o.preset === 'game' ? '完整直播（旧版场景）' : o.preset === 'stardew' ? '星露谷（游戏+皮套叠加）' : '简单直播'));
+
+    const sceneName = o.scene || '鲸live直播';
+    const scenes = await client.request('GetSceneList');
+    const exists = (scenes.scenes || []).some((s) => s.sceneName === sceneName);
+    if (!exists) {
+      await client.request('CreateScene', { sceneName });
+      say('已创建场景：' + sceneName);
+    } else {
+      say('复用已有场景：' + sceneName);
+    }
+    await client.request('SetCurrentProgramScene', { sceneName });
+    say('已切换到场景：' + sceneName);
+
+    const items = await client.request('GetSceneItemList', { sceneName });
+    const existing = new Set((items.sceneItems || []).map((i) => i.sourceName));
+
+    // 背景色
+    if (!existing.has('背景')) {
+      try {
+        await client.request('CreateInput', {
+          sceneName,
+          inputName: '背景',
+          inputKind: 'color_source_v3',
+          inputSettings: { color: bgAbgr(o.bgColor), width: W, height: H },
+          sceneItemEnabled: true
+        });
+        const bgItem = await client.request('GetSceneItemId', { sceneName, sourceName: '背景' });
+        await client.request('SetSceneItemTransform', {
+          sceneName,
+          sceneItemId: bgItem.sceneItemId,
+          sceneItemTransform: { positionX: 0, positionY: 0, width: W, height: H }
+        });
+        say('已添加背景层');
+      } catch (e) {
+        say('背景层跳过：' + e.message);
+      }
+    } else {
+      try {
+        await client.request('SetInputSettings', {
+          inputName: '背景',
+          inputSettings: { color: bgAbgr(o.bgColor), width: W, height: H },
+          overlay: true
+        });
+        say('已更新背景色');
+      } catch (e) {
+        say('背景更新失败：' + e.message);
+      }
+    }
+
+    const api = o.baseUrl || 'http://127.0.0.1:8788';
+    const sources = o.sources || presetSources(o.preset || 'simple', W, H, api);
+    for (const spec of sources) {
+      const title = spec.kind === 'browser' ? (spec.url || '') : spec.kind === 'image' ? (spec.file || '') : (spec.text || '');
+      try {
+        if (spec.kind === 'image' && spec.file && !fs.existsSync(spec.file)) {
+          say('跳过 ' + spec.name + '：图片不存在 ' + spec.file);
+          continue;
+        }
+        const action = await createOrUpdateSource(client, sceneName, spec, api, existing);
+        say(action + '源：' + spec.name + ' → ' + title + (spec.hidden ? '（隐藏）' : ''));
+      } catch (e) {
+        say('失败 ' + spec.name + '：' + e.message);
+      }
+    }
+
+    // 星露谷预设：清理旧的独立源（弹幕层/歌单/字幕已合并进「弹幕歌单」）
+    if (o.preset === 'stardew') {
+      for (const legacy of ['弹幕层', '歌单', '弹幕歌单', '字幕', '弹幕面板', '点歌面板', '状态面板', '弹幕数据', '点歌台']) {
+        try {
+          const it = await client.request('GetSceneItemId', { sceneName, sourceName: legacy });
+          await client.request('RemoveSceneItem', { sceneName, sceneItemId: it.sceneItemId });
+          say('已移除旧源：' + legacy);
+        } catch (e) {}
+      }
+    }
+
+    await client.request('SetCurrentProgramScene', { sceneName });
+    say('完成 ✅ 场景「' + sceneName + '」已就绪');
+    return { ok: true, scene: sceneName, canvas: [W, H], preset: o.preset || 'simple', logs };
+  } catch (e) {
+    say('失败：' + e.message);
+    return { ok: false, error: e.message, logs };
+  } finally {
+    client.close();
+  }
+}
+
+async function probe(opts) {
+  const client = new ObsClient(opts || {});
+  try {
+    await client.connect();
+    const ver = await client.request('GetVersion');
+    const video = await client.request('GetVideoSettings');
+    const scenes = await client.request('GetSceneList');
+    return {
+      ok: true,
+      version: ver.obsVersion,
+      websocket: ver.obsWebSocketVersion,
+      canvas: [video.baseWidth, video.baseHeight],
+      scenes: (scenes.scenes || []).map((s) => s.sceneName),
+      current: scenes.currentProgramSceneName
+    };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  } finally {
+    client.close();
+  }
+}
+
+module.exports = { ObsClient, setupScene, probe, layoutFor, presetAsset };
