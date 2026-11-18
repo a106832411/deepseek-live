@@ -563,6 +563,7 @@ namespace WhalePlayer
                 case "give_tool": this.GiveTool((string)jo["tool"] ?? ""); break;
                 case "give_scythe": this.GiveScythe(); break;
                 case "ship_chests": this.ShipFromChests(); break;
+                case "pickup_at": this.PickupAt((int)jo["x"], (int)jo["y"]); break;
                 case "withdraw_name": this.WithdrawByName((string)jo["name"] ?? "", jo["count"] != null ? (int)jo["count"] : 999); break;
                 case "load_machines": this.LoadMachines((string)jo["machine"] ?? "", (string)jo["item"] ?? "", jo["times"] != null ? (int)jo["times"] : 99); break;
                 case "smelt": this.Smelt((string)jo["ore"] ?? "Copper", jo["times"] != null ? (int)jo["times"] : 10); break;
@@ -2446,6 +2447,34 @@ namespace WhalePlayer
                 try { if (m.performObjectDropInAction(src, false, p)) n++; } catch { }
             }
             this.Monitor.Log("load_machines: " + machineName + " x" + n, LogLevel.Info);
+        }
+
+        /// <summary>把某一格的可放置物（罐头瓶/熔炉/箱子…）拾回背包。</summary>
+        private void PickupAt(int x, int y)
+        {
+            var loc = Game1.player.currentLocation;
+            var key = new Vector2(x, y);
+            if (loc == null || !loc.objects.TryGetValue(key, out var obj) || obj == null)
+            {
+                this.Monitor.Log($"pickup_at: ({x},{y}) 没有物体", LogLevel.Warn);
+                return;
+            }
+            var pTile = Game1.player.Tile;
+            if (Math.Abs(pTile.X - x) + Math.Abs(pTile.Y - y) > 3)
+            {
+                this.Monitor.Log($"pickup_at: 离 ({x},{y}) 太远", LogLevel.Warn);
+                return;
+            }
+            try
+            {
+                loc.objects.Remove(key);
+                bool ok = Game1.player.addItemToInventoryBool(obj, false);
+                this.Monitor.Log($"pickup_at: 拾起 {obj.Name} @({x},{y}) = {ok}", LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log("pickup_at 异常: " + ex.Message, LogLevel.Warn);
+            }
         }
 
         private void WithdrawByName(string name, int limit)
