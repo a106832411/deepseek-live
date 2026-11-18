@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>星露谷状态</title>
+<style>
+  :root { --parch:#f7e8c9; --parch2:#ead3a6; --edge:#6b4726; --ink:#3a2515; --gold:#a9762c; --teal:#20656a; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:transparent; overflow:hidden;
+    font-family:"Microsoft YaHei","PingFang SC",sans-serif; color:var(--ink); }
+  .card {
+    position:relative; height:100%; padding:28px 16px 10px; display:flex; flex-direction:column; gap:6px;
+    background:linear-gradient(180deg, rgba(247,232,201,.97), rgba(234,211,166,.97));
+    border:3px solid var(--edge); border-radius:10px;
+    box-shadow:inset 0 0 0 2px rgba(255,246,214,.55), 0 8px 22px rgba(0,0,0,.45);
+  }
+  .strip {
+    position:absolute; left:0; right:0; top:0; height:24px;
+    display:flex; align-items:center; gap:6px; padding:0 10px;
+    background:linear-gradient(180deg,#8a5a30,#6b4526);
+    border-radius:7px 7px 0 0; color:#ffe9b8; font-size:12.5px; font-weight:700; letter-spacing:.4px;
+  }
+  .dot { width:7px; height:7px; border-radius:50%; background:#8de08a; box-shadow:0 0 6px #8de08a; }
+  .dot.off { background:#e07a72; box-shadow:0 0 6px #e07a72; }
+  .badge { margin-left:auto; font-size:11.5px; padding:1px 8px; border-radius:99px;
+           background:rgba(255,240,200,.18); border:1px solid rgba(255,240,200,.5); color:#ffeec4; }
+  .mid { display:flex; align-items:center; gap:14px; flex:1; min-height:0; }
+  .clock { flex:none; display:flex; flex-direction:column; line-height:1.05; padding-right:14px;
+           border-right:2px solid rgba(107,71,38,.25); }
+  .clock b { font-size:32px; font-weight:900; color:#4a2c14; letter-spacing:-.5px; }
+  .clock span { font-size:12px; color:#7a5230; margin-top:3px; }
+  .doing { flex:1; min-width:0; font-size:23px; font-weight:900; color:#4a2c14; line-height:1.1;
+           white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .doing small { display:block; font-size:12.5px; font-weight:400; color:#7a5230; margin-top:3px;
+                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bottom { display:flex; align-items:center; gap:12px; }
+  .money { font-size:17px; font-weight:900; color:#8a5a15; white-space:nowrap; }
+  .bars { flex:1; display:flex; gap:10px; }
+  .bar { flex:1; min-width:0; }
+  .bar .track { height:8px; border-radius:5px; background:#c9ab7c; border:1px solid #a9854f; overflow:hidden; }
+  .bar i { display:block; height:100%; border-radius:4px; transition:width .5s; }
+  .bar.sta i { background:linear-gradient(180deg,#f0c964,#c8942f); }
+  .bar.hp  i { background:linear-gradient(180deg,#e07a72,#b34b44); }
+  .bar label { display:block; font-size:11px; color:#7a5230; margin-top:2px; }
+  .offline { color:#b34b44; }
+  .cmd { margin-top:2px; font-size:12.5px; line-height:1.25; color:#7a5230;
+         white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cmd b { color:#4a2c14; font-weight:900; }
+
+  /* contrast */
+  .card{color:#2a1a0c!important}
+  .strip{color:#fff3cf!important}
+  .clock b,.doing,.title{color:#2a1a0c!important}
+  .money{color:#8a5a15!important}
+  .bar label,.clock span,.sub,.qhead,#q li .by{color:#6b4726!important}
+  .badge{color:#fff3cf!important}
+
+  /* solid v3 */
+  .card{background:#f2ddb0!important;border:4px solid #5a3a1e!important;box-shadow:0 6px 18px rgba(0,0,0,.55), inset 0 0 0 2px #fff2cf!important}
+  .strip{background:linear-gradient(180deg,#7a4a22,#54341a)!important;color:#ffe9b8!important;height:26px!important;font-size:13px!important}
+  .clock b{font-size:34px!important;color:#2a1a0c!important}
+  .doing{font-size:24px!important;color:#2a1a0c!important}
+  .money{font-size:18px!important;color:#7a4a12!important}
+  .line{color:#2a1a0c!important;font-size:15px!important}
+  .nick{color:#12616a!important}
+  .title{font-size:17px!important;color:#2a1a0c!important}
+  .sub{color:#6b4726!important}
+  .empty{color:#7a6242!important}
+
+  /* minimal v4 */
+  .card{background:transparent!important;border:none!important;box-shadow:none!important;backdrop-filter:none!important}
+  .strip{background:transparent!important;color:#ffe9b8!important;text-shadow:0 0 6px #000, 0 2px 8px #000!important;font-size:14px!important;height:22px!important}
+  .line,.clock b,.doing,.money,.title,.sub,.bar label,.clock span,.empty,#q li,.cmd,.cmd b{color:#fff!important;text-shadow:0 0 5px #000, 0 2px 8px #000, 0 0 2px #000!important}
+  .nick{color:#8fe3ff!important}
+  .line.enter{color:#cfd8e3!important}
+  .sep{background:rgba(255,255,255,.25)!important}
+  .now{background:rgba(0,0,0,.38)!important;border:1px solid rgba(255,255,255,.18)!important}
+  .track{background:rgba(0,0,0,.5)!important;border:1px solid rgba(255,255,255,.28)!important}
+  .badge{background:rgba(0,0,0,.35)!important;border-color:rgba(255,255,255,.3)!important;color:#ffe9b8!important}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="strip"><span class="dot" id="dot"></span><span>星露谷 · AI 自己玩</span><span class="badge" id="badge">—</span></div>
+  <div class="mid">
+    <div class="clock"><b id="day">—</b><span id="time">—</span></div>
+    <div class="doing" id="doing">正在进入游戏…</div>
+  </div>
+  <div class="bottom">
+    <div class="money" id="money">—</div>
+    <div class="bars">
+      <div class="bar sta"><div class="track"><i id="sta" style="width:0%"></i></div><label id="staLab">体力 —</label></div>
+      <div class="bar hp"><div class="track"><i id="hp" style="width:0%"></i></div><label id="hpLab">生命 —</label></div>
+    </div>
+  </div>
+  <div class="cmd" id="cmd">最近指令 —</div>
+</div>
+<script>
+const SCENE = { Farm:'农场', FarmHouse:'农舍', Town:'小镇', Beach:'海边', Mountain:'山上', Forest:'森林', BusStop:'巴士站', Backwoods:'后山', Desert:'沙漠', SeedShop:'杂货店', Saloon:'酒吧', Museum:'博物馆', Hospital:'诊所', Blacksmith:'铁匠铺', JojaMart:'Joja超市', CommunityCenter:'社区中心', FishShop:'鱼店', AnimalShop:'牧场', Railroad:'铁路', Sewer:'下水道', Greenhouse:'温室' };
+const SEASON = { spring:'春', summer:'夏', fall:'秋', winter:'冬' };
+const WEATHER = { sunny:'☀ 晴', rainy:'🌧 雨', stormy:'⛈ 雷雨', snowy:'❄ 雪', windy:'🌬 风' };
+const $ = (id) => document.getElementById(id);
+const scene = (l) => !l ? '未知地方' : (String(l).startsWith('UndergroundMine') ? '矿洞里' : (SCENE[l] || l));
+function timeText(t) {
+  if (t == null) return '—';
+  const hh = Math.floor(t / 100) % 24, mm = t % 100;
+  const p = hh < 6 ? '凌晨' : hh < 11 ? '上午' : hh < 14 ? '中午' : hh < 18 ? '下午' : hh < 22 ? '晚上' : '深夜';
+  return p + ' ' + String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
+}
+function doingText(d) {
+  const loc = d.location || '', f = d.fishing || {};
+  if (d.menu === 'BobberBar' || f.minigame) return ['正在钓鱼', '🎣 和鱼较劲中'];
+  if (f.inUse) return ['正在钓鱼', '🎣 等鱼上钩'];
+  if (d.menu) return ['正在看菜单', '📖 收拾东西'];
+  if (String(loc).startsWith('UndergroundMine')) return ['正在挖矿', '⛏ 敲石头找矿石'];
+  if (loc === 'Beach') return ['在海边钓鱼', '🌊 海边风景不错'];
+  if (loc === 'Farm' || loc === 'FarmHouse') {
+    const t = d.tool || '';
+    if (/Pickaxe|十字镐/.test(t)) return ['在农场挖石头', '⛏ 清理农场'];
+    if (/Axe|斧头/.test(t)) return ['在农场砍树', '🪓 砍柴攒木材'];
+    if (/Hoe|锄头/.test(t)) return ['在农场翻地', '🌱 准备种地'];
+    if (/Watering|喷壶/.test(t)) return ['在给作物浇水', '💧 浇水'];
+    return ['在农场干活', '🌾 种地 / 收菜'];
+  }
+  if (['Town','BusStop','Mountain','Backwoods'].includes(loc)) return ['正在赶路', '🚶 去下一个地方'];
+  return ['自己玩着呢', '🎮 星露谷'];
+}
+async function tick() {
+  try {
+    const r = await fetch('/api/stardew', { cache:'no-store' });
+    const d = await r.json();
+    if (!d.ok) {
+      $('dot').className = 'dot off';
+      $('doing').innerHTML = '<span class="offline">游戏还没开</span>';
+      $('day').textContent = '—'; $('time').textContent = '';
+      return;
+    }
+    $('dot').className = 'dot' + (d.age < 30 ? '' : ' off');
+    $('day').textContent = '第 ' + d.day + ' 天';
+    $('time').textContent = scene(d.location) + ' · ' + timeText(d.time);
+    const [doing, act] = doingText(d);
+    $('doing').innerHTML = doing + '<small>' + act + '</small>';
+    const actTxt = d.activity || '';
+    const ordTxt = d.lastOrder || '';
+    $('cmd').innerHTML = '<b>最近指令</b> ' + (actTxt ? actTxt : '待机')
+      + (ordTxt ? ' · ' + ordTxt : '');
+    $('badge').textContent = [(SEASON[d.season] || '') + '季', WEATHER[d.weather] || ''].filter(Boolean).join(' · ') || '—';
+    $('money').textContent = '💰 ' + (d.money || 0).toLocaleString();
+    const sta = d.stamina != null ? Math.max(0, Math.min(100, Math.round(d.stamina / 2.7))) : 0;
+    const hp = d.health != null ? Math.max(0, Math.min(100, Math.round(d.health / 2.0))) : 0;
+    $('sta').style.width = sta + '%'; $('staLab').textContent = '体力 ' + sta + '%';
+    $('hp').style.width = hp + '%'; $('hpLab').textContent = '生命 ' + hp + '%';
+  } catch (e) {
+    $('dot').className = 'dot off';
+    $('doing').innerHTML = '<span class="offline">连接不上</span>';
+  }
+}
+tick(); setInterval(tick, 1000);
+</script>
+</body>
+</html>

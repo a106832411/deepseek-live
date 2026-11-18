@@ -2006,6 +2006,7 @@ async function route(req, res) {
   if (method === 'GET' && p === '/subtitle') return serveFile(res, 'subtitle.html');
   if (method === 'GET' && p === '/live2d') return serveFile(res, 'live2d.html');
   if (method === 'GET' && p === '/stardew') return serveFile(res, 'stardew.html');
+  if (method === 'GET' && p === '/ov_stardew') return serveFile(res, 'ov_stardew.html');
   if (method === 'GET' && p === '/panel') return serveFile(res, 'panel.html');
   if (method === 'GET' && p === '/ov_chat') return serveFile(res, 'ov_chat.html');
   if (method === 'GET' && p === '/ov_music') return serveFile(res, 'ov_music.html');

@@ -318,6 +318,27 @@ def current_season_day():
     return key, day
 
 
+# 利润字段修正：原表第 6 列全是 0，导致选种排序失效（2026-11-18 修）
+def _recompute_profit():
+    for season, rows in list(CROPS.items()):
+        fixed = []
+        for row in rows:
+            name, cost, days, price, regrow, _old = row[:6]
+            days = max(1, int(days))
+            # 一次收多个的作物（蔓越莓 2、蓝莓 3、咖啡 4）按产量折算
+            yield_n = {"蔓越莓": 2, "蓝莓": 3, "咖啡豆": 4}.get(name, 1)
+            if regrow and int(regrow) > 0:
+                n = 1 + max(0, (28 - days) // max(1, int(regrow)))
+                profit = (price * yield_n * n - cost) / float(days + (n - 1) * int(regrow))
+            else:
+                profit = (price * yield_n - cost) / float(days)
+            fixed.append((name, cost, days, price, regrow, round(profit, 1)))
+        CROPS[season] = fixed
+
+
+_recompute_profit()
+
+
 def pick_crops(season=None, day=None, top=3):
     """按季节+剩余天数挑作物。返回 [(中文名, 英文种子名, 成熟天, 再收间隔, 利润/天)]。
 
