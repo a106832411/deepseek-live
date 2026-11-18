@@ -23,9 +23,17 @@ STATS = {'days': 0, 'harvested': 0, 'planted': 0, 'errors': 0, 'fished': 0, 'min
 
 def log(m):
     line = time.strftime('%m-%d %H:%M:%S ') + str(m)
-    print(line, flush=True)
-    fh.write(line + '\n')
-    fh.flush()
+    # 控制台是 GBK，子进程吐出的 UTF-8 替换字符会让 print 抛异常，
+    # 这里吞掉异常，日志文件照写不误（2026-11-18 修：以前会误报“活动异常”）
+    try:
+        print(line, flush=True)
+    except Exception:
+        pass
+    try:
+        fh.write(line + '\n')
+        fh.flush()
+    except Exception:
+        pass
 
 
 def state():
@@ -119,7 +127,7 @@ def morning():
             traceback.print_exc()
 
 
-def afternoon(until="21:00"):
+def afternoon(until="20:00"):
     try:
         s = state()
         if A._mins(s.get('time')) >= A._mins(until):
@@ -183,7 +191,7 @@ def main():
     for i in range(max_days):
         try:
             morning()
-            afternoon(until="21:00")
+            afternoon(until="20:00")
             night()
         except Exception as e:
             log("  !! 第 %d 轮顶层异常 %s" % (i + 1, e))
