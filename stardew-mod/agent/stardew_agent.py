@@ -1351,6 +1351,21 @@ def plant_best_crops(max_n=60, log_fn=None, clear=True, budget_sec=480):
     limit = min(max_n, have)
     # 先一次性读全状态，把"已有作物/有障碍"的格子排除，只对空地下手（不再逐格走路）
     st0 = summarize(read_state())
+    # 换季后田里常常长满草/杂草，一格空地都没有；先清障再选点，
+    # 否则「需要种的空地 0 格」直接跳过，整季都不种（2026-11-19 修）
+    try:
+        _blockers = [z for z in (st0.get("tiles") or [])
+                     if x1 <= z["x"] <= x2 and y1 <= z["y"] <= y2
+                     and z.get("obj") and z.get("breakable")]
+        _live = [z for z in (st0.get("tiles") or [])
+                 if x1 <= z["x"] <= x2 and y1 <= z["y"] <= y2 and z.get("crop")]
+        if _blockers and not _live:
+            if log_fn:
+                log_fn("  [种植] 田里全是障碍（%d 处）且无作物，先清障再播" % len(_blockers))
+            clear_plot(log_fn=log_fn)
+            st0 = summarize(read_state())
+    except Exception:
+        pass
     tile_map = {(z["x"], z["y"]): z for z in (st0.get("tiles") or [])}
     dry_set = {(t["x"], t["y"]) for t in (st0.get("dry_tiles") or [])}
     tilled_set = set()
