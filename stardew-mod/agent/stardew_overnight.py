@@ -161,7 +161,10 @@ def night():
     except Exception as e:
         log("  !! 出货异常 %s" % e)
     try:
-        A.go_out_tidy(log_fn=log)
+        if A._mins(state().get('time')) < A._mins("24:00"):
+            A.go_out_tidy(log_fn=log)
+        else:
+            log("  [夜里] 已过 00:00，跳过整理直接回家")
     except Exception:
         pass
     s0 = state()
