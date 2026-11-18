@@ -79,6 +79,13 @@ def clear_blockers(rounds=2, radius=2):
         if not blockers:
             break
         t = blockers[0]
+        # 距离 2 格敲不到（镐只能打面前 1 格），先走到它旁边
+        s2 = state()
+        px2, py2 = pos(s2)
+        if abs(t["x"] - px2) + abs(t["y"] - py2) > 1:
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                if go(t["x"] + dx, t["y"] + dy, 4):
+                    break
         log("    [开路] 镐敲 (%d,%d) %s" % (t["x"], t["y"], t.get("obj")))
         A.send_order({"actionType": "use_tool", "tool": "pickaxe", "x": t["x"], "y": t["y"]})
         time.sleep(0.6)
