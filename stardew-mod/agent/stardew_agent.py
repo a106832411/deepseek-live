@@ -1289,9 +1289,11 @@ def plant_best_crops(max_n=60, log_fn=None, clear=True, budget_sec=480):
     try:
         s0 = summarize(read_state())
         x1, y1, x2, y2 = current_plot()
+        # 只把「活的作物」算占用：草/杂草/枯死作物/石头都能被 clear_plot 清掉，
+        # 以前把它们也算占用，导致换季后杂草长满 → 判定"已种满" → 永远不种也不收（2026-11-19 修）
         occupied = sum(1 for t in (s0.get("tiles") or [])
                        if x1 <= t["x"] <= x2 and y1 <= t["y"] <= y2
-                       and (t.get("crop") or t.get("obj")))
+                       and t.get("crop"))
         free = plot_area() - occupied
         if free <= 0:
             _log("  [种植] 固定区域已经种满（占用 %d 格），跳过取种/播种" % occupied)
