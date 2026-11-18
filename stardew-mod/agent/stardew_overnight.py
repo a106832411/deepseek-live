@@ -127,7 +127,7 @@ def morning():
             traceback.print_exc()
 
 
-def afternoon(until="20:00"):
+def afternoon(until="23:30"):
     try:
         s = state()
         if A._mins(s.get('time')) >= A._mins(until):
@@ -191,7 +191,7 @@ def main():
     for i in range(max_days):
         try:
             morning()
-            afternoon(until="20:00")
+            afternoon(until="23:30")
             night()
         except Exception as e:
             log("  !! 第 %d 轮顶层异常 %s" % (i + 1, e))

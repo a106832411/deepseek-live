@@ -1071,7 +1071,7 @@ def spare_time_activity(until="20:00", log_fn=None):
     if go_fish:
         args = ["--minutes", str(max(20, min(120, (end - now) // 3))), "--until", until]
     else:
-        args = ["--rounds", "8", "--levels", "80,90,100,110,120", "--until", "20:00"]
+        args = ["--rounds", "8", "--levels", "80,90,100,110,120", "--until", until]
     _log("  [余时] 到 %s 前还有时间 → 去%s" % (until, "钓鱼" if script.startswith("stardew_fish") else "挖矿"))
     try:
         r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), script)] + args,
