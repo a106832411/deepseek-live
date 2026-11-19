@@ -19,6 +19,7 @@ import stardew_agent as A  # noqa: E402
 LOG = r'D:\live\logs\overnight.log'
 fh = open(LOG, 'a', encoding='utf-8')
 STATS = {'days': 0, 'harvested': 0, 'planted': 0, 'errors': 0, 'fished': 0, 'mined': 0}
+DAY_START = {'season': None, 'day': None}
 
 
 def log(m):
@@ -168,6 +169,11 @@ def night():
     except Exception:
         pass
     s0 = state()
+    # 如果已经过了 2:00 被强制昏倒，天数已经推进，别再睡一次（否则白白跳掉一天）
+    if DAY_START['day'] is not None and s0.get('day') != DAY_START['day']:
+        log("  [夜里] 已经换天（大概率 2:00 昏倒过一次），不再重复睡觉")
+        STATS['days'] += 1
+        return
     d0 = s0.get('day')
     _m0 = (s0.get('player') or {}).get('money')
     log("  [钱] 睡前 %s | %s | %s" % (_m0, s0.get('time'), s0.get('location')))

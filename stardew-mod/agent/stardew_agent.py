@@ -1079,12 +1079,41 @@ def spare_time_activity(until="20:00", log_fn=None):
     _log("  [余时] 到 %s 收工（回家 + 睡觉留足 2 小时）→ 去%s"
          % (act_until, "钓鱼" if script.startswith("stardew_fish") else "挖矿"))
     try:
-        r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), script)] + args,
-                           cwd=os.path.dirname(os.path.abspath(__file__)), timeout=3000,
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
-        for line in (r.stdout or "").strip().splitlines()[-8:]:
+        # 用 Popen 自己盯游戏时间：脚本偶尔会把 --until 越过（挖矿一局太久），
+        # 一过线就掐掉，否则回家太晚会在 2:00 昏倒扣 1000g（2026-11-19 修）
+        p = subprocess.Popen([sys.executable, "-u", os.path.join(os.path.dirname(os.path.abspath(__file__)), script)] + args,
+                             cwd=os.path.dirname(os.path.abspath(__file__)),
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, encoding="utf-8", errors="replace")
+        deadline = _mins(act_until) + 15          # 到点后再宽限 15 游戏分钟
+        t_start = time.time()
+        while p.poll() is None:
+            try:
+                cur = _mins(summarize(read_state()).get("time"))
+            except Exception:
+                cur = None
+            if cur is not None and cur >= deadline:
+                _log("  [收工] 游戏时间 %s 已过 %s，掐掉活动脚本" % (summarize(read_state()).get("time"), act_until))
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+                break
+            if time.time() - t_start > 3000:
+                _log("  [收工] 活动超时 50 分钟，强制结束")
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+                break
+            time.sleep(10)
+        try:
+            out = p.communicate(timeout=30)[0] or ""
+        except Exception:
+            out = ""
+        for line in out.strip().splitlines()[-8:]:
             _log("    | " + line)
-        return r.returncode == 0
+        return True
     except Exception as e:
         _log("  [余时] 活动异常：%s" % e)
         return False
