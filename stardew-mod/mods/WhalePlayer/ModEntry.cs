@@ -525,6 +525,7 @@ namespace WhalePlayer
                 case "harvest": this.Harvest(jo); break;
                 case "plant": this.Plant(jo); break;
                 case "stop_fish": this.StopFish(); break;
+                case "mine_goto": this.MineGoto(jo["level"] != null ? (int)jo["level"] : 121); break;
                 case "upgrade_house": this.UpgradeHouse(); break;
                 case "learn_recipe": this.LearnRecipe((string)jo["name"] ?? ""); break;
                 case "attach_bait": this.AttachBait(jo["force"] != null && (bool)jo["force"]); break;
@@ -1543,6 +1544,18 @@ namespace WhalePlayer
         /// <summary>坐电梯到指定矿层：优先点电梯菜单按钮（可见），否则走游戏同一个入口。</summary>
         /// <summary>BFS 判断某格能否走到（站到它 2 格内），结果写日志 REACH。</summary>
         /// <summary>离开矿洞：走原版 ExitMine 路径，回到矿洞大堂。</summary>
+        /// <summary>直接进入指定矿层（骷髅洞穴 121+，普通矿洞 1-120）。</summary>
+        private void MineGoto(int level)
+        {
+            try
+            {
+                Game1.exitActiveMenu();
+                Game1.enterMine(level);
+                this.Monitor.Log("mine_goto: 进入 " + level + " 层", LogLevel.Info);
+            }
+            catch (Exception ex) { this.Monitor.Log("mine_goto 异常: " + ex.Message, LogLevel.Warn); }
+        }
+
         private void LeaveMine()
         {
             try
@@ -2998,7 +3011,9 @@ namespace WhalePlayer
             var tilledSet = new List<string>();
                 var origin = p.Tile;
                 string locNameForScan = loc?.Name ?? "";
-                bool wholeMap = locNameForScan == "Mine" || locNameForScan.StartsWith("UndergroundMine") || locNameForScan == "Farm";
+                bool wholeMap = locNameForScan == "Mine" || locNameForScan.StartsWith("UndergroundMine")
+                || locNameForScan == "SkullCave" || locNameForScan == "SkullCavern"
+                || locNameForScan == "Farm";
                 int scanR = wholeMap ? 60 : 14;
                 if (wholeMap) origin = new Vector2(0, 0);
                 int mapW = loc.Map.Layers[0].LayerWidth, mapH = loc.Map.Layers[0].LayerHeight;
@@ -3149,7 +3164,8 @@ namespace WhalePlayer
                         ["tile"] = new JObject { ["x"] = (int)p.Tile.X, ["y"] = (int)p.Tile.Y },
                         ["inventory"] = new JArray(p.Items.Where(i => i != null).Select(i => (object)(i.Stack > 1 ? i.Name + " x" + i.Stack : i.Name)))
                     },
-                    ["tiles"] = tiles,
+                    ["mine_level"] = Game1.CurrentMineLevel,
+                ["tiles"] = tiles,
                     ["dry_tiles"] = dryTiles,
                     ["water_tiles"] = waterTiles,
                     ["tilled_tiles"] = new JArray(tilledSet.Cast<object>().ToArray())
