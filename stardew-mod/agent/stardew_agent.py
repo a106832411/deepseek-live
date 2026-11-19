@@ -1071,10 +1071,10 @@ def spare_time_activity(until="20:00", log_fn=None):
     # 收工时间要按「回家路程」倒推：海滩→农场 4 段路约 2.3 游戏小时，
     # 矿洞→农场 3 段路约 1.7 小时。算晚了会踩 2:00 强制昏倒，每晚扣 1000g（2026-11-19 修）
     if go_fish:
-        act_until = "22:30"
+        act_until = "21:30"
         args = ["--minutes", str(max(20, min(240, (end - now) // 2))), "--until", act_until]
     else:
-        act_until = "23:00"
+        act_until = "22:00"
         args = ["--rounds", "40", "--levels", "80,90,100,110,120", "--until", act_until]
     _log("  [余时] 到 %s 收工（回家 + 睡觉留足 2 小时）→ 去%s"
          % (act_until, "钓鱼" if script.startswith("stardew_fish") else "挖矿"))
