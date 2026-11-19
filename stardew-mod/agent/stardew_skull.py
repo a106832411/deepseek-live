@@ -142,6 +142,10 @@ def main():
         % (args.until, args.target, s.get('location'), s.get('time'), lvl()))
 
     if lvl() < 121:
+        # 巴士只营业 10:00-17:00，太早就在农场等
+        while A._mins(st().get('time')) < A._mins('10:00'):
+            log('  等巴士开门（现在 %s）' % st().get('time'))
+            time.sleep(20)
         log('走过去：农场 → BusStop → 巴士 → 沙漠 → 洞口')
         if not A.go_skull_walk(log_fn=log):
             log('走路进洞失败，改用传送兜底')

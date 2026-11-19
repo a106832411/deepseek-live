@@ -1042,39 +1042,62 @@ def ship_surplus(log_fn=None):
 
 
 def go_skull_walk(log_fn=None):
-    """走路去骷髅洞穴：农场西口 → BusStop → 巴士(22,8) → 沙漠 → 洞口(8,5)。"""
+    """走路去骷髅洞穴：农场 → BusStop → 巴士(22,8) → 沙漠 → 洞口(8,5) → 第 1 层。"""
     def _log(m):
         if log_fn:
             log_fn(m)
 
+    def loc():
+        return str(summarize(read_state()).get("location") or "")
+
+    # ① 走到 BusStop
     for attempt in range(3):
-        s = summarize(read_state())
-        loc = str(s.get("location") or "")
-        if loc == "SkullCave":
-            return True
-        if loc != "Desert":
-            _log("  [骷髅洞穴] 第 %d 次尝试走过去（当前 %s）" % (attempt + 1, loc))
-            travel_to("Desert", hop_timeout=200, log_fn=log_fn)
-            s = summarize(read_state())
-            if str(s.get("location")) != "Desert":
-                _log("  [骷髅洞穴] 还没到沙漠（%s），重试" % s.get("location"))
-                continue
-        # 沙漠里走到洞口前，再迈进去（(8,5) 是传送格）
-        for _ in range(3):
-            send_order({"actionType": "walk_to", "x": 8, "y": 6})
-            time.sleep(5)
-            s = summarize(read_state())
-            t = s.get("tile") or {}
-            if abs(int(t.get("x", -99)) - 8) + abs(int(t.get("y", -99)) - 6) <= 1:
-                break
-        send_order({"actionType": "force_step", "x": 8, "y": 5})
+        if loc() == "BusStop":
+            break
+        _log("  [骷髅洞穴] 走 BusStop（第 %d 次，当前 %s）" % (attempt + 1, loc()))
+        travel_to("BusStop", hop_timeout=200, log_fn=log_fn)
+        if loc() != "BusStop":
+            _log("  [骷髅洞穴] 没到 BusStop（%s），改传送" % loc())
+            send_order({"actionType": "warp_to", "location": "BusStop"})
+            time.sleep(6)
+    if loc() != "BusStop":
+        return False
+
+    # ② 走上巴士（BusStop (22,8) 是去沙漠的传送格）
+    for _ in range(4):
+        send_order({"actionType": "walk_to", "x": 22, "y": 8})
+        time.sleep(6)
+        if loc() == "Desert":
+            break
+    if loc() != "Desert":
+        _log("  [骷髅洞穴] 巴士没坐上（%s），改传送去沙漠" % loc())
+        send_order({"actionType": "warp_to", "location": "Desert"})
+        time.sleep(7)
+    if loc() != "Desert":
+        return False
+
+    # ③ 沙漠里走到洞口，迈进去
+    for _ in range(3):
+        send_order({"actionType": "walk_to", "x": 8, "y": 6})
         time.sleep(5)
-        s = summarize(read_state())
-        if str(s.get("location")) == "SkullCave":
-            _log("  [骷髅洞穴] 已进洞")
-            return True
-        _log("  [骷髅洞穴] 迈步后仍在 %s，重试" % s.get("location"))
-    return False
+        t = summarize(read_state()).get("tile") or {}
+        if abs(int(t.get("x", -99)) - 8) + abs(int(t.get("y", -99)) - 6) <= 1:
+            break
+    send_order({"actionType": "walk_to", "x": 8, "y": 5})
+    time.sleep(6)
+    if loc() != "SkullCave":
+        _log("  [骷髅洞穴] 没能迈进洞口（%s）" % loc())
+        return False
+
+    # ④ 洞口小房间 → 真正的第 1 层
+    s = summarize(read_state())
+    if int(s.get("mine_level") or 0) < 121:
+        send_order({"actionType": "warp_to", "location": "SkullCave"})
+        time.sleep(7)
+    s = summarize(read_state())
+    ok = str(s.get("location")) == "SkullCave" and int(s.get("mine_level") or 0) >= 121
+    _log("  [骷髅洞穴] 进洞结果：%s 层 %s" % (s.get("location"), s.get("mine_level")))
+    return ok
 
 
 def spare_time_activity(until="20:00", log_fn=None):
