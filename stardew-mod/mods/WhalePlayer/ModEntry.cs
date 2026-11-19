@@ -545,6 +545,7 @@ namespace WhalePlayer
                 case "plant": this.Plant(jo); break;
                 case "stop_fish": this.StopFish(); break;
                 case "probe_mineshaft": this.ProbeMineShaft(); break;
+                case "warp_house": this.WarpHouse(); break;
                 case "mine_goto": this.MineGoto(jo["level"] != null ? (int)jo["level"] : 121); break;
                 case "upgrade_house": this.UpgradeHouse(); break;
                 case "learn_recipe": this.LearnRecipe((string)jo["name"] ?? ""); break;
@@ -1596,6 +1597,19 @@ namespace WhalePlayer
                 this.Monitor.Log("probe_mineshaft: level=" + ms.mineLevel + " name=" + ms.Name, LogLevel.Alert);
             }
             catch (Exception ex) { this.Monitor.Log("probe_mineshaft 异常: " + ex.Message, LogLevel.Warn); }
+        }
+
+        /// <summary>兜底：把玩家直接送进农舍（门口被堵/卡住时用）。</summary>
+        private void WarpHouse()
+        {
+            try
+            {
+                Game1.exitActiveMenu();
+                Game1.warpFarmer("FarmHouse", 3, 10, 2);
+                Game1.player.isInBed.Value = false;
+                this.Monitor.Log("warp_house: 已送进农舍", LogLevel.Info);
+            }
+            catch (Exception ex) { this.Monitor.Log("warp_house 异常: " + ex.Message, LogLevel.Warn); }
         }
 
         private void MineGoto(int level)
@@ -2976,8 +2990,8 @@ namespace WhalePlayer
             this.biteCountdown = 120;
             ScriptedFishing = true;
             // 不再跳过小游戏：改成自动玩（绿条自己追鱼），保留玩家能看到的小游戏动作
-            WhalePlayer.ModEntry.AssistFishing = true;
-            WhalePlayer.ModEntry.AutoPlayMinigame = false;
+            WhalePlayer.ModEntry.AssistFishing = false;
+            WhalePlayer.ModEntry.AutoPlayMinigame = true;
         }
 
         private void ShopBuy(JObject jo)

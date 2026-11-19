@@ -1050,6 +1050,58 @@ def _walk_near(x, y, tries=3, log_fn=None):
     return abs(int(t.get("x", -99)) - x) + abs(int(t.get("y", -99)) - y) <= 2
 
 
+def farm_maintenance(log_fn=None):
+    """每天早上顺手做：挂采集器（只挂成熟树）、补机器、整理。全部用现有材料，不生成。"""
+    def _log(m):
+        if log_fn:
+            log_fn(m)
+
+    def st():
+        return summarize(read_state())
+
+    def inv_count(name):
+        n = 0
+        for x in [str(i) for i in (st().get("inventory") or [])]:
+            if x.startswith(name):
+                n += int(x.split(" x")[-1]) if " x" in x else 1
+        return n
+
+    # ① 采集器：背包里有就找最近的、还没挂的树试挂（树苗会失败，成熟树才成功）
+    tappers = inv_count("Tapper")
+    if tappers > 0:
+        s = st()
+        tiles = s.get("tiles") or []
+        trees = [(t["x"], t["y"]) for t in tiles if str(t.get("obj") or "") == "树"]
+        tapped = {(t["x"], t["y"]) for t in tiles if "采集器" in str(t.get("obj") or "")}
+        p = (s.get("tile") or {})
+        px, py = int(p.get("x", -99)), int(p.get("y", -99))
+        cand = sorted([q for q in trees if q not in tapped],
+                      key=lambda q: abs(q[0] - px) + abs(q[1] - py))
+        done = 0
+        for (x, y) in cand[:20]:
+            if done >= tappers:
+                break
+            send_order({"actionType": "walk_to", "x": x, "y": y})
+            time.sleep(1.2)
+            send_order({"actionType": "place_item", "name": "Tapper", "x": x, "y": y})
+            time.sleep(0.8)
+            if done == 0:
+                pass
+        _log("  [维护] 采集器检查完毕（背包还剩 %d）" % inv_count("Tapper"))
+
+    # ② 脱水机：材料够就补（30 木 + 2 粘土 + 1 火石英）
+    if inv_count("Dehydrator") == 0 and inv_count("Wood") >= 30 * 3 and inv_count("Clay") >= 6 and inv_count("Fire Quartz") >= 3:
+        send_order({"actionType": "craft", "item": "Dehydrator", "count": 3})
+        time.sleep(3)
+        _log("  [维护] 补了 3 台脱水机")
+
+    # ③ 腌菜桶：材料够就补到 20 个（50 木 + 40 石 + 8 煤）
+    if inv_count("Preserves Jar") < 20 and inv_count("Wood") >= 50 and inv_count("Stone") >= 40 and inv_count("Coal") >= 8:
+        send_order({"actionType": "craft", "item": "Preserves Jar", "count": 2})
+        time.sleep(3)
+        _log("  [维护] 补腌菜桶")
+
+
 def collect_machines_walk(log_fn=None):
     """走到每台成熟的机器旁边手动收（不再远程一键收）。"""
     def _log(m):
@@ -2360,9 +2412,13 @@ def go_home_sleep(log_fn=None, force=False):
             if str(summarize(read_state()).get("location")) == "FarmHouse":
                 _log("  [回家] 已进屋")
                 break
-    # 睡觉：必须确认已在屋里
+    # 睡觉：必须确认已在屋里；进不去就兜底传进农舍
     if str(summarize(read_state()).get("location")) != "FarmHouse":
-        _log("  [回家] 人还不在屋里，先不睡")
+        _log("  [回家] 进不了屋，兜底传进农舍")
+        send_order({"actionType": "warp_house"})
+        time.sleep(5)
+    if str(summarize(read_state()).get("location")) != "FarmHouse":
+        _log("  [回家] 还是没进屋，先不睡")
         return False
     _log("  [回家] 睡觉")
     send_order({"actionType": "sleep"})
