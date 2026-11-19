@@ -2731,6 +2731,28 @@ namespace WhalePlayer
             catch (Exception ex) { this.Monitor.Log("learn_recipe 异常: " + ex.Message, LogLevel.Warn); }
         }
 
+        private string RodBaitName()
+        {
+            try
+            {
+                var rod = Game1.player?.Items?.OfType<StardewValley.Tools.FishingRod>().FirstOrDefault();
+                var b = rod?.attachments?[StardewValley.Tools.FishingRod.BaitIndex];
+                return b?.Name ?? "";
+            }
+            catch { return ""; }
+        }
+
+        private int RodBaitCount()
+        {
+            try
+            {
+                var rod = Game1.player?.Items?.OfType<StardewValley.Tools.FishingRod>().FirstOrDefault();
+                var b = rod?.attachments?[StardewValley.Tools.FishingRod.BaitIndex];
+                return b?.Stack ?? 0;
+            }
+            catch { return 0; }
+        }
+
         private void AttachBait(bool force = false)
         {
             try
@@ -2767,7 +2789,7 @@ namespace WhalePlayer
                     if (pick != null) break;
                 }
                 if (pick == null) { this.Monitor.Log("attach_bait: 背包里没有鱼饵", LogLevel.Warn); return; }
-                int take = Math.Min(pick.Stack, 999);
+                int take = Math.Min(pick.Stack, 9999);
                 var piece = (StardewValley.Object)pick.getOne();
                 piece.Stack = take;
                 attach[StardewValley.Tools.FishingRod.BaitIndex] = piece;
@@ -3165,6 +3187,8 @@ namespace WhalePlayer
                         ["inventory"] = new JArray(p.Items.Where(i => i != null).Select(i => (object)(i.Stack > 1 ? i.Name + " x" + i.Stack : i.Name)))
                     },
                     ["mine_level"] = Game1.CurrentMineLevel,
+                ["rod_bait"] = RodBaitName(),
+                ["rod_bait_count"] = RodBaitCount(),
                 ["tiles"] = tiles,
                     ["dry_tiles"] = dryTiles,
                     ["water_tiles"] = waterTiles,

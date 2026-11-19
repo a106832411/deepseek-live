@@ -1081,12 +1081,18 @@ def spare_time_activity(until="20:00", log_fn=None):
             pass
     if go_fish:
         act_until = "21:30"
-        # 钓鱼前先从箱子取鱼饵装到竿上（优先野性/高级鱼饵，能缩短咬钩时间）
+        # 竿上还有足够鱼饵就别折腾（上饵一次能装 9999 个，够用很久）
         try:
-            send_order({"actionType": "withdraw_name", "name": "Bait", "count": 400})
-            time.sleep(2.5)
-            send_order({"actionType": "attach_bait"})
-            time.sleep(2)
+            _st = summarize(read_state())
+            _have = int(_st.get("rod_bait_count") or 0)
+            _name = str(_st.get("rod_bait") or "")
+            if _have < 5000 or "Wild" not in _name:
+                send_order({"actionType": "withdraw_name", "name": "Bait", "count": 9000})
+                time.sleep(2.5)
+                send_order({"actionType": "attach_bait", "force": True})
+                time.sleep(2)
+            else:
+                _log("  [鱼饵] 竿上已有 %s x%d，不重复装" % (_name, _have))
         except Exception:
             pass
         args = ["--minutes", str(max(20, min(240, (end - now) // 2))), "--until", act_until]
