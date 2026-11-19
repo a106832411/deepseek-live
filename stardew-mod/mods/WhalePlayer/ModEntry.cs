@@ -188,7 +188,7 @@ namespace WhalePlayer
                         this.bedFixTicks = 0;
                         this.bedFixCount++;
                         // 连续 3 次还赖在床上 → 人卡在床格上，往下挪一格再解一次
-                        if (this.bedFixCount >= 3)
+                        if (this.bedFixCount >= 1)
                         {
                             this.bedFixCount = 0;
                             try
@@ -1151,7 +1151,7 @@ namespace WhalePlayer
             bool edgeWarp = warp.X <= 2 || warp.Y <= 2
                             || warp.X >= loc.Map.Layers[0].LayerWidth - 3
                             || warp.Y >= loc.Map.Layers[0].LayerHeight - 3;
-            if (dist <= 1 || (edgeWarp && dist <= 2))
+            if (dist <= 1 || (edgeWarp && dist <= 4))
             {
                 int tx = warp.TargetX, ty = warp.TargetY;
                 try
@@ -1190,6 +1190,16 @@ namespace WhalePlayer
                 foreach (var c in near) if (this.IsSafeTile(loc, c.X, c.Y)) { pick = c; break; }
                 target = pick == Point.Zero ? new Point(warp.X, warp.Y) : pick;
             }
+            // 门在地图边缘时，目标点往内收 2 格：PathFindController 走到边界格常失败，
+            // 表现为「门口走不到 → 兜底传送」（2026-11-19 修）
+            try
+            {
+                int mw = loc.Map.Layers[0].LayerWidth, mh = loc.Map.Layers[0].LayerHeight;
+                int cx = Math.Min(Math.Max(target.X, Math.Min(2, mw - 2)), mw - 3);
+                int cy = Math.Min(Math.Max(target.Y, Math.Min(2, mh - 2)), mh - 3);
+                target = new Point(cx, cy);
+            }
+            catch { }
 
             int tries = this.hopAttempts.TryGetValue(name, out var n) ? n : 0;
             tries++;
