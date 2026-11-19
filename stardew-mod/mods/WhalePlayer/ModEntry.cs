@@ -1075,8 +1075,8 @@ namespace WhalePlayer
             {
                 try
                 {
-                    Game1.warpFarmer("Farm", 64, 15, 0);
-                    this.Monitor.Log($"goto: {cur} → Farm（落到门口 64,15）", LogLevel.Info);
+                    Game1.warpFarmer("Farm", 68, 20, 0);
+                    this.Monitor.Log($"goto: {cur} → Farm（落到 68,20）", LogLevel.Info);
                     return;
                 }
                 catch { }
