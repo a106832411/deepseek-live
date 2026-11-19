@@ -1130,7 +1130,7 @@ def spare_time_activity(until="20:00", log_fn=None):
         _log("  [余时] 已经 %s，收工回家" % st.get("time"))
         return False
     # 一天钓鱼、一天挖矿（记忆里存着下一个活动）
-    act = "mine"   # 沙漠矿洞期间固定挖矿，不做钓鱼轮换
+    act = next_activity(default="mine")
     # 先翻牌再执行：即使今天活动没跑成，明天也轮到另一种（用户 2026-11-18 要求）
     mark_activity_done(act)
     go_fish = (act == "fish")
@@ -1140,7 +1140,7 @@ def spare_time_activity(until="20:00", log_fn=None):
     # 矿洞→农场 3 段路约 1.7 小时。算晚了会踩 2:00 强制昏倒，每晚扣 1000g（2026-11-19 修）
     # 每 5 天安排一次沙漠矿洞（骷髅洞穴），收益远高于普通矿洞
     # 用户 2026-11-19 指定：这几天每天直接去沙漠矿洞（骷髅洞穴）
-    skull = not go_fish
+    skull = False   # 骷髅洞穴入口还没走通（沙漠洞口房间是空的），先跑普通矿洞
     if go_fish:
         act_until = "21:30"
         # 竿上还有足够鱼饵就别折腾（上饵一次能装 9999 个，够用很久）
