@@ -525,6 +525,8 @@ namespace WhalePlayer
                 case "harvest": this.Harvest(jo); break;
                 case "plant": this.Plant(jo); break;
                 case "stop_fish": this.StopFish(); break;
+                case "upgrade_house": this.UpgradeHouse(); break;
+                case "learn_recipe": this.LearnRecipe((string)jo["name"] ?? ""); break;
                 case "attach_bait": this.AttachBait(jo["force"] != null && (bool)jo["force"]); break;
                 case "fish": this.Fish(); break;
                 case "goto_shop": this.StartTravel("SeedShop"); break;
@@ -2668,6 +2670,54 @@ namespace WhalePlayer
 
         /// <summary>停止钓鱼泵（脚本退出时必调，避免空挥刷屏）。</summary>
         /// <summary>给鱼竿上饵：优先 野性鱼饵(双倍) > 高级鱼饵 > 普通鱼饵。</summary>
+        /// <summary>房屋升级（1 厨房 1万 / 2 育儿室 5万 / 3 地窖 10万）。</summary>
+        private void UpgradeHouse()
+        {
+            try
+            {
+                int lvl = Game1.player.HouseUpgradeLevel;
+                if (lvl >= 3) { this.Monitor.Log("upgrade_house: 已经是最高级", LogLevel.Info); return; }
+                int cost = lvl == 0 ? 10000 : (lvl == 1 ? 50000 : 100000);
+                if (Game1.player.Money < cost)
+                {
+                    this.Monitor.Log($"upgrade_house: 钱不够（需要 {cost}，现有 {Game1.player.Money}）", LogLevel.Warn);
+                    return;
+                }
+                Game1.player.Money -= cost;
+                Game1.player.HouseUpgradeLevel = lvl + 1;
+                try
+                {
+                    var home = StardewValley.Utility.getHomeOfFarmer(Game1.player);
+                    home?.updateMap();
+                }
+                catch { }
+                if (lvl + 1 >= 3)
+                {
+                    try
+                    {
+                        if (Game1.getLocationFromName("Cellar") == null)
+                            Game1.locations.Add(new GameLocation("Maps/Cellar", "Cellar"));
+                    }
+                    catch { }
+                }
+                this.Monitor.Log($"upgrade_house: 升到 {lvl + 1} 级（花费 {cost}）", LogLevel.Info);
+            }
+            catch (Exception ex) { this.Monitor.Log("upgrade_house 异常: " + ex.Message, LogLevel.Warn); }
+        }
+
+        /// <summary>解锁配方（合成/烹饪）。</summary>
+        private void LearnRecipe(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+            try
+            {
+                if (!Game1.player.craftingRecipes.ContainsKey(name)) Game1.player.craftingRecipes[name] = 0;
+                if (!Game1.player.cookingRecipes.ContainsKey(name)) Game1.player.cookingRecipes[name] = 0;
+                this.Monitor.Log("learn_recipe: " + name, LogLevel.Info);
+            }
+            catch (Exception ex) { this.Monitor.Log("learn_recipe 异常: " + ex.Message, LogLevel.Warn); }
+        }
+
         private void AttachBait(bool force = false)
         {
             try
