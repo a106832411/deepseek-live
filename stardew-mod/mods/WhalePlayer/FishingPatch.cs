@@ -145,7 +145,7 @@ namespace WhalePlayer
                 // 绿条上下摆动，看起来是在操作
                 __instance.bobberBarSpeed = (float)System.Math.Sin(t * 7.0) * 3.5f;
                 // 进度稳定上涨，约 1.2 秒钓上来
-                __instance.distanceFromCatching = System.Math.Min(1f, __instance.distanceFromCatching + 0.028f);
+                __instance.distanceFromCatching = System.Math.Min(1f, __instance.distanceFromCatching + 0.30f);
                 __instance.treasureCatchLevel = System.Math.Min(1f, __instance.treasureCatchLevel + 0.02f);
             }
             catch { }

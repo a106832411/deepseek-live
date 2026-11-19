@@ -230,7 +230,7 @@ namespace WhalePlayer
                     {
                         // 卡死看门狗：小游戏超过 ~10 秒没结束就强制关掉，防止整夜卡在钓鱼条里
                         this.barTicks++;
-                        if (this.barTicks > 600)
+                        if (this.barTicks > 180)
                         {
                             this.barTicks = 0;
                             try { Game1.exitActiveMenu(); } catch { }
@@ -404,7 +404,7 @@ namespace WhalePlayer
                         // 没收到 catchDone 时，最多等 4 秒就重抛
                         this.waitTicks++;
                         if (this.castCooldown > 0) { this.castCooldown--; return; }
-                        if (this.waitTicks < 30) return;
+                        if (this.waitTicks < 8) return;
                         this.waitTicks = 0;
                         this.castCooldown = 60;
                         try
