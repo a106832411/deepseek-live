@@ -1042,61 +1042,65 @@ def ship_surplus(log_fn=None):
 
 
 def go_skull_walk(log_fn=None):
-    """走路去骷髅洞穴：农场 → BusStop → 巴士(22,8) → 沙漠 → 洞口(8,5) → 第 1 层。"""
+    """走路去骷髅洞穴：农场(80,16) → BusStop(22,8) →  Desert → 洞口(8,5) → 第 1 层。"""
     def _log(m):
         if log_fn:
             log_fn(m)
 
-    def loc():
-        return str(summarize(read_state()).get("location") or "")
+    def st():
+        return summarize(read_state())
 
-    # ① 走到 BusStop
-    for attempt in range(3):
-        if loc() == "BusStop":
-            break
-        _log("  [骷髅洞穴] 走 BusStop（第 %d 次，当前 %s）" % (attempt + 1, loc()))
-        travel_to("BusStop", hop_timeout=200, log_fn=log_fn)
-        if loc() != "BusStop":
-            _log("  [骷髅洞穴] 没到 BusStop（%s），改传送" % loc())
+    def loc():
+        return str(st().get("location") or "")
+
+    def step(x, y, tries=3):
+        for _ in range(tries):
+            send_order({"actionType": "walk_to", "x": x, "y": y})
+            time.sleep(5)
+            t = st().get("tile") or {}
+            if abs(int(t.get("x", -99)) - x) + abs(int(t.get("y", -99)) - y) <= 1:
+                return True
+        send_order({"actionType": "force_step", "x": x, "y": y})
+        time.sleep(4)
+        return True
+
+    # ① 农场 → BusStop（农场西口 (80,16) 是传送格）
+    if loc() not in ("BusStop", "Desert", "SkullCave"):
+        _log("  [骷髅洞穴] 农场西口 → BusStop")
+        step(79, 16)
+        send_order({"actionType": "walk_to", "x": 80, "y": 16})
+        time.sleep(6)
+        if loc() not in ("BusStop", "Desert", "SkullCave"):
+            _log("  [骷髅洞穴] 没走到 BusStop（%s），传送" % loc())
             send_order({"actionType": "warp_to", "location": "BusStop"})
             time.sleep(6)
-    if loc() != "BusStop":
-        return False
 
-    # ② 走上巴士（BusStop (22,8) 是去沙漠的传送格）
-    for _ in range(4):
+    # ② BusStop → 沙漠（(22,8) 是巴士传送格）
+    if loc() == "BusStop":
+        _log("  [骷髅洞穴] 上巴士 (22,8)")
+        step(22, 9)
         send_order({"actionType": "walk_to", "x": 22, "y": 8})
+        time.sleep(7)
+        if loc() != "Desert":
+            _log("  [骷髅洞穴] 巴士没生效（%s），传送去沙漠" % loc())
+            send_order({"actionType": "warp_to", "location": "Desert"})
+            time.sleep(7)
+
+    # ③ 沙漠 → 洞口
+    if loc() == "Desert":
+        _log("  [骷髅洞穴] 沙漠 (8,6) → 洞口 (8,5)")
+        step(8, 6)
+        send_order({"actionType": "walk_to", "x": 8, "y": 5})
         time.sleep(6)
-        if loc() == "Desert":
-            break
-    if loc() != "Desert":
-        _log("  [骷髅洞穴] 巴士没坐上（%s），改传送去沙漠" % loc())
-        send_order({"actionType": "warp_to", "location": "Desert"})
-        time.sleep(7)
-    if loc() != "Desert":
-        return False
 
-    # ③ 沙漠里走到洞口，迈进去
-    for _ in range(3):
-        send_order({"actionType": "walk_to", "x": 8, "y": 6})
-        time.sleep(5)
-        t = summarize(read_state()).get("tile") or {}
-        if abs(int(t.get("x", -99)) - 8) + abs(int(t.get("y", -99)) - 6) <= 1:
-            break
-    send_order({"actionType": "walk_to", "x": 8, "y": 5})
-    time.sleep(6)
-    if loc() != "SkullCave":
-        _log("  [骷髅洞穴] 没能迈进洞口（%s）" % loc())
-        return False
-
-    # ④ 洞口小房间 → 真正的第 1 层
-    s = summarize(read_state())
-    if int(s.get("mine_level") or 0) < 121:
-        send_order({"actionType": "warp_to", "location": "SkullCave"})
-        time.sleep(7)
-    s = summarize(read_state())
-    ok = str(s.get("location")) == "SkullCave" and int(s.get("mine_level") or 0) >= 121
-    _log("  [骷髅洞穴] 进洞结果：%s 层 %s" % (s.get("location"), s.get("mine_level")))
+    # ④ 洞口房间 → 第 1 层
+    if loc() == "SkullCave":
+        if int(st().get("mine_level") or 0) < 121:
+            send_order({"actionType": "warp_to", "location": "SkullCave"})
+            time.sleep(7)
+    s2 = st()
+    ok = str(s2.get("location")) == "SkullCave" and int(s2.get("mine_level") or 0) >= 121
+    _log("  [骷髅洞穴] 进洞结果：%s 层 %s（%s）" % (s2.get("location"), s2.get("mine_level"), "成功" if ok else "失败"))
     return ok
 
 
