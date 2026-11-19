@@ -143,8 +143,13 @@ def main():
             time.sleep(6)
     s = st()
     if lvl() < 121:
-        log('进洞失败（%s 层%d）' % (s.get('location'), lvl()))
-        return 1
+        log('进洞失败（%s 层%d），退回沙漠不硬耗' % (s.get('location'), lvl()))
+        if str(s.get('location')) == 'SkullCave':
+            A.send_order({'actionType': 'walk_to', 'x': 7, 'y': 9})
+            time.sleep(5)
+        A.send_order({'actionType': 'warp_to', 'location': 'Desert'})
+        time.sleep(6)
+        return 0
     start = lvl()
     log('进入骷髅洞穴：第 1 层（mine_level=%d）' % start)
 

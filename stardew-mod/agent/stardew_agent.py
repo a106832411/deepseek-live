@@ -1082,12 +1082,21 @@ def go_skull_walk(log_fn=None):
             send_order({"actionType": "warp_to", "location": "Desert"})
             time.sleep(7)
 
-    # ③ 沙漠 → 洞口
+    # ③ 沙漠 → 洞口（必须先在 (8,6)，再往北迈一步）
     if loc() == "Desert":
         _log("  [骷髅洞穴] 沙漠 (8,6) → 洞口 (8,5)")
-        step(8, 6)
+        for _ in range(4):
+            step(8, 6, tries=2)
+            t = st().get("tile") or {}
+            if int(t.get("x", -99)) == 8 and int(t.get("y", -99)) == 6:
+                break
         send_order({"actionType": "walk_to", "x": 8, "y": 5})
         time.sleep(6)
+        if loc() == "SkullCave" and int(st().get("mine_level") or 0) < 121:
+            # 进的是洞口小房间，先退出去，别在里面困住
+            _log("  [骷髅洞穴] 进了洞口小房间（层 0），先退出来")
+            send_order({"actionType": "walk_to", "x": 7, "y": 9})
+            time.sleep(6)
 
     # ④ 洞口房间 → 第 1 层
     if loc() == "SkullCave":
