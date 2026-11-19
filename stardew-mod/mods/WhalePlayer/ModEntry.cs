@@ -525,6 +525,7 @@ namespace WhalePlayer
                 case "harvest": this.Harvest(jo); break;
                 case "plant": this.Plant(jo); break;
                 case "stop_fish": this.StopFish(); break;
+                case "attach_bait": this.AttachBait(); break;
                 case "fish": this.Fish(); break;
                 case "goto_shop": this.StartTravel("SeedShop"); break;
                 case "goto": this.StartTravel((string)jo["location"] ?? ""); break;
@@ -2666,6 +2667,50 @@ namespace WhalePlayer
         }
 
         /// <summary>停止钓鱼泵（脚本退出时必调，避免空挥刷屏）。</summary>
+        /// <summary>给鱼竿上饵：优先 野性鱼饵(双倍) > 高级鱼饵 > 普通鱼饵。</summary>
+        private void AttachBait()
+        {
+            try
+            {
+                var p = Game1.player;
+                var rod = p.Items.OfType<StardewValley.Tools.FishingRod>().FirstOrDefault();
+                if (rod == null) { this.Monitor.Log("attach_bait: 背包里没有鱼竿", LogLevel.Warn); return; }
+                var attach = rod.attachments;   // NetObjectArray<Object>，长度固定 2
+                if (attach == null) { this.Monitor.Log("attach_bait: 鱼竿没有附件槽", LogLevel.Warn); return; }
+                var cur = attach[StardewValley.Tools.FishingRod.BaitIndex];
+                if (cur != null && cur.Stack > 0)
+                {
+                    this.Monitor.Log("attach_bait: 竿上已有 " + cur.Name + " x" + cur.Stack, LogLevel.Info);
+                    return;
+                }
+                var pref = new[] { "Wild Bait", "Deluxe Bait", "Challenge Bait", "Bait" };
+                StardewValley.Object pick = null;
+                foreach (var want in pref)
+                {
+                    foreach (var it in p.Items)
+                    {
+                        var o = it as StardewValley.Object;
+                        if (o == null || o.Name == null) continue;
+                        if (o.Category == -21 && o.Name.IndexOf(want, StringComparison.OrdinalIgnoreCase) >= 0)
+                        { pick = o; break; }
+                    }
+                    if (pick != null) break;
+                }
+                if (pick == null) { this.Monitor.Log("attach_bait: 背包里没有鱼饵", LogLevel.Warn); return; }
+                int take = Math.Min(pick.Stack, 999);
+                var piece = (StardewValley.Object)pick.getOne();
+                piece.Stack = take;
+                attach[StardewValley.Tools.FishingRod.BaitIndex] = piece;
+                pick.Stack -= take;
+                if (pick.Stack <= 0) p.removeItemFromInventory(pick);
+                this.Monitor.Log("attach_bait: 装上了 " + piece.Name + " x" + take, LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log("attach_bait 异常: " + ex.Message, LogLevel.Warn);
+            }
+        }
+
         private void StopFish()
         {
             this.fishingPump = false;

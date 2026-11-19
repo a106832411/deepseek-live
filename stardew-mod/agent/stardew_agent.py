@@ -1072,6 +1072,14 @@ def spare_time_activity(until="20:00", log_fn=None):
     # 矿洞→农场 3 段路约 1.7 小时。算晚了会踩 2:00 强制昏倒，每晚扣 1000g（2026-11-19 修）
     if go_fish:
         act_until = "21:30"
+        # 钓鱼前先从箱子取鱼饵装到竿上（优先野性/高级鱼饵，能缩短咬钩时间）
+        try:
+            send_order({"actionType": "withdraw_name", "name": "Bait", "count": 400})
+            time.sleep(2.5)
+            send_order({"actionType": "attach_bait"})
+            time.sleep(2)
+        except Exception:
+            pass
         args = ["--minutes", str(max(20, min(240, (end - now) // 2))), "--until", act_until]
     else:
         act_until = "22:00"
