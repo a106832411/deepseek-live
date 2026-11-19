@@ -160,7 +160,7 @@ def llm_chat(messages, temperature=0.3, max_tokens=600):
 
 
 # ---------------- 归一化 ----------------
-SEASON_KEY = {"春": "spring", "夏": "summer", "秋": "fall"}
+SEASON_KEY = {"春": "spring", "夏": "summer", "秋": "fall", "冬": "winter"}
 SEASON_CN = {"spring": "春", "summer": "夏", "fall": "秋", "winter": "冬",
              "春": "春", "夏": "夏", "秋": "秋", "冬": "冬"}
 WATER_TEXT = {-1: "干地", 0: "未浇", 1: "已浇"}
