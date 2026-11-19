@@ -2186,10 +2186,12 @@ def go_home_sleep(log_fn=None, force=False):
         if loc != "Farm":
             _log("  [回家] 从 %s 回农场" % loc)
             if not travel_to("Farm", hop_timeout=200, log_fn=log_fn):
-                _log("  [回家] 回农场失败，强制过夜")
-                ok_sleep = sleep_verified(log_fn=log_fn)
-                time.sleep(12)
-                return True
+                _log("  [回家] 走路回农场失败，改用传送")
+                send_order({"actionType": "warp_to", "location": "Farm"})
+                time.sleep(6)
+                if str(summarize(read_state()).get("location")) != "Farm":
+                    _log("  [回家] 传送也没到农场，今晚先不睡（避免在外过夜扣 1000）")
+                    return False
         # 走到门口进门
         send_order({"actionType": "close_menu"})
         time.sleep(0.6)
@@ -2206,7 +2208,10 @@ def go_home_sleep(log_fn=None, force=False):
             if str(summarize(read_state()).get("location")) == "FarmHouse":
                 _log("  [回家] 已进屋")
                 break
-    # 睡觉
+    # 睡觉：必须确认已在屋里
+    if str(summarize(read_state()).get("location")) != "FarmHouse":
+        _log("  [回家] 人还不在屋里，先不睡")
+        return False
     _log("  [回家] 睡觉")
     send_order({"actionType": "sleep"})
     time.sleep(12)

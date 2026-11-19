@@ -2866,6 +2866,13 @@ namespace WhalePlayer
         {
             try
             {
+                // 不在屋里就别睡：在外面"睡"等于昏倒，每晚扣 1000g（2026-11-19 实测）
+                var locName = Game1.currentLocation?.Name ?? "";
+                if (locName != "FarmHouse")
+                {
+                    this.Monitor.Log("sleep: 当前在 " + locName + "，不在农舍里，拒绝睡觉", LogLevel.Warn);
+                    return;
+                }
                 Game1.player.isInBed.Value = true;
                 Game1.NewDay(0.2f);
                 this.Monitor.Log("sleep: 进入下一天（含存档）", LogLevel.Info);
