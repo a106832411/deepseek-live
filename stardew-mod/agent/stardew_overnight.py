@@ -67,12 +67,11 @@ def recover(why):
 def morning():
     s = snap('起床')
     A.set_activity('出门前整理背包')
-    # 先收机器产物（果酱/果酒/金属锭）
+    # 先收机器产物（果酱/果酒/金属锭）：走过去一台台收，不做远程一键收
     try:
-        A.send_order({"actionType": "collect_machines"})
-        time.sleep(2)
-    except Exception:
-        pass
+        A.collect_machines_walk(log_fn=log)
+    except Exception as e:
+        log("  !! 收机器异常 %s" % e)
     # 工具兜底：镰刀丢了就补一把（1.6 id 66 = 铱镰刀）
     try:
         inv = [str(x) for x in ((state().get('player') or {}).get('inventory') or [])]
