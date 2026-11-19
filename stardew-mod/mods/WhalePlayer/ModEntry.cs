@@ -1920,11 +1920,13 @@ namespace WhalePlayer
                 target = new Vector2((int)jo["x"], (int)jo["y"]);
             try
             {
-                loc.objects.Remove(target);
-                loc.objects.Add(target, new StardewValley.Object("(O)173", 1));
-                this.Monitor.Log($"place_stairs: 在 ({target.X},{target.Y}) 放置梯子", LogLevel.Info);
+                // 用真正的「楼梯」道具 (O)71 走原版放置逻辑；(O)173 不是合法物品，
+                // 放下去只会生成「错误物品」，不能下楼（2026-11-19 修）
+                var stairs = (StardewValley.Object)ItemRegistry.Create("(O)71", 1, 0);
+                bool ok = stairs.placementAction(loc, (int)target.X * 64, (int)target.Y * 64, p);
+                this.Monitor.Log($"place_stairs: 真楼梯 @({target.X},{target.Y}) = {ok}", LogLevel.Info);
             }
-            catch (Exception ex) { this.Monitor.Log($"place_stairs 异常：{ex.Message}", LogLevel.Warn); }
+            catch (Exception ex) { this.Monitor.Log("place_stairs 异常：" + ex.Message, LogLevel.Warn); }
         }
 
         /// <summary>清理背包/箱子里的 Error Item 之类垃圾。</summary>
