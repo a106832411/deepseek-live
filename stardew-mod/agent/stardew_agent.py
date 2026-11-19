@@ -1037,6 +1037,68 @@ def ship_surplus(log_fn=None):
         _log("  [出货] 异常：%s" % e)
 
 
+def _walk_near(x, y, tries=3, log_fn=None):
+    """走到 (x,y) 旁边一格（采集/收机器都要人先站过去）。"""
+    for _ in range(tries):
+        t = (summarize(read_state()).get("tile") or {})
+        px, py = int(t.get("x", -99)), int(t.get("y", -99))
+        if abs(px - x) + abs(py - y) <= 1:
+            return True
+        send_order({"actionType": "walk_to", "x": x, "y": y})
+        time.sleep(1.2)
+    t = (summarize(read_state()).get("tile") or {})
+    return abs(int(t.get("x", -99)) - x) + abs(int(t.get("y", -99)) - y) <= 2
+
+
+def collect_machines_walk(log_fn=None):
+    """走到每台成熟的机器旁边手动收（不再远程一键收）。"""
+    def _log(m):
+        if log_fn:
+            log_fn(m)
+    try:
+        ms = summarize(read_state()).get("machines") or []
+    except Exception:
+        return 0
+    ready = [m for m in ms if m.get("ready")]
+    if not ready:
+        return 0
+    _log("  [收机器] %d 台成熟，走过去收" % len(ready))
+    n = 0
+    for m in ready:
+        x, y = int(m["x"]), int(m["y"])
+        if not _walk_near(x, y, log_fn=log_fn):
+            _log("    (%d,%d) 走不过去，跳过" % (x, y))
+            continue
+        send_order({"actionType": "interact", "x": x, "y": y})
+        time.sleep(1.0)
+        n += 1
+    _log("  [收机器] 收了 %d 台" % n)
+    return n
+
+
+def load_machines_walk(machine, item="", log_fn=None):
+    """走到每台空机器旁边再放料。"""
+    def _log(m):
+        if log_fn:
+            log_fn(m)
+    try:
+        ms = summarize(read_state()).get("machines") or []
+    except Exception:
+        return 0
+    idle = [m for m in ms if machine in str(m.get("name") or "") and not m.get("busy") and not m.get("ready")]
+    n = 0
+    for m in idle:
+        x, y = int(m["x"]), int(m["y"])
+        if not _walk_near(x, y, log_fn=log_fn):
+            continue
+        send_order({"actionType": "load_machines", "machine": machine, "item": item, "times": 1})
+        time.sleep(0.9)
+        n += 1
+    if n:
+        _log("  [装机器] %s 装了 %d 台" % (machine, n))
+    return n
+
+
 def go_skull_walk(log_fn=None):
     """走路去骷髅洞穴：农场(80,16) → BusStop(22,8) →  Desert → 洞口(8,5) → 第 1 层。"""
     def _log(m):

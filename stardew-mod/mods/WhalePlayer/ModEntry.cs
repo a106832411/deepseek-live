@@ -2786,6 +2786,36 @@ namespace WhalePlayer
             catch (Exception ex) { this.Monitor.Log("learn_recipe 异常: " + ex.Message, LogLevel.Warn); }
         }
 
+        /// <summary>导出农场上所有加工设备（位置/名字/是否可收），给 agent 走路去收。</summary>
+        private JArray MachinesJson()
+        {
+            var arr = new JArray();
+            try
+            {
+                var farm = Game1.getFarm();
+                foreach (var key in farm.objects.Keys.ToList())
+                {
+                    var o = farm.objects[key];
+                    if (o == null) continue;
+                    bool isMachine = o.bigCraftable.Value || !string.IsNullOrEmpty(o.Name) && (
+                        o.Name.Contains("Jar") || o.Name.Contains("Keg") || o.Name.Contains("Furnace")
+                        || o.Name.Contains("Dehydrator") || o.Name.Contains("Smoker") || o.Name.Contains("Cask")
+                        || o.Name.Contains("罐头") || o.Name.Contains("小桶") || o.Name.Contains("熔炉")
+                        || o.Name.Contains("脱水") || o.Name.Contains("熏鱼"));
+                    if (!isMachine) continue;
+                    arr.Add(new JObject
+                    {
+                        ["x"] = (int)key.X, ["y"] = (int)key.Y,
+                        ["name"] = o.Name ?? "",
+                        ["ready"] = o.readyForHarvest.Value,
+                        ["busy"] = o.heldObject.Value != null
+                    });
+                }
+            }
+            catch { }
+            return arr;
+        }
+
         private bool LadderSpawned()
         {
             try
@@ -3295,6 +3325,7 @@ namespace WhalePlayer
                         ["inventory"] = new JArray(p.Items.Where(i => i != null).Select(i => (object)(i.Stack > 1 ? i.Name + " x" + i.Stack : i.Name)))
                     },
                     ["mine_level"] = Game1.CurrentMineLevel,
+                ["machines"] = MachinesJson(),
                 ["ladder_spawned"] = LadderSpawned(),
                 ["ladder_x"] = LadderTile().X,
                 ["ladder_y"] = LadderTile().Y,
