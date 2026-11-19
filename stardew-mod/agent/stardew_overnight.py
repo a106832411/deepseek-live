@@ -169,6 +169,8 @@ def night():
         pass
     s0 = state()
     d0 = s0.get('day')
+    _m0 = (s0.get('player') or {}).get('money')
+    log("  [钱] 睡前 %s | %s | %s" % (_m0, s0.get('time'), s0.get('location')))
     ok = A.go_home_sleep(log_fn=log)
     for _ in range(30):
         time.sleep(2)
@@ -181,6 +183,11 @@ def night():
         A.go_home_sleep(log_fn=log)
         time.sleep(15)
     s = state()
+    _m1 = (s.get('player') or {}).get('money')
+    try:
+        log("  [钱] 睡后 %s（%+d）" % (_m1, int(_m1) - int(_m0)))
+    except Exception:
+        pass
     STATS['days'] += 1
     log("  [过夜] 第 %s 天完成 → 现在 %s季第%s天 %s | 累计收 %d 种 %d | 错误 %d"
         % (d0, s.get('season'), s.get('day'), s.get('time'),
