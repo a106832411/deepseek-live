@@ -302,7 +302,12 @@ namespace WhalePlayer
                         if (this.castingPending == 0)
                         {
                             try { rd.castingEndFunction(p0); } catch { }
-                            try { p0.canMove = false; } catch { }
+                            // castingEndFunction 之后必须清掉 isCasting，
+                            // 否则 tickUpdate 不推进 fishingBiteAccumulator，永远等不到咬钩（2026-11-19 修）
+                            try { rd.isCasting = false; p0.canMove = false; p0.UsingTool = true; } catch { }
+                            // 自己给一个极短咬钩时间：CJB 1.38 的 InstantBite 对脚本抛竿不生效，
+                            // 不设的话原版要 3~10 秒，远超我们的等待窗口（2026-11-19）
+                            try { rd.timeUntilFishingBite = 250f; rd.fishingBiteAccumulator = 0f; } catch { }
                             // 落点：沿朝向在 1~6 格里找水
                             try
                             {
@@ -330,8 +335,7 @@ namespace WhalePlayer
                             catch { }
                             try
                             {
-                                rd.isNibbling = false; rd.hit = false; rd.fishingBiteAccumulator = 0f;
-                                rd.timeUntilFishingBite = 600f + (float)(Game1.random.NextDouble() * 600.0);
+                                rd.isNibbling = false; rd.hit = false;
                             }
                             catch { }
                             this.Monitor.Log($"钓鱼: 抛竿完成 isFishing={rd.isFishing} bite={rd.timeUntilFishingBite:F1}", LogLevel.Info);
@@ -342,12 +346,20 @@ namespace WhalePlayer
                     {
                         // 交给游戏 tick 咬钩；但等太久就复位重抛
                         this.waitTicks++;
-                        if (this.waitTicks > 1800)
+                        if (this.waitTicks > 120)
                         {
                             this.waitTicks = 0;
-                            try { rd.doneFishing(p0, true); } catch { }
-                            try { rd.isFishing = false; rd.fishCaught = false; rd.isReeling = false; } catch { }
-                            this.Monitor.Log("钓鱼: 30 秒没咬钩，复位重抛", LogLevel.Warn);
+                            this.castCooldown = 30;
+                            // 重新走一次真实抛竿，不再用 doneFishing 假复位
+                            try
+                            {
+                                p0.CurrentTool = rd;
+                                if (this.fishSpot.X >= 0) this.Face(this.fishSpot);
+                                rd.beginUsing(p0.currentLocation, (int)this.fishSpot.X, (int)this.fishSpot.Y, p0);
+                                this.castingPending = 45;
+                            }
+                            catch { }
+                            this.Monitor.Log("钓鱼: 重抛", LogLevel.Trace);
                         }
                     }
                     // 咬钩 → 提竿
@@ -373,7 +385,7 @@ namespace WhalePlayer
                         // 没收到 catchDone 时，最多等 4 秒就重抛
                         this.waitTicks++;
                         if (this.castCooldown > 0) { this.castCooldown--; return; }
-                        if (this.waitTicks < 180) return;
+                        if (this.waitTicks < 30) return;
                         this.waitTicks = 0;
                         this.castCooldown = 60;
                         try
