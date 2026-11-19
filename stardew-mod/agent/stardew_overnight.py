@@ -77,22 +77,25 @@ def morning():
     try:
         inv = [str(x) for x in ((state().get('player') or {}).get('inventory') or [])]
         if not any('Scythe' in x or '镰刀' in x for x in inv):
-            log("  !! 背包里没有镰刀，补一把")
-            A.send_order({'actionType': 'give_scythe'})
+            log("  !! 背包里没有镰刀，先从箱子找（不再凭空生成）")
+            A.send_order({'actionType': 'withdraw_name', 'name': 'Scythe', 'count': 1})
             time.sleep(2)
+            inv2 = [str(x) for x in ((state().get('player') or {}).get('inventory') or [])]
+            if not any('Scythe' in x or '镰刀' in x for x in inv2):
+                log("  !! 箱子里也没有镰刀了，今天收割会失败，请手动补")
     except Exception as e:
         log("  !! 检查镰刀异常 %s" % e)
     try:
         A.go_out_tidy(log_fn=log)          # 出门整理：非工具收进箱子，只留 5 件工具
     except Exception as e:
         log("  !! 整理背包异常 %s" % e)
-    # 换季第 1 天：补三季收益最高的种子，并清理农田
+    # 换季第 1 天：不再凭空生成种子（用户要求），缺种子由种植流程去商店买
     try:
         season, day = A.current_season_day()
         if int(day) == 1:
-            A.give_top_seeds(log_fn=log)
+            log("  [换季] 第 1 天：不生成种子，缺的走商店购买")
     except Exception as e:
-        log("  !! 补种子异常 %s" % e)
+        log("  !! 换季检查异常 %s" % e)
     try:
         A.season_day_one_cleanup(log_fn=log)
     except Exception as e:

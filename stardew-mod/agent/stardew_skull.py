@@ -110,18 +110,6 @@ def descend():
         if A._mins(s2.get('time')) >= A._mins('21:15'):
             return False
 
-    # 实在没有：在「梯子应出现的位置」放真楼梯（会触发原版梯子生成）
-    if lx < 0:
-        px, py = pos()
-        lx, ly = px + 1, py
-    go_near(lx, ly, tries=4)
-    A.send_order({'actionType': 'place_stairs', 'x': lx, 'y': ly})
-    time.sleep(1.8)
-    A.send_order({'actionType': 'interact', 'x': lx, 'y': ly})
-    time.sleep(2.2)
-    if lvl() != cur:
-        log('  放楼梯 → %d 层' % lvl())
-        return True
     # 最后兜底：原版下层接口（等价于玩家用楼梯道具下潜）
     A.send_order({'actionType': 'mine_goto', 'level': cur + 1})
     time.sleep(3.5)

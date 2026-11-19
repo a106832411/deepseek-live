@@ -1012,14 +1012,10 @@ TOP_SEEDS = {
 
 
 def give_top_seeds(count=MAX_STACK, log_fn=None):
-    """直接补齐三季收益最高的种子（省掉买种/跑商店）。"""
-    def _log(m):
-        if log_fn:
-            log_fn(m)
-    for season, seed in TOP_SEEDS.items():
-        send_order({"actionType": "give_item", "name": seed, "count": count})
-        time.sleep(1.5)
-        _log("  [种子] 补 %s ×%d" % (seed, count))
+    """已停用：用户明确要求不要再凭空生成物品（2026-11-19）。"""
+    if log_fn:
+        log_fn("  [种子] 已停用凭空生成，缺种子走商店购买")
+    return 0
 
 
 def ship_surplus(log_fn=None):
