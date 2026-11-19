@@ -525,6 +525,7 @@ namespace WhalePlayer
                 case "harvest": this.Harvest(jo); break;
                 case "plant": this.Plant(jo); break;
                 case "stop_fish": this.StopFish(); break;
+                case "probe_mineshaft": this.ProbeMineShaft(); break;
                 case "mine_goto": this.MineGoto(jo["level"] != null ? (int)jo["level"] : 121); break;
                 case "upgrade_house": this.UpgradeHouse(); break;
                 case "learn_recipe": this.LearnRecipe((string)jo["name"] ?? ""); break;
@@ -1545,6 +1546,39 @@ namespace WhalePlayer
         /// <summary>BFS 判断某格能否走到（站到它 2 格内），结果写日志 REACH。</summary>
         /// <summary>离开矿洞：走原版 ExitMine 路径，回到矿洞大堂。</summary>
         /// <summary>直接进入指定矿层（骷髅洞穴 121+，普通矿洞 1-120）。</summary>
+        /// <summary>调试：打印 MineShaft 里和梯子/竖井有关的成员值。</summary>
+        private void ProbeMineShaft()
+        {
+            try
+            {
+                var ms = Game1.currentLocation as StardewValley.Locations.MineShaft;
+                if (ms == null) { this.Monitor.Log("probe_mineshaft: 当前不是 MineShaft（" + (Game1.currentLocation?.Name ?? "?") + "）", LogLevel.Warn); return; }
+                var t = ms.GetType();
+                foreach (var f in t.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
+                {
+                    var n = f.Name.ToLower();
+                    if (n.Contains("ladder") || n.Contains("shaft") || n.Contains("exit"))
+                    {
+                        object v = null;
+                        try { v = f.GetValue(ms); } catch { }
+                        this.Monitor.Log("probe_mineshaft field " + f.Name + " = " + (v?.ToString() ?? "null"), LogLevel.Alert);
+                    }
+                }
+                foreach (var pr in t.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
+                {
+                    var n = pr.Name.ToLower();
+                    if (n.Contains("ladder") || n.Contains("shaft") || n.Contains("exit"))
+                    {
+                        object v = null;
+                        try { v = pr.GetValue(ms); } catch { }
+                        this.Monitor.Log("probe_mineshaft prop " + pr.Name + " = " + (v?.ToString() ?? "null"), LogLevel.Alert);
+                    }
+                }
+                this.Monitor.Log("probe_mineshaft: level=" + ms.mineLevel + " name=" + ms.Name, LogLevel.Alert);
+            }
+            catch (Exception ex) { this.Monitor.Log("probe_mineshaft 异常: " + ex.Message, LogLevel.Warn); }
+        }
+
         private void MineGoto(int level)
         {
             try
@@ -2733,6 +2767,59 @@ namespace WhalePlayer
             catch (Exception ex) { this.Monitor.Log("learn_recipe 异常: " + ex.Message, LogLevel.Warn); }
         }
 
+        private bool LadderSpawned()
+        {
+            try
+            {
+                var ms = Game1.currentLocation as StardewValley.Locations.MineShaft;
+                if (ms == null) return false;
+                var f = ms.GetType().GetField("ladderHasSpawned", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                return f != null && (bool)(f.GetValue(ms) ?? false);
+            }
+            catch { return false; }
+        }
+
+        private Point LadderTile()
+        {
+            try
+            {
+                var ms = Game1.currentLocation as StardewValley.Locations.MineShaft;
+                if (ms == null) return new Point(-1, -1);
+                var t = ms.GetType();
+                const System.Reflection.BindingFlags flags =
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                object v = null;
+                foreach (var name in new[] { "tileBeneathLadder", "netTileBeneathLadder" })
+                {
+                    var pr = t.GetProperty(name, flags);
+                    if (pr != null) { v = pr.GetValue(ms); }
+                    if (v == null)
+                    {
+                        var f = t.GetField(name, flags);
+                        if (f != null) v = f.GetValue(ms);
+                    }
+                    if (v != null) break;
+                }
+                if (v == null) return new Point(-1, -1);
+                if (v is Point pt) return pt;
+                var vt = v.GetType();
+                int gx = -1, gy = -1;
+                var px = vt.GetProperty("X");
+                var py = vt.GetProperty("Y");
+                if (px != null) gx = Convert.ToInt32(px.GetValue(v));
+                if (py != null) gy = Convert.ToInt32(py.GetValue(v));
+                if (gx < 0)
+                {
+                    var fx = vt.GetField("X");
+                    var fy = vt.GetField("Y");
+                    if (fx != null) gx = Convert.ToInt32(fx.GetValue(v));
+                    if (fy != null) gy = Convert.ToInt32(fy.GetValue(v));
+                }
+                return new Point(gx, gy);
+            }
+            catch { return new Point(-1, -1); }
+        }
+
         private string RodBaitName()
         {
             try
@@ -3189,6 +3276,9 @@ namespace WhalePlayer
                         ["inventory"] = new JArray(p.Items.Where(i => i != null).Select(i => (object)(i.Stack > 1 ? i.Name + " x" + i.Stack : i.Name)))
                     },
                     ["mine_level"] = Game1.CurrentMineLevel,
+                ["ladder_spawned"] = LadderSpawned(),
+                ["ladder_x"] = LadderTile().X,
+                ["ladder_y"] = LadderTile().Y,
                 ["rod_bait"] = RodBaitName(),
                 ["rod_bait_count"] = RodBaitCount(),
                 ["tiles"] = tiles,

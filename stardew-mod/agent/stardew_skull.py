@@ -79,38 +79,54 @@ def mine_some(s, n=6):
 
 
 def descend():
+    """优先走真实梯子：梯子没出现就先挖矿，还没有才用楼梯道具。"""
     s = st()
     cur = lvl()
-    cands = down_candidates(s)
-    if cands:
-        px, py = pos()
-        cands.sort(key=lambda t: abs(t['x'] - px) + abs(t['y'] - py))
-        c = cands[0]
-        if go_near(c['x'], c['y']):
-            A.send_order({'actionType': 'interact', 'x': c['x'], 'y': c['y']})
+    lx = int(s.get('ladder_x') or -1)
+    ly = int(s.get('ladder_y') or -1)
+    spawned = bool(s.get('ladder_spawned'))
+
+    if spawned and lx >= 0:
+        if go_near(lx, ly):
+            A.send_order({'actionType': 'interact', 'x': lx, 'y': ly})
             time.sleep(2.2)
             if lvl() != cur:
-                log('  洞/梯 → %d 层（%s）' % (lvl(), c.get('obj')))
+                log('  走梯子 → %d 层' % lvl())
                 return True
 
-    # 挖几块石头/矿，可能出梯子
-    mine_some(s, 5)
-    s2 = st()
-    cands = down_candidates(s2)
-    if cands:
-        c = cands[0]
-        if go_near(c['x'], c['y']):
-            A.send_order({'actionType': 'interact', 'x': c['x'], 'y': c['y']})
-            time.sleep(2.0)
-            if lvl() != cur:
-                log('  挖出梯子 → %d 层' % lvl())
-                return True
+    # 梯子没出现：挖附近的石头/矿（原版规则：挖够就会冒梯子）
+    for _ in range(3):
+        mine_some(st(), 6)
+        s2 = st()
+        if s2.get('ladder_spawned'):
+            lx = int(s2.get('ladder_x') or -1)
+            ly = int(s2.get('ladder_y') or -1)
+            if lx >= 0 and go_near(lx, ly):
+                A.send_order({'actionType': 'interact', 'x': lx, 'y': ly})
+                time.sleep(2.2)
+                if lvl() != cur:
+                    log('  挖出梯子 → %d 层' % lvl())
+                    return True
+        if A._mins(s2.get('time')) >= A._mins('21:15'):
+            return False
 
-    # 还没有 → 直接用游戏的下层接口（place_stairs 用的 (O)173 在 1.6 里是错误物品，不生效）
+    # 实在没有：在「梯子应出现的位置」放真楼梯（会触发原版梯子生成）
+    if lx < 0:
+        px, py = pos()
+        lx, ly = px + 1, py
+    go_near(lx, ly, tries=4)
+    A.send_order({'actionType': 'place_stairs', 'x': lx, 'y': ly})
+    time.sleep(1.8)
+    A.send_order({'actionType': 'interact', 'x': lx, 'y': ly})
+    time.sleep(2.2)
+    if lvl() != cur:
+        log('  放楼梯 → %d 层' % lvl())
+        return True
+    # 最后兜底：原版下层接口（等价于玩家用楼梯道具下潜）
     A.send_order({'actionType': 'mine_goto', 'level': cur + 1})
     time.sleep(3.5)
     if lvl() != cur:
-        log('  下潜 → %d 层' % lvl())
+        log('  下楼 → %d 层' % lvl())
         return True
     return False
 
