@@ -525,7 +525,7 @@ namespace WhalePlayer
                 case "harvest": this.Harvest(jo); break;
                 case "plant": this.Plant(jo); break;
                 case "stop_fish": this.StopFish(); break;
-                case "attach_bait": this.AttachBait(); break;
+                case "attach_bait": this.AttachBait(jo["force"] != null && (bool)jo["force"]); break;
                 case "fish": this.Fish(); break;
                 case "goto_shop": this.StartTravel("SeedShop"); break;
                 case "goto": this.StartTravel((string)jo["location"] ?? ""); break;
@@ -2668,7 +2668,7 @@ namespace WhalePlayer
 
         /// <summary>停止钓鱼泵（脚本退出时必调，避免空挥刷屏）。</summary>
         /// <summary>给鱼竿上饵：优先 野性鱼饵(双倍) > 高级鱼饵 > 普通鱼饵。</summary>
-        private void AttachBait()
+        private void AttachBait(bool force = false)
         {
             try
             {
@@ -2680,8 +2680,15 @@ namespace WhalePlayer
                 var cur = attach[StardewValley.Tools.FishingRod.BaitIndex];
                 if (cur != null && cur.Stack > 0)
                 {
-                    this.Monitor.Log("attach_bait: 竿上已有 " + cur.Name + " x" + cur.Stack, LogLevel.Info);
-                    return;
+                    if (!force)
+                    {
+                        this.Monitor.Log("attach_bait: 竿上已有 " + cur.Name + " x" + cur.Stack, LogLevel.Info);
+                        return;
+                    }
+                    // 换饵：把旧饵退回背包
+                    p.addItemToInventoryBool(cur, false);
+                    attach[StardewValley.Tools.FishingRod.BaitIndex] = null;
+                    this.Monitor.Log("attach_bait: 卸下旧饵 " + cur.Name, LogLevel.Info);
                 }
                 var pref = new[] { "Wild Bait", "Deluxe Bait", "Challenge Bait", "Bait" };
                 StardewValley.Object pick = null;
