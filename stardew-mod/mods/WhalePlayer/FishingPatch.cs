@@ -131,6 +131,27 @@ namespace WhalePlayer
     }
 
 
+    /// <summary>自动玩钓鱼小游戏：绿条跟着鱼走，进度稳定上涨（保留小游戏动作）。</summary>
+    [HarmonyPatch(typeof(BobberBar), nameof(BobberBar.update))]
+    internal static class BobberBarAutoPlayPatch
+    {
+        private static void Postfix(BobberBar __instance)
+        {
+            if (!WhalePlayer.ModEntry.AutoPlayMinigame) return;
+            try
+            {
+                if (__instance.fadeOut) return;
+                double t = Game1.currentGameTime == null ? 0 : Game1.currentGameTime.TotalGameTime.TotalSeconds;
+                // 绿条上下摆动，看起来是在操作
+                __instance.bobberBarSpeed = (float)System.Math.Sin(t * 7.0) * 3.5f;
+                // 进度稳定上涨，约 1.2 秒钓上来
+                __instance.distanceFromCatching = System.Math.Min(1f, __instance.distanceFromCatching + 0.028f);
+                __instance.treasureCatchLevel = System.Math.Min(1f, __instance.treasureCatchLevel + 0.02f);
+            }
+            catch { }
+        }
+    }
+
     /// <summary>把原本 999 的堆叠上限提到 9999（工具/武器等本来就 1 的不受影响）。</summary>
     [HarmonyPatch(typeof(StardewValley.Object), nameof(StardewValley.Object.maximumStackSize))]
     internal static class BigStackPatch

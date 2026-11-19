@@ -30,13 +30,16 @@ namespace WhalePlayer
     {
         public static bool ScriptedFishing = false;
         public static bool AssistFishing = false;
+        /// <summary>钓鱼小游戏自动操作（让绿条自己追鱼，保留小游戏动画）。</summary>
+        public static bool AutoPlayMinigame = false;
         public static bool TreasureAssist = true;
         public static Action<string> Trace = null;
         private string ordersDir;
         private string statePath;
         private int toolTicks = -1;
         private int stuckToolTicks = 0;
-        private int barTicks = 0;   // 钓鱼小游戏看门狗   // 挥动/蓄力卡死看门狗计数
+        private int barTicks = 0;
+        private bool barSeen = false;   // 本竿的小游戏是否见过   // 钓鱼小游戏看门狗   // 挥动/蓄力卡死看门狗计数
         private string pendingKind = "";
         private Vector2 pendingTile;
         private GameLocation pendingLoc;
@@ -272,15 +275,31 @@ namespace WhalePlayer
                 else
                 {
                     // fishCaught 时先等收尾动画（约 2 秒）再复位，太早会丢掉入包时机
-                    if (rd.fishCaught || rd.isReeling)
+                    if (Game1.activeClickableMenu is StardewValley.Menus.BobberBar)
+                    {
+                        // 小游戏进行中：交给 BobberBarAutoPlayPatch，别插手（原版会自动发鱼）
+                        this.caughtTicks = 0;
+                        this.barSeen = true;
+                        return;
+                    }
+                    if (this.barSeen)
+                    {
+                        // 小游戏刚结束：让原版的举鱼动画走完，再抛下一竿
+                        this.barSeen = false;
+                        this.castCooldown = 90;
+                        this.waitTicks = 0;
+                        this.Monitor.Log("钓鱼: 小游戏结束，准备下一竿", LogLevel.Info);
+                        return;
+                    }
+                    if (rd.fishCaught)
                     {
                         this.caughtTicks++;
                         if (this.caughtTicks > 60 && !this.holdingDone)
                         {
                             this.holdingDone = true;
-                            // 关键：原版是在「举鱼动画」结束时调用 doneHoldingFish 才真正发鱼（只调一次）
-                            try { rd.doneHoldingFish(p0); this.catchDone = true; this.Monitor.Log("钓鱼: doneHoldingFish 结算完成", LogLevel.Info); }
-                            catch (Exception ex) { this.Monitor.Log($"doneHoldingFish 异常：{ex.Message}", LogLevel.Warn); }
+                            // 小游戏结束后原版自己发鱼，这里不再调用 doneHoldingFish
+                            this.catchDone = true; this.Monitor.Log("钓鱼: 本条完成，准备下一竿", LogLevel.Info);
+                            this.catchDone = true;
                             try { rd.fishCaught = false; rd.isReeling = false; rd.isFishing = false; rd.isNibbling = false; rd.hit = false; } catch { }
                             this.castCooldown = 150;
                         }
@@ -2897,7 +2916,7 @@ namespace WhalePlayer
             this.fishingPump = false;
             this.castingPending = -1;
             this.castCooldown = 0;
-            try { WhalePlayer.ModEntry.AssistFishing = false; } catch { }
+            try { WhalePlayer.ModEntry.AssistFishing = false; WhalePlayer.ModEntry.AutoPlayMinigame = false; } catch { }
             try
             {
                 var rd = Game1.player.Items.OfType<StardewValley.Tools.FishingRod>().FirstOrDefault();
@@ -2926,9 +2945,9 @@ namespace WhalePlayer
             this.fishingPump = true;
             this.biteCountdown = 120;
             ScriptedFishing = true;
-            // 启用自研「咬钩直接结算」补丁：CJB 1.38 的 InstantCatch 与 1.6 的 BobberBar 不兼容，
-            // 不开这个会永远卡在小游戏里（2026-11-18 实测）
-            WhalePlayer.ModEntry.AssistFishing = true;
+            // 不再跳过小游戏：改成自动玩（绿条自己追鱼），保留玩家能看到的小游戏动作
+            WhalePlayer.ModEntry.AssistFishing = false;
+            WhalePlayer.ModEntry.AutoPlayMinigame = true;
         }
 
         private void ShopBuy(JObject jo)
