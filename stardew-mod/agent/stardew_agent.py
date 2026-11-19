@@ -1041,6 +1041,42 @@ def ship_surplus(log_fn=None):
         _log("  [出货] 异常：%s" % e)
 
 
+def go_skull_walk(log_fn=None):
+    """走路去骷髅洞穴：农场西口 → BusStop → 巴士(22,8) → 沙漠 → 洞口(8,5)。"""
+    def _log(m):
+        if log_fn:
+            log_fn(m)
+
+    for attempt in range(3):
+        s = summarize(read_state())
+        loc = str(s.get("location") or "")
+        if loc == "SkullCave":
+            return True
+        if loc != "Desert":
+            _log("  [骷髅洞穴] 第 %d 次尝试走过去（当前 %s）" % (attempt + 1, loc))
+            travel_to("Desert", hop_timeout=200, log_fn=log_fn)
+            s = summarize(read_state())
+            if str(s.get("location")) != "Desert":
+                _log("  [骷髅洞穴] 还没到沙漠（%s），重试" % s.get("location"))
+                continue
+        # 沙漠里走到洞口前，再迈进去（(8,5) 是传送格）
+        for _ in range(3):
+            send_order({"actionType": "walk_to", "x": 8, "y": 6})
+            time.sleep(5)
+            s = summarize(read_state())
+            t = s.get("tile") or {}
+            if abs(int(t.get("x", -99)) - 8) + abs(int(t.get("y", -99)) - 6) <= 1:
+                break
+        send_order({"actionType": "force_step", "x": 8, "y": 5})
+        time.sleep(5)
+        s = summarize(read_state())
+        if str(s.get("location")) == "SkullCave":
+            _log("  [骷髅洞穴] 已进洞")
+            return True
+        _log("  [骷髅洞穴] 迈步后仍在 %s，重试" % s.get("location"))
+    return False
+
+
 def spare_time_activity(until="20:00", log_fn=None):
     """种完收完后还有时间就去钓鱼/挖矿（雨天或傍晚钓鱼，其余挖矿）。"""
     import subprocess

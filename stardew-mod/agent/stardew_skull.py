@@ -142,8 +142,13 @@ def main():
         % (args.until, args.target, s.get('location'), s.get('time'), lvl()))
 
     if lvl() < 121:
-        A.send_order({'actionType': 'mine_goto', 'level': 121})
-        time.sleep(8)
+        log('走过去：农场 → BusStop → 巴士 → 沙漠 → 洞口')
+        if not A.go_skull_walk(log_fn=log):
+            log('走路进洞失败，改用传送兜底')
+            A.send_order({'actionType': 'warp_to', 'location': 'Desert'})
+            time.sleep(6)
+            A.send_order({'actionType': 'warp_to', 'location': 'SkullCave'})
+            time.sleep(6)
     s = st()
     if lvl() < 121:
         log('进洞失败（%s 层%d）' % (s.get('location'), lvl()))
