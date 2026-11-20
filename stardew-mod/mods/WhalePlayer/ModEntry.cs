@@ -39,7 +39,9 @@ namespace WhalePlayer
         private int toolTicks = -1;
         private int stuckToolTicks = 0;
         private int barTicks = 0;
-        private bool barSeen = false;   // 本竿的小游戏是否见过   // 钓鱼小游戏看门狗   // 挥动/蓄力卡死看门狗计数
+        private bool barSeen = false;
+        private Vector2 lastPos = Vector2.Zero;
+        private int stillTicks = 0;   // 本竿的小游戏是否见过   // 钓鱼小游戏看门狗   // 挥动/蓄力卡死看门狗计数
         private string pendingKind = "";
         private Vector2 pendingTile;
         private GameLocation pendingLoc;
@@ -208,6 +210,25 @@ namespace WhalePlayer
                     }
                 }
                 else { this.bedFixTicks = 0; this.bedFixCount = 0; }
+            }
+            catch { }
+
+            // 寻路卡死看门狗：controller 还在但人 6 秒没挪窝，就清掉控制器
+            try
+            {
+                if (Game1.player != null && Game1.player.controller != null && !Game1.player.isInBed.Value)
+                {
+                    var cur = Game1.player.Position;
+                    if (this.lastPos == cur) this.stillTicks++;
+                    else { this.lastPos = cur; this.stillTicks = 0; }
+                    if (this.stillTicks > 360)
+                    {
+                        this.stillTicks = 0;
+                        try { Game1.player.controller = null; } catch { }
+                                                this.Monitor.Log("看门狗：寻路卡住 6 秒，清掉控制器", LogLevel.Warn);
+                    }
+                }
+                else this.stillTicks = 0;
             }
             catch { }
 
@@ -1823,7 +1844,9 @@ namespace WhalePlayer
             try { Game1.dialogueUp = false; } catch { }
             try { p.canMove = true; } catch { }
             try { p.UsingTool = false; } catch { }
-            try
+            // 卡住的 PathFindController 会让玩家一直 ctrl=True 却不动，先清掉
+            try { p.controller = null; } catch { }
+                        try
             {
                 p.Position = new Vector2(x * 64f + 32f, y * 64f + 32f);
                 p.Halt();
