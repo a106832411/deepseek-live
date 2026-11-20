@@ -130,17 +130,20 @@ def main():
         % (args.until, args.target, s.get('location'), s.get('time'), lvl()))
 
     if lvl() < 121:
-        # 巴士只营业 10:00-17:00，太早就在农场等
+        # ① 先走到沙漠（巴士 10:00 才开，早到就等）
         while A._mins(st().get('time')) < A._mins('10:00'):
             log('  等巴士开门（现在 %s）' % st().get('time'))
             time.sleep(20)
-        log('走过去：农场 → BusStop → 巴士 → 沙漠 → 洞口')
+        log('走路去沙漠：农场 → BusStop → 巴士')
         if not A.go_skull_walk(log_fn=log):
-            log('走路进洞失败，改用传送兜底')
+            log('走路到沙漠失败，传送兜底')
             A.send_order({'actionType': 'warp_to', 'location': 'Desert'})
             time.sleep(6)
-            A.send_order({'actionType': 'warp_to', 'location': 'SkullCave'})
-            time.sleep(6)
+        # ② 洞口小房间是死路，直接用「楼梯」进第 1 层（等价玩家放楼梯下洞）
+        if lvl() < 121:
+            log('用楼梯进骷髅洞穴第 1 层')
+            A.send_order({'actionType': 'mine_goto', 'level': 121})
+            time.sleep(8)
     s = st()
     if lvl() < 121:
         log('进洞失败（%s 层%d），退回沙漠不硬耗' % (s.get('location'), lvl()))

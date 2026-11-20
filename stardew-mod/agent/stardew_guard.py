@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""星露谷挂机守卫：只负责「发现卡住 → 自己救回来」，不做农场操作。
+
+规则：
+  1. 循环进程没了 → 重新拉起 stardew_overnight.py
+  2. player_state.json 超过 180 秒没更新 → 游戏软锁 → 重启游戏 + 循环
+  3. 人物坐标长时间不变但游戏时间在走 → 先 unstick，再 warp 回农场，最后重启循环
+日志：D:\\live\\logs\\guard.log
+"""
+import os
+import subprocess
+import sys
+import time
+
+HERE = r"D:\live\deepseek-live\stardew-mod\agent"
+sys.path.insert(0, HERE)
+import stardew_agent as A  # noqa: E402
+
+LOG = r"D:\live\logs\guard.log"
+STATE = r"D:\steam\steamapps\common\Stardew Valley\Mods\WhalePlayer\player_state.json"
+GAME = r"D:\steam\steamapps\common\Stardew Valley"
+LAUNCH = r"D:\live\.tools\launch_stardew.ps1"
+PY = r"D:\live\.tools\python310\python.exe"
+
+_fh = open(LOG, "a", encoding="utf-8")
+
+
+def log(m):
+    line = "[%s] %s" % (time.strftime("%H:%M:%S"), m)
+    try:
+        print(line, flush=True)
+    except Exception:
+        pass
+    _fh.write(line + "\n")
+    _fh.flush()
+
+
+def loop_running():
+    """用 PowerShell 查进程命令行，稳一点（wmic 在中文环境容易查不到）。"""
+    try:
+        ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -match 'stardew_overnight' } | Measure-Object | Select-Object -ExpandProperty Count")
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                             capture_output=True, text=True, errors="replace").stdout.strip()
+        return int(out or 0) > 0
+    except Exception:
+        return False
+
+
+def start_loop():
+    log("  拉起通宵循环")
+    subprocess.Popen([PY, "-u", "stardew_overnight.py", "70"], cwd=HERE,
+                     stdout=open(r"D:\live\logs\overnight_stdout.log", "a", encoding="utf-8"),
+                     stderr=subprocess.STDOUT, creationflags=0x00000008)
+
+
+def restart_game():
+    log("  ⚠ 重启游戏")
+    for exe in ("StardewModdingAPI.exe", "Stardew Valley.exe"):
+        try:
+            subprocess.run(["taskkill", "/F", "/IM", exe], capture_output=True, text=True, errors="replace")
+        except Exception:
+            pass
+    time.sleep(6)
+    try:
+        subprocess.Popen(["powershell", "-ExecutionPolicy", "Bypass", "-File", LAUNCH],
+                         creationflags=0x00000008)
+    except Exception as e:
+        log(f"  重启失败：{e}")
+
+
+def main():
+    log("===== 守卫启动 =====")
+    last_state_m = 0
+    still = 0
+    last_pos = None
+    last_time = None
+    while True:
+        try:
+            # ① 循环进程
+            if not loop_running():
+                start_loop()
+
+            # ② 状态文件新鲜度
+            m = os.path.getmtime(STATE) if os.path.exists(STATE) else 0
+            if m and last_state_m and (time.time() - m) > 180:
+                log("  ⚠ 状态文件 180 秒没更新，判定软锁")
+                restart_game()
+                time.sleep(30)
+                start_loop()
+                last_state_m = m
+                continue
+            last_state_m = m
+
+            # ③ 坐标停滞
+            s = A.summarize(A.read_state())
+            t = s.get("tile") or {}
+            p = (int(t.get("x", -99)), int(t.get("y", -99)))
+            now_t = str(s.get("time"))
+            if p == last_pos and now_t != last_time:
+                still += 1
+            else:
+                still = 0
+            last_pos, last_time = p, now_t
+
+            if still == 4:
+                log("  ⚠ 位置 %s 3 分钟没动（游戏时间在走），unstick" % (p,))
+                A.send_order({"actionType": "unstick"})
+            elif still == 8:
+                log("  ⚠ unstick 无效，传送回农场")
+                A.send_order({"actionType": "warp_to", "location": "Farm"})
+            elif still >= 14:
+                log("  ⚠ 还是卡着，重启循环")
+                try:
+                    subprocess.run(["wmic", "process", "where", "name='python.exe' and CommandLine like '%stardew_overnight%'", "call", "terminate"],
+                                   capture_output=True, text=True, errors="replace")
+                except Exception:
+                    pass
+                time.sleep(3)
+                start_loop()
+                still = 0
+        except Exception as e:
+            log("守卫异常: %s" % e)
+        time.sleep(45)
+
+
+if __name__ == "__main__":
+    main()
