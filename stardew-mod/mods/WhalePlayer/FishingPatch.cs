@@ -87,7 +87,18 @@ namespace WhalePlayer
                 try { baitId = rod.GetBait()?.QualifiedItemId; } catch { }
                 var bobberTile = new Microsoft.Xna.Framework.Vector2(rod.bobber.X / 64f, rod.bobber.Y / 64f);
                 Item fish = null;
-                try { fish = location.getFish(rod.fishingNibbleAccumulator, baitId, 3, who, 0.0, bobberTile); } catch { }
+                // 水深 5 + 玩家当日运气，垃圾（海草/垃圾/浮木…）就重摇，最多 3 次；
+                // 仍然只从游戏自己的鱼表里抽，不生成任何物品（2026-11-20）
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    try { fish = location.getFish(rod.fishingNibbleAccumulator, baitId, 5, who, Game1.player.DailyLuck + 0.05, bobberTile); } catch { }
+                    if (fish == null) continue;
+                    string fn = fish.Name ?? "";
+                    bool junk = fn.Contains("Trash") || fn.Contains("Seaweed") || fn.Contains("Driftwood")
+                             || fn.Contains("Soggy") || fn.Contains("Broken") || fn.Contains("Joja Cola")
+                             || fn.Contains("Rotten") || fn.Contains("垃圾") || fn.Contains("海草");
+                    if (!junk) break;
+                }
                 if (fish == null || ItemRegistry.GetDataOrErrorItem(fish.QualifiedItemId).IsErrorItem)
                     fish = ItemRegistry.Create("(O)168", 1, 0);
 
@@ -131,22 +142,24 @@ namespace WhalePlayer
     }
 
 
-    /// <summary>自动玩钓鱼小游戏：绿条跟着鱼走，进度稳定上涨（保留小游戏动作）。</summary>
+    /// <summary>自动玩钓鱼小游戏：伪造鼠标按住/松开，让游戏自己算物理（绿条真的在动）。</summary>
     [HarmonyPatch(typeof(BobberBar), nameof(BobberBar.update))]
     internal static class BobberBarAutoPlayPatch
     {
-        private static void Postfix(BobberBar __instance)
+        private static void Prefix(BobberBar __instance)
         {
             if (!WhalePlayer.ModEntry.AutoPlayMinigame) return;
             try
             {
                 if (__instance.fadeOut) return;
-                double t = Game1.currentGameTime == null ? 0 : Game1.currentGameTime.TotalGameTime.TotalSeconds;
-                // 绿条上下摆动，看起来是在操作
-                __instance.bobberBarSpeed = (float)System.Math.Sin(t * 7.0) * 3.5f;
-                // 进度稳定上涨，约 1.2 秒钓上来
-                __instance.distanceFromCatching = System.Math.Min(1f, __instance.distanceFromCatching + 0.30f);
-                __instance.treasureCatchLevel = System.Math.Min(1f, __instance.treasureCatchLevel + 0.02f);
+                float center = __instance.bobberBarPos - 32f + __instance.bobberBarHeight / 2f;
+                bool hold = __instance.bobberPosition < center;   // 鱼在上方 → 按住让绿条上升
+                var m = Game1.oldMouseState;
+                Game1.oldMouseState = new Microsoft.Xna.Framework.Input.MouseState(
+                    m.X, m.Y, m.ScrollWheelValue,
+                    hold ? Microsoft.Xna.Framework.Input.ButtonState.Pressed
+                         : Microsoft.Xna.Framework.Input.ButtonState.Released,
+                    m.MiddleButton, m.RightButton, m.XButton1, m.XButton2);
             }
             catch { }
         }
