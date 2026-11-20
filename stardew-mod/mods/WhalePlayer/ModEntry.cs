@@ -2990,8 +2990,8 @@ namespace WhalePlayer
             this.biteCountdown = 120;
             ScriptedFishing = true;
             // 不再跳过小游戏：改成自动玩（绿条自己追鱼），保留玩家能看到的小游戏动作
-            WhalePlayer.ModEntry.AssistFishing = false;
-            WhalePlayer.ModEntry.AutoPlayMinigame = true;
+            WhalePlayer.ModEntry.AssistFishing = true;
+            WhalePlayer.ModEntry.AutoPlayMinigame = false;
         }
 
         private void ShopBuy(JObject jo)
