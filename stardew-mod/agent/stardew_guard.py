@@ -52,14 +52,25 @@ def loop_running():
 
 
 def fishing_now():
-    """当前是不是在钓鱼：钓鱼时人物本来就不动，不能当卡住处理（2026-11-21 修）。"""
+    """当前是不是「本来就不该动」的状态：钓鱼、进店买东西、整理背包。
+
+    这类场景人物本来就站着，不能当卡住处理（2026-11-21：钓鱼和买种子都被误 unstick 过）。
+    """
     try:
         with open(r"D:\live\logs\ai_status.json", encoding="utf-8") as f:
             st = json.load(f)
         txt = (str(st.get("activity") or "") + " " + str(st.get("order") or "")).lower()
-        return ("钓" in txt) or ("fish" in txt)
+        if ("钓" in txt) or ("fish" in txt) or ("买" in txt) or ("shop" in txt) or ("整理" in txt):
+            return True
     except Exception:
-        return False
+        pass
+    try:
+        loc = str(A.summarize(A.read_state()).get("location") or "")
+        if loc in ("SeedShop", "Shed", "FarmHouse"):
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def start_loop():

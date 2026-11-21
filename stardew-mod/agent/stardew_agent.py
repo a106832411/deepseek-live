@@ -1546,7 +1546,9 @@ def spare_time_activity(until="20:00", log_fn=None):
     # 用户 2026-11-20 指定：以后挖矿只去沙漠矿洞（骷髅洞穴），普通矿洞不再去
     skull = not go_fish
     if go_fish:
-        act_until = "21:30"
+        # 2026-11-21 修：海滩回农场实测要走 4 个多游戏小时，21:30 收工会踩 2:00 昏倒扣 1000g
+        # （19:42 那次就是：21:30 收工 → 25:50 才到农场）。改成 19:30 收工。
+        act_until = "19:30"
         # 竿上还有足够鱼饵就别折腾（上饵一次能装 9999 个，够用很久）
         try:
             _st = summarize(read_state())
@@ -1563,7 +1565,9 @@ def spare_time_activity(until="20:00", log_fn=None):
             pass
         args = ["--minutes", str(max(20, min(240, (end - now) // 2))), "--until", act_until]
     elif skull:
-        act_until = "21:30"
+        # 2026-11-21 修：沙漠回农场要「巴士/走路 + 四段图」，实测 21:30 收工会走到 2:00 昏倒扣 1000g
+        # （19:13 那次直接从第 3 天跳到第 5 天）。改成 19:30 收工，留足 4 小时回家。
+        act_until = "19:30"
         script = "stardew_skull.py"
         args = ["--until", act_until, "--target", "60"]
         _log("  [排班] 今天去沙漠矿洞（骷髅洞穴）")
@@ -1717,6 +1721,8 @@ def go_out_tidy(log_fn=None):
         after = summarize(read_state())
         inv = after.get("inventory") or []
         _log("  [出门整理] 背包 %d 格 → %d 格：%s" % (n0, len(inv), inv))
+        # 2026-11-21：stash_all 会把水壶收进箱子（mod 新版已改成保留，旧存档里水壶还在箱子里时取回来）
+        _ensure_watering_can(log_fn=log_fn)
     except Exception as e:
         _log("  [出门整理] 异常：%s" % e)
 
@@ -1876,6 +1882,11 @@ def plant_best_crops(max_n=60, log_fn=None, clear=True, budget_sec=480):
 
     plot = current_plot()
     x1, y1, x2, y2 = plot
+    # 2026-11-21 修：不在农场时 state 里的 tiles 是当前地图的（在店里就是「整片田都空」），
+    # 必须先走回农场再算空位，否则会对着 132 格空地跑到店里/镇上去种。
+    if str(summarize(read_state()).get("location")) != "Farm":
+        _log("  [种植] 当前不在农场 → 先走回农场再种")
+        travel_to("Farm", hop_timeout=200, log_fn=log_fn)
     _log("  [种植] 农田区域 (%d,%d)-(%d,%d)（来自 .plot_rect，%d×%d）"
          % (x1, y1, x2, y2, x2 - x1 + 1, y2 - y1 + 1))
     planted = 0
@@ -2691,13 +2702,21 @@ def go_home_sleep(log_fn=None, force=False):
         st = summarize(read_state())
     except Exception:
         return False
+    day0 = st.get("day")
     loc = str(st.get("location") or "")
     if loc == "FarmHouse" and not force:
         _log("  [回家] 已在家，直接睡觉")
     else:
         if loc != "Farm":
             _log("  [回家] 从 %s 回农场" % loc)
-            if not travel_to("Farm", hop_timeout=200, log_fn=log_fn):
+            # 2026-11-21 修：23:00 之后还在外面就别走路了，直接传送回农场，
+            # 否则铁定踩 2:00 昏倒扣 1000g（今晚已经丢了两次）。
+            late = _mins(st.get("time")) >= _mins("23:00")
+            if late:
+                _log("  [回家] 已经 %s，太晚 → 直接传送回农场" % st.get("time"))
+                send_order({"actionType": "warp_to", "location": "Farm"})
+                time.sleep(6)
+            if str(summarize(read_state()).get("location")) != "Farm" and not travel_to("Farm", hop_timeout=200, log_fn=log_fn):
                 _log("  [回家] 走路回农场失败，改用传送")
                 send_order({"actionType": "warp_to", "location": "Farm"})
                 time.sleep(6)
@@ -2727,6 +2746,12 @@ def go_home_sleep(log_fn=None, force=False):
         time.sleep(5)
     if str(summarize(read_state()).get("location")) != "FarmHouse":
         _log("  [回家] 还是没进屋，先不睡")
+        return False
+    # 2026-11-21 修：走回家的路上可能已经 2:00 昏倒并换天了（从沙漠回来要 4 个游戏小时），
+    # 这时再发 sleep 会让游戏又 NewDay 一次，白跳一天（实测 19:13 从第 3 天跳到了第 5 天）。
+    st_now = summarize(read_state())
+    if st_now.get("day") != day0:
+        _log("  [回家] 路上已经昏倒换天了（第 %s 天 → 第 %s 天），不再重复睡觉" % (day0, st_now.get("day")))
         return False
     _log("  [回家] 睡觉")
     send_order({"actionType": "sleep"})
