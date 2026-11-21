@@ -110,6 +110,18 @@ def morning():
         log("  !! 换季清理异常 %s" % e)
     # 农田：按「记忆」决定今天要不要查（没到成熟日就不去折腾）；
     # 但背包里有种子 + 田里还有空地时，应该现在就去种（2026-11-21 加）
+    # 干农活前先确保人站在农场（在农舍时 state 里的 tiles 只含农舍，会把整片田误判成空地）
+    try:
+        _st = A.summarize(A.read_state())
+        _loc = str(_st.get('location'))
+        if _loc == 'FarmHouse':
+            log("  先在农舍，出门去农场再干活")
+            A.travel_to('Farm', log_fn=log)
+        elif _loc not in ('Farm', 'FarmHouse'):
+            log("  现在在 %s，先回农场再干活" % _loc)
+            A.travel_to('Farm', log_fn=log)
+    except Exception as e:
+        log("  !! 回农场异常 %s" % e)
     due, wait = A.farm_due(log_fn=log)
     if not due:
         try:

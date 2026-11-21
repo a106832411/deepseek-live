@@ -781,21 +781,22 @@ def clear_plot(log_fn=None, max_swings=400, budget_sec=600, face=1):
 
 
 def seeds_need_planting(log_fn=None):
-    """背包里有种子、农田里还有空地 → 现在就该去种。
+    """农田还有空地、时间还够 → 现在就该去补种。
 
-    2026-11-21 加：`farm_due` 只按「还有几天成熟」排期，于是今天买的 80 包种子
-    要等到下次查田（8 天后）才下地，白白空着地块。这里补一条「有货就种」的判据。
+    2026-11-21 加：`farm_due` 只按「还有几天成熟」排期，于是刚买的 80 包种子
+    要等到下次查田（8 天后）才下地，地块白白空着。这里补一条「有空地就种」的判据。
+    种子在背包还是在种子箱都无所谓——种植流程自己会先从箱子里取。
     """
     def _log(m):
         if log_fn:
             log_fn(m)
     try:
         s = summarize(read_state())
-        if str(s.get("location")) not in ("Farm", "FarmHouse"):
+        # 必须真的站在农场看农田：在农舍/别处时 state 里的 tiles 是当前地图的，
+        # 会把「空地 132 格」误判成整片空（2026-11-21 实测踩到）
+        if str(s.get("location")) != "Farm":
             return False
-        inv = s.get("inventory") or []
-        seeds = [x for x in inv if "Seeds" in str(x)]
-        if not seeds:
+        if _mins(s.get("time")) >= _mins("20:00"):
             return False
         rect = plot_rect()
         if not rect:
@@ -804,10 +805,11 @@ def seeds_need_planting(log_fn=None):
         area = (x1 - x0 + 1) * (y1 - y0 + 1)
         crops = [t for t in (s.get("tiles") or [])
                  if t.get("crop") and x0 <= t["x"] <= x1 and y0 <= t["y"] <= y1]
-        if len(crops) >= area:
+        empty = area - len(crops)
+        if empty < 5:
             return False
-        _log("  [补种] 背包有 %d 类种子、农田还空 %d 格 → 现在去种"
-             % (len(seeds), area - len(crops)))
+        _log("  [补种] 农田还有 %d 格空地（种了 %d/%d）→ 现在去补种"
+             % (empty, len(crops), area))
         return True
     except Exception as e:
         _log("  [补种] 检查异常：%s" % e)
@@ -1308,16 +1310,27 @@ def ship_surplus(log_fn=None):
 
 
 def _walk_near(x, y, tries=3, log_fn=None):
-    """走到 (x,y) 旁边一格（采集/收机器都要人先站过去）。"""
-    for _ in range(tries):
+    """走到 (x,y) 旁边一格（采集/收机器都要人先站过去）。
+
+    2026-11-21 修：采集器/树上的东西挂在不可走的格子上，直接 walk_to(x,y) 会被 mod
+    以「不可通行、防穿模」拒绝 → 现在改成按相邻四格依次试，站到旁边就算成功。
+    """
+    def _pos():
         t = (summarize(read_state()).get("tile") or {})
-        px, py = int(t.get("x", -99)), int(t.get("y", -99))
-        if abs(px - x) + abs(py - y) <= 1:
-            return True
-        send_order({"actionType": "walk_to", "x": x, "y": y})
-        time.sleep(1.2)
-    t = (summarize(read_state()).get("tile") or {})
-    return abs(int(t.get("x", -99)) - x) + abs(int(t.get("y", -99)) - y) <= 2
+        return int(t.get("x", -99)), int(t.get("y", -99))
+
+    px, py = _pos()
+    if abs(px - x) + abs(py - y) <= 1:
+        return True
+    for _ in range(tries):
+        for (ax, ay) in ((x, y + 1), (x + 1, y), (x - 1, y), (x, y - 1)):
+            send_order({"actionType": "walk_to", "x": ax, "y": ay})
+            time.sleep(0.9)
+            px, py = _pos()
+            if abs(px - x) + abs(py - y) <= 1:
+                return True
+    px, py = _pos()
+    return abs(px - x) + abs(py - y) <= 2
 
 
 def farm_maintenance(log_fn=None):
