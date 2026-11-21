@@ -1,6 +1,42 @@
 # 星露谷 AI · 当前状态与待办
 
-最后更新：2026-11-18 凌晨（第 11 天收割 542 株实测完成；旧版 P0「鱼不进背包」已作废，见文末）
+最后更新：2026-11-21 傍晚（关掉 Windows 智能应用控制，自动读档恢复；查清镰刀丢失根因）
+
+---
+
+## 2026-11-21 · 两件影响挂机的事
+
+### 1. 自动读档失效 → Windows 智能应用控制（已解决）
+
+- **现象**：SMAPI 日志 `WhaleAutoLoad 0.1.0 because its DLL couldn't be loaded`，
+  报 `FileLoadException … 应用程序控制策略已阻止此文件 (0x800711C7)`，游戏永远停在标题界面。
+- **根因**：CodeIntegrity 事件日志显示，今天 **10:21:22** 策略 `{0283ac0f…}`
+  从 `VerifiedAndReputableDesktopEvaluation`（评估）切成 `VerifiedAndReputableDesktop`（强制）。
+  之后所有**未签名**的 mod DLL 都不能加载。17:24:35 是第一次真的拦掉 WhaleAutoLoad。
+- **重要副作用**：`WhalePlayer.dll` / `WhaleShop.dll` 还能跑（系统认识这两个 hash），
+  但**重编译后 hash 一变就被拦**——SAC 开着的时候不能改 C# mod，只能改 Python。
+- **解决**：用户在 18:12 关掉智能应用控制（设置 → 隐私和安全性 → Windows 安全中心 →
+  应用和浏览器控制 → 智能应用控制 → 关闭），注册表 `VerifiedAndReputablePolicyState` 变 0，
+  重启游戏后 `WhaleAutoLoad 就绪 → 正在加载存档：MoonFarm_453567724 → 已进入存档`，40 秒内进游戏。
+- **兜底**：`D:\live\.tools\sv_autoload.py`（PrintWindow 抓画面 + 物理点击标题菜单）。
+  只有存在开关文件 `D:\live\.tools\USE_CLICK_AUTOLOAD` 时，`launch_stardew.ps1` 才会拉起它。
+
+### 2. 铱镰刀丢失 → 钓鱼抛竿覆盖当前选中格（已修 + 已加防护）
+
+- **现象**：11-20 早上背包里的 `Iridium Scythe` 莫名其妙没了，当天收割 **346 刀收 0 株**，
+  110 株草莓全烂在地里；存档里只剩一把普通 `Scythe`(W)47，躺在**失物招领**（`returnedDonations`）。
+- **根因**：mod 的 `Fish()` 和钓鱼泵抛竿时写 `player.CurrentTool = rod`，
+  而 SDV 的 `Farmer.CurrentTool` setter 实现是 `Items[CurrentToolIndex] = value`
+  ——**直接把当前选中的那一格写成鱼竿**。白天最后用的是镰刀，于是第一竿就把镰刀顶成了第二根鱼竿。
+  日志对得上：`10:23:20` 还有 Iridium Scythe → `10:33:04` 钓鱼收工变成两根 Fishing Rod。
+  其余工具（镐/斧/锄/鱼竿）因为 `ensure_tools` 会自动补，坏了看不出来；镰刀它只警告不补，才露馅。
+- **本次修法（都在 Python 侧，不动 DLL）**：
+  - `harvest_with_scythe` 检测不到镰刀时自动走 `harvest_click`（逐株手割，调 mod 的 `harvest` 动作）；
+  - `protect_scythe_from_fish()`：钓鱼前先朝附近水面挥一下镐子，把选中格挪到镐子上
+    （被顶掉的是镐子，`ensure_tools` 会补回）；
+  - `restore_scythe()`：真的丢了就用 `give_scythe` 补一把，并在日志写明是补的（用户已同意）。
+- **彻底修法（等能改 C# 时）**：把 `Fish()` / 钓鱼泵里的 `p.CurrentTool = rod` 改成
+  先 `p.CurrentToolIndex = p.Items.IndexOf(rod)`（和 `UseTool()` 里的写法一致）。
 
 ---
 
