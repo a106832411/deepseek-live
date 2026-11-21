@@ -721,6 +721,64 @@ def harvest_click(log_fn=None, max_tries=3):
     return got
 
 
+def restore_scythe(log_fn=None):
+    """镰刀彻底没了就补一把（用户 2026-11-21 同意用 give_scythe 补回）。"""
+    def _log(m):
+        if log_fn:
+            log_fn(m)
+    if has_scythe():
+        return True
+    _log("  [镰刀] 背包/箱子都没有 → 用 give_scythe 补一把（会被鱼竿覆盖导致丢失，见 protect_scythe_from_fish）")
+    send_order({"actionType": "give_scythe"})
+    time.sleep(1.5)
+    ok = has_scythe()
+    _log("  [镰刀] 补回%s" % ("成功" if ok else "失败"))
+    return ok
+
+
+def protect_scythe_from_fish(log_fn=None):
+    """钓鱼前把「当前选中格」从镰刀挪到镐子，避免被鱼竿覆盖掉。
+
+    2026-11-21 查到的根因：
+      mod 的 Fish() / 钓鱼泵抛竿时会 `player.CurrentTool = rod`，
+      而 SDV 的 Farmer.CurrentTool setter 是 `Items[CurrentToolIndex] = value`
+      —— 直接把**当前选中的那一格**写成鱼竿。
+      白天最后用的是镰刀（收割/清障），于是钓鱼第一竿就把镰刀顶成第二根鱼竿。
+      （11-20 10:23 背包还有 Iridium Scythe，10:33 钓鱼收工就变成两根鱼竿、镰刀没了。）
+      镐子被顶掉没事：ensure_tools 会自动补回；镰刀它不会补。
+
+    做法：朝附近水面挥一下镐子（水里挖不出东西，纯占位），选中格就落到镐子上。
+    """
+    def _log(m):
+        if log_fn:
+            log_fn(m)
+    try:
+        st = summarize(read_state())
+        inv = st.get("inventory") or []
+        if not any(("Scythe" in str(x)) or ("镰刀" in str(x)) for x in inv):
+            return False
+        pos = st.get("tile") or {}
+        px, py = pos.get("x", -99), pos.get("y", -99)
+        target = None
+        for w in (st.get("water_tiles") or []):
+            wx, wy = w.get("x"), w.get("y")
+            if wx is None or wy is None:
+                continue
+            if abs(int(wx) - int(px)) + abs(int(wy) - int(py)) <= 2:
+                target = (int(wx), int(wy))
+                break
+        if target is None:
+            target = (px, py)      # 兜底：朝自己脚下挥（没有石头就什么都不会发生）
+        send_order({"actionType": "use_tool", "tool": "pickaxe",
+                    "x": target[0], "y": target[1]})
+        time.sleep(1.2)
+        _log("  [护镰刀] 选中格已挪到镐子（钓鱼时被顶掉的是镐子，ensure_tools 会补回）")
+        return True
+    except Exception as e:
+        _log("  [护镰刀] 异常：%s" % e)
+        return False
+
+
 def harvest_with_scythe(log_fn=None, max_rounds=300, face=1, band=3):
     """铱镰刀 3x3 蛇形收割：主扫一遍 + 针对性补漏。
 

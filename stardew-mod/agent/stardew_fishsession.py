@@ -77,6 +77,7 @@ def main():
 
     A.send_order({"actionType": "go_fish"})
     time.sleep(12)
+    A.protect_scythe_from_fish(log_fn=log)   # 防鱼竿覆盖镰刀（2026-11-21）
     A.send_order({"actionType": "fish"})
 
     start = time.time()
@@ -108,6 +109,7 @@ def main():
                 break
             A.send_order({"actionType": "go_fish"})
             time.sleep(10)
+            A.protect_scythe_from_fish(log_fn=log)
             A.send_order({"actionType": "fish"})
             continue
         inv = s.get("inventory") or []

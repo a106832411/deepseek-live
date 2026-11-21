@@ -84,7 +84,8 @@ def morning():
             if any('Scythe' in x or '镰刀' in x for x in inv2):
                 log("  镰刀已从箱子取回")
             else:
-                log("  箱子里也没有镰刀 → 今天收割改「逐株手割」兜底（不会白挥镰刀）")
+                log("  箱子里也没有镰刀 → 收割改「逐株手割」兜底，同时补一把（用户已同意）")
+                A.restore_scythe(log_fn=log)
     except Exception as e:
         log("  !! 检查镰刀异常 %s" % e)
     try:
