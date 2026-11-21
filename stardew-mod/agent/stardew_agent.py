@@ -1398,8 +1398,15 @@ def collect_machines_walk(log_fn=None):
         if log_fn:
             log_fn(m)
     try:
-        ms = summarize(read_state()).get("machines") or []
+        st = summarize(read_state())
+        ms = st.get("machines") or []
     except Exception:
+        return 0
+    # 2026-11-22：机器全在农场，人不在农场时 walk_to 必然失败（每台白等十几秒）
+    if str(st.get("location")) != "Farm":
+        ready = [m for m in ms if m.get("ready")]
+        if ready:
+            _log("  [收机器] %d 台成熟，但人不在农场（%s），先跳过" % (len(ready), st.get("location")))
         return 0
     ready = [m for m in ms if m.get("ready")]
     if not ready:

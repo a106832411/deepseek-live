@@ -67,6 +67,15 @@ def recover(why):
 def morning():
     s = snap('起床')
     A.set_activity('出门前整理背包')
+    # 2026-11-22 修：起床先到农场再干活。人在农舍时 walk_to 全都「走不过去」，
+    # 实测早上 20 台机器每台白等 11 秒，还啥都没收到。
+    try:
+        _loc = str(A.summarize(A.read_state()).get('location'))
+        if _loc != 'Farm':
+            log("  现在在 %s，先出门去农场" % _loc)
+            A.travel_to('Farm', log_fn=log)
+    except Exception as e:
+        log("  !! 出门去农场异常 %s" % e)
     # 先收机器产物（果酱/果酒/金属锭）：走过去一台台收，不做远程一键收
     try:
         A.collect_machines_walk(log_fn=log)
