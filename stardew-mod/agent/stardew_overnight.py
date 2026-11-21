@@ -267,6 +267,14 @@ def main():
     DAY_START['day'] = s.get('day')
     for i in range(max_days):
         try:
+            # 2026-11-21 夜修：DAY_START 必须每天重新取一次。否则第一天换天后，
+            # night() 的「已经换天」判断永远成立 → 再也不睡觉，循环 30 秒空转一轮（实测疯狂刷屏）。
+            try:
+                cur = state()
+                DAY_START['season'] = cur.get('season')
+                DAY_START['day'] = cur.get('day')
+            except Exception:
+                pass
             morning()
             afternoon(until="23:30")
             night()
