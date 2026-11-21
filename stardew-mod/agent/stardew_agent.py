@@ -1857,7 +1857,9 @@ def plant_best_crops(max_n=60, log_fn=None, clear=True, budget_sec=480):
                 chosen = (name, en, n)
                 break
     if chosen is None:
-        want = max(5, min(free or max_n, max_n, 40))     # 一次只买够这轮种的量（上限 40），别囤
+        # 2026-11-21 用户要求：一次买够、一次种完，不要「先买 40 种 40，过几天再补 12」。
+        # 所以这里按「区域空位数」买足（不再有 40 的上限）。
+        want = max(5, free or max_n)
         for (name, en, days, regrow, profit) in picks:
             if en in NOT_IN_PIERRE:
                 _log("  [种植] 跳过皮埃尔不卖的 %s" % en)
@@ -1890,7 +1892,9 @@ def plant_best_crops(max_n=60, log_fn=None, clear=True, budget_sec=480):
     _log("  [种植] 农田区域 (%d,%d)-(%d,%d)（来自 .plot_rect，%d×%d）"
          % (x1, y1, x2, y2, x2 - x1 + 1, y2 - y1 + 1))
     planted = 0
-    limit = min(max_n, have)
+    # 2026-11-21 用户要求：整片一次种完，不要分批次。上限按「区域空位」算，不再受 max_n 限制。
+    limit = min(free, have) if free else min(max_n, have)
+    _log("  [种植] 本次一口气种 %d 株（区域空位 %d，手里种子 %d）" % (limit, free or 0, have))
     # 先一次性读全状态，把"已有作物/有障碍"的格子排除，只对空地下手（不再逐格走路）
     st0 = summarize(read_state())
     # 换季后田里常常长满草/杂草，一格空地都没有；先清障再选点，
