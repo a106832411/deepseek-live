@@ -692,22 +692,62 @@ def _in_plot(x, y, plot=None):
     return x1 <= x <= x2 and y1 <= y <= y2
 
 
+def hard_unstick(log_fn=None):
+    """彻底脱困：先进农舍、再从门口走出来。
+
+    2026-11-22 实测：人卡在农场 (49,13) 时，walk_to / unstick / warp_to Farm 全都无效
+    （warp_to Farm 在已经在 Farm 时会直接 return），但 warp_house 能进农舍、再出门就恢复了。
+    """
+    def _log(m):
+        if log_fn:
+            log_fn(m)
+    try:
+        _log("  [脱困] 走路失效 → 先进农舍再出来")
+        send_order({"actionType": "close_menu"})
+        time.sleep(0.6)
+        send_order({"actionType": "warp_house"})
+        time.sleep(4)
+        st = summarize(read_state())
+        if str(st.get("location")) != "FarmHouse":
+            _log("  [脱困] warp_house 没成功（当前 %s）" % st.get("location"))
+            return False
+        send_order({"actionType": "close_menu"})
+        time.sleep(0.5)
+        ok = travel_to("Farm", hop_timeout=120, log_fn=log_fn)
+        _log("  [脱困] 出门%s（当前 %s）" % ("成功" if ok else "失败", summarize(read_state()).get("location")))
+        return ok
+    except Exception as e:
+        _log("  [脱困] 异常：%s" % e)
+        return False
+
+
 def _go_near(x, y, log_fn=None, tries=8, wait=1.2):
     """走到目标附近（相邻即可）。tries/wait 可调，种植用更短的等待。"""
-    try:
+    def _pos():
         st = summarize(read_state())
+        t = st.get("tile") or {}
+        return st, int(t.get("x", -99)), int(t.get("y", -99))
+
+    try:
+        st, px, py = _pos()
     except Exception:
         return False
-    px, py = (st.get("tile") or {}).get("x", -99), (st.get("tile") or {}).get("y", -99)
     if abs(px - x) + abs(py - y) <= 2:
         return True
     send_order({"actionType": "walk_to", "x": x, "y": y})
     for _ in range(tries):
         time.sleep(wait)
-        st = summarize(read_state())
-        px, py = (st.get("tile") or {}).get("x", -99), (st.get("tile") or {}).get("y", -99)
+        st, px, py = _pos()
         if abs(px - x) + abs(py - y) <= 2:
             return True
+    # 2026-11-22：走不过去多半是人被围死了 → 强制脱困一次再试
+    if hard_unstick(log_fn=log_fn):
+        send_order({"actionType": "walk_to", "x": x, "y": y})
+        for _ in range(tries):
+            time.sleep(wait)
+            st, px, py = _pos()
+            if abs(px - x) + abs(py - y) <= 2:
+                return True
     return False
 
 
