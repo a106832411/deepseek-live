@@ -257,9 +257,10 @@ namespace WhalePlayer
                     if (!(menu is StardewValley.Menus.BobberBar)) this.barTicks = 0;
                     if (menu is StardewValley.Menus.BobberBar)
                     {
-                        // 卡死看门狗：小游戏超过 ~10 秒没结束就强制关掉，防止整夜卡在钓鱼条里
+                        // 卡死看门狗：小游戏超过 ~15 秒没结束就强制关掉，防止整夜卡在钓鱼条里
+                        // （2026-11-21：原来是 180 tick≈3 秒，太短，正常小游戏都被掐掉）
                         this.barTicks++;
-                        if (this.barTicks > 180)
+                        if (this.barTicks > 900)
                         {
                             this.barTicks = 0;
                             try { Game1.exitActiveMenu(); } catch { }
@@ -418,12 +419,26 @@ namespace WhalePlayer
                         this.castCooldown = 120;
                         try
                         {
-                            rd.isNibbling = false;
-                            rd.pullingOutOfWater = false;
-                            rd.isCasting = false;
-                            rd.hit = false;
-                            rd.DoFunction(p0.currentLocation, (int)rd.bobber.X, (int)rd.bobber.Y, 1, p0);
-                            this.Monitor.Log("钓鱼: 提竿（一次）menu=" + (Game1.activeClickableMenu?.GetType().Name ?? "null"), LogLevel.Trace);
+                            if (WhalePlayer.ModEntry.AutoPlayMinigame)
+                            {
+                                // 2026-11-21：原版只在 `!hit` 时才进「提竿 → startMinigameEndFunction」
+                                // 分支（FishingRod.cs:645），所以这里必须把 hit 置回 false、保留 nibbling，
+                                // 游戏才会播「!」并弹出 BobberBar 小游戏。
+                                rd.hit = false;
+                                rd.isNibbling = true;
+                                rd.castedButBobberStillInAir = false;
+                                rd.DoFunction(p0.currentLocation, (int)rd.bobber.X, (int)rd.bobber.Y, 1, p0);
+                                this.Monitor.Log("钓鱼: 提竿（小游戏）menu=" + (Game1.activeClickableMenu?.GetType().Name ?? "null"), LogLevel.Info);
+                            }
+                            else
+                            {
+                                rd.isNibbling = false;
+                                rd.pullingOutOfWater = false;
+                                rd.isCasting = false;
+                                rd.hit = false;
+                                rd.DoFunction(p0.currentLocation, (int)rd.bobber.X, (int)rd.bobber.Y, 1, p0);
+                                this.Monitor.Log("钓鱼: 提竿（一次）menu=" + (Game1.activeClickableMenu?.GetType().Name ?? "null"), LogLevel.Trace);
+                            }
                         }
                         catch (Exception ex) { this.Monitor.Log($"提竿异常：{ex.Message}", LogLevel.Warn); }
                     }
@@ -3023,9 +3038,10 @@ namespace WhalePlayer
             this.fishingPump = true;
             this.biteCountdown = 120;
             ScriptedFishing = true;
-            // 不再跳过小游戏：改成自动玩（绿条自己追鱼），保留玩家能看到的小游戏动作
+            // 2026-11-21 用户要求：小游戏要看得见（以前 NibbleBranchPatch 直接发鱼）。
+            // 现在打开自动玩小游戏：BobberBar 真的弹出来，绿条自己追鱼，钓上鱼走原版结算。
             WhalePlayer.ModEntry.AssistFishing = true;
-            WhalePlayer.ModEntry.AutoPlayMinigame = false;
+            WhalePlayer.ModEntry.AutoPlayMinigame = false;   // 2026-11-21：小游戏自动玩还没调通，先回到稳定秒钓
         }
 
         private void ShopBuy(JObject jo)

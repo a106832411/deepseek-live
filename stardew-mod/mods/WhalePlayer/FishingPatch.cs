@@ -76,6 +76,9 @@ namespace WhalePlayer
             try
             {
                 if (!WhalePlayer.ModEntry.AssistFishing) return true;
+                // 2026-11-21：开了「自动玩小游戏」时不要在这里直接发鱼，
+                // 让原版 DoFunction 正常打开 BobberBar，由 BobberBarAutoPlayPatch 自动玩。
+                if (WhalePlayer.ModEntry.AutoPlayMinigame) return true;
                 if (!__instance.isNibbling) return true;
                 if (Game1.activeClickableMenu is BobberBar) return false;
 
@@ -153,7 +156,13 @@ namespace WhalePlayer
             {
                 if (__instance.fadeOut) return;
                 float center = __instance.bobberBarPos - 32f + __instance.bobberBarHeight / 2f;
-                bool hold = __instance.bobberPosition < center;   // 鱼在上方 → 按住让绿条上升
+                float delta = __instance.bobberPosition - center;   // 负=鱼在绿条上方
+                float speed = __instance.bobberBarSpeed;            // 正=绿条往下掉
+                // 带死区的控制：离得远就盯住方向，靠近了用速度补偿，避免抖动
+                bool hold;
+                if (delta < -8f) hold = true;
+                else if (delta > 8f) hold = false;
+                else hold = speed > 0f;
                 var m = Game1.oldMouseState;
                 Game1.oldMouseState = new Microsoft.Xna.Framework.Input.MouseState(
                     m.X, m.Y, m.ScrollWheelValue,
