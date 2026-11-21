@@ -124,6 +124,15 @@ def morning():
         log("  !! 回农场异常 %s" % e)
     due, wait = A.farm_due(log_fn=log)
     if not due:
+        # 2026-11-21 夜修：记忆说「还有 N 天」，但田里其实已经有熟的了（不同批种下的成熟日不同），
+        # 所以每天都要直接看一眼有没有 cropReady，有就必须去收。
+        try:
+            if A.count_ready(A.read_state()) > 0:
+                log("  [查田] 田里已经有成熟作物 → 今天收")
+                due = True
+        except Exception as e:
+            log("  !! 查成熟作物异常 %s" % e)
+    if not due:
         try:
             if A.seeds_need_planting(log_fn=log):
                 due = True
