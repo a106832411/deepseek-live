@@ -102,6 +102,7 @@ def main():
     last_pos = None
     last_time = None
     last_restart = 0.0
+    frozen = 0
     while True:
         try:
             # ① 循环进程
@@ -133,6 +134,32 @@ def main():
             t = s.get("tile") or {}
             p = (int(t.get("x", -99)), int(t.get("y", -99)))
             now_t = str(s.get("time"))
+
+            # ③.5 游戏时钟停滞：人物卡在 canMove=false（钓鱼状态坏掉）时，坐标和时间都不动，
+            # 上面两条都抓不到。实测 05:41-05:57 卡在 Beach 10:10，只能重启游戏。
+            if now_t == last_time:
+                frozen += 1
+            else:
+                frozen = 0
+            if frozen == 6:            # 6 × 45s ≈ 4.5 分钟
+                log("  ⚠ 游戏时间停在 %s 超过 4 分钟，先强行复位钓鱼/动作状态" % now_t)
+                for order in ({"actionType": "stop_fish"}, {"actionType": "unstick"},
+                              {"actionType": "wake"}, {"actionType": "close_menu"}):
+                    try:
+                        A.send_order(order)
+                    except Exception:
+                        pass
+                    time.sleep(1.2)
+            elif frozen >= 12 and (time.time() - last_restart) > 300:
+                log("  ⚠ 复位无效，时钟还是 %s → 重启游戏" % now_t)
+                restart_game()
+                last_restart = time.time()
+                time.sleep(20)
+                if not loop_running():
+                    start_loop()
+                frozen = 0
+                continue
+
             if fishing_now():
                 still = 0
             elif p == last_pos and now_t != last_time:
