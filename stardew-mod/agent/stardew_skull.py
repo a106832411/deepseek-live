@@ -131,9 +131,18 @@ def main():
 
     if lvl() < 121:
         # ① 先走到沙漠（巴士 10:00 才开，早到就等）
+        # 2026-11-21 修：以前是无上限死等，菜单/对话把时钟卡住就永远进不了洞
+        waited = 0
         while A._mins(st().get('time')) < A._mins('10:00'):
             log('  等巴士开门（现在 %s）' % st().get('time'))
+            A.send_order({'actionType': 'close_menu'})
             time.sleep(20)
+            waited += 1
+            if waited > 45:
+                log('  等巴士超过 15 分钟（时钟可能被卡住），直接传送兜底')
+                A.send_order({'actionType': 'warp_to', 'location': 'Desert'})
+                time.sleep(6)
+                break
         log('走路去沙漠：农场 → BusStop → 巴士')
         if not A.go_skull_walk(log_fn=log):
             log('走路到沙漠失败，传送兜底')

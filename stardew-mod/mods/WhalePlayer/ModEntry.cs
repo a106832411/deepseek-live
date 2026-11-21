@@ -2405,15 +2405,17 @@ namespace WhalePlayer
             {
                 var it = p.Items[i];
                 if (it == null) continue;
-                // 只保留这五类工具：锄头/鱼竿/斧子/镐子/镰刀
+                // 只保留这五类工具（外加浇水壶）：锄头/鱼竿/斧子/镐子/镰刀/水壶
+                // 2026-11-21：水壶以前会被收进箱子，而 ensure_tools 不补造水壶 → 之后手动浇水全废
                 if (it is Tool tl)
                 {
                     bool keep = tl is Hoe || tl is StardewValley.Tools.FishingRod
                                 || tl is Axe || tl is Pickaxe
+                                || tl is WateringCan
                                 || (tl is MeleeWeapon && ((tl.Name ?? "").Contains("镰刀")
                                                           || (tl.Name ?? "").Contains("Scythe")));
                     if (keep) { kept++; continue; }
-                    // 其他工具（水壶/剑等）也放进箱子
+                    // 其他工具（剑等）也放进箱子
                 }
                 string role = this.RoleForItem(it);
                 // 只有 3 个箱子：种子 / 作物 / 其它（鱼、矿石、宝物全归 misc）

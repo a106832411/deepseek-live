@@ -248,11 +248,18 @@ def descend():
     d = downs[0]
     log("    发现 %s (%d,%d)，交互下矿" % (d["obj"], d["x"], d["y"]))
     stand_next(d["x"], d["y"])
+    lvl0 = s.get("mine_level")
     A.send_order({"actionType": "interact", "x": d["x"], "y": d["y"]})
-    time.sleep(5)
-    s2 = state()
-    log("    下去后: %s %s" % (s2.get("location"), pos(s2)))
-    return True
+    # 2026-11-21 修：以前固定 5 秒就 return True，根本没下去也报成功，
+    # 上层「本层没下成 → 跳层」的恢复分支永远不触发，白挖同一层。
+    for _ in range(10):
+        time.sleep(1.2)
+        s2 = state()
+        if s2.get("mine_level") != lvl0:
+            log("    下去后: %s %s 层%s" % (s2.get("location"), pos(s2), s2.get("mine_level")))
+            return True
+    log("    交互了梯子但层数没变（%s 层%s），算没下成" % (s2.get("location"), s2.get("mine_level")))
+    return False
 
 
 FAILED = set()

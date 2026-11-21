@@ -141,11 +141,21 @@ def morning():
             # 避免估错导致熟了的作物干等好几天
             season, day = A.current_season_day()
             s = A.read_state()
-            crops = [t.get('crop') for t in (s.get('tiles') or []) if t.get('crop')]
-            label = crops[0] if crops else "空地"
+            crops = [t for t in (s.get('tiles') or []) if t.get('crop')]
+            # 2026-11-21 修：以前只看 crops[0]（扫描顺序里的第一株），混种时按错了成熟天数，
+            # 连收作物会被压在地里好几天。现在取「最快到期」的那株。
+            def _days_left(t):
+                try:
+                    return int(t.get('daysLeft') or 99)
+                except Exception:
+                    return 99
+            best = min(crops, key=_days_left) if crops else None
+            label = str((best or {}).get('crop') or "空地")
             if planted > 0 and crops:
                 days, regrow = A.crop_meta(label, season)
                 step = max(1, int(days))
+            elif best is not None and _days_left(best) < 99:
+                step = max(1, min(3, _days_left(best)))
             else:
                 days, regrow = A.crop_meta(label, season) if crops else (1, 0)
                 step = max(1, int(regrow or days))
@@ -165,14 +175,18 @@ def afternoon(until="23:30"):
             log("  [白天] 时间已过 %s，直接回家" % until)
             return
         A.set_activity('钓鱼/挖矿')
-        before = len([x for x in ((s.get('player') or {}).get('inventory') or [])])
-        A.spare_time_activity(until=until, log_fn=log)
+        ran = A.spare_time_activity(until=until, log_fn=log)
         s2 = state()
         pl2 = s2.get('player') or {}
-        if str(s2.get('location')) == 'Beach':
-            STATS['fished'] += 1
+        # 2026-11-21 修：以前不看返回值，活动没跑起来（没时间/没去成）也按地点记一次，
+        # 统计里的钓鱼/挖矿次数长期虚高。
+        if ran:
+            if str(s2.get('location')) == 'Beach':
+                STATS['fished'] += 1
+            else:
+                STATS['mined'] += 1
         else:
-            STATS['mined'] += 1
+            log("  [白天] 本次活动没跑起来（时间不够/没去成），不计入统计")
         log("  [白天] 活动结束：%s %s | 背包 %d 格 | 钱 %s"
             % (s2.get('location'), s2.get('time'), len(pl2.get('inventory') or []), pl2.get('money')))
     except Exception as e:
@@ -208,22 +222,35 @@ def night():
     _m0 = (s0.get('player') or {}).get('money')
     log("  [钱] 睡前 %s | %s | %s" % (_m0, s0.get('time'), s0.get('location')))
     ok = A.go_home_sleep(log_fn=log)
+    if not ok:
+        log("  !! 没进屋/没睡成（go_home_sleep 返回 False），先自愈再试")
+        recover('回家睡觉失败')
+    slept = False
     for _ in range(30):
         time.sleep(2)
         s = state()
         if s.get('day') != d0:
+            slept = True
             break
-    s = state()
-    if s.get('day') == d0:
+    if not slept:
         recover('睡觉没换天')
         A.go_home_sleep(log_fn=log)
-        time.sleep(15)
+        for _ in range(15):        # 2026-11-21：第二次也要校验天数，不能固定等 15 秒就认
+            time.sleep(2)
+            s = state()
+            if s.get('day') != d0:
+                slept = True
+                break
     s = state()
     _m1 = (s.get('player') or {}).get('money')
     try:
         log("  [钱] 睡后 %s（%+d）" % (_m1, int(_m1) - int(_m0)))
     except Exception:
         pass
+    if not slept:
+        log("  !! 今天没睡成（还是第 %s 天），不计入天数，下一轮补睡" % s.get('day'))
+        STATS['errors'] += 1
+        return
     STATS['days'] += 1
     log("  [过夜] 第 %s 天完成 → 现在 %s季第%s天 %s | 累计收 %d 种 %d | 错误 %d"
         % (d0, s.get('season'), s.get('day'), s.get('time'),

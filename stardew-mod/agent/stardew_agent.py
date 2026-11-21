@@ -226,6 +226,8 @@ def _select_tiles(s, cap=1200):
             if k not in seen:
                 keep.append(t)
                 seen.add(k)
+        if len(keep) >= cap:      # 2026-11-21：作物那一轮也要受 cap 限制，否则整张地图都塞进 prompt
+            break
     for t in all_t:
         if not in_plot(t):
             continue
@@ -667,13 +669,18 @@ def plot_rect():
 
 
 def current_plot(width=30, height=20):
-    """农田区域：①固定矩形 > ②记住的中心点 > ③当前角色位置。"""
+    """农田区域：①固定矩形 > ②记住的中心点 > ③兜底常量 PLOT。
+
+    2026-11-21 修：这里以前会调 remember_plot_center()，而它又调 summarize()→_select_tiles()
+    →current_plot()，形成无限递归；而且会把「当时站的坐标」（比如镇上 44,57）写进 .plot_center，
+    之后清障/种植就跑到镇上去挥锄头。现在这里只读文件，绝不回读游戏状态。
+    """
     rect = plot_rect()
     if rect is not None:
         return rect
     c = _load_plot_center()
     if c is None:
-        c = remember_plot_center()
+        return PLOT
     cx, cy = c
     x1 = cx - width // 2
     y1 = cy - height // 2
@@ -1617,8 +1624,11 @@ def unblock_near(log_fn=None, radius=2, max_swings=10):
             s = summarize(read_state())
         except Exception:
             break
-        pt = (s.get("player") or {}).get("tile") or {}
+        pt = s.get("tile") or {}          # 2026-11-21 修：summarize 的玩家坐标在顶层 tile，不是 s["player"]["tile"]
         px, py = pt.get("x", -99), pt.get("y", -99)
+        if px == -99 or py == -99:
+            _log("  [开路] 拿不到玩家坐标，跳过")
+            break
         blockers = []
         for t in (s.get("tiles") or []):
             if not t.get("breakable") or t.get("interactable"):
@@ -2010,7 +2020,8 @@ def plant_timing(crop_name=None, season=None, day=None):
                 days = row[2]
                 break
     remaining = max(0, 28 - day + 1)
-    can = days > 0 and days <= remaining
+    # 2026-11-21 修：边界差一天。最后一天种下时 day+days 会到 29，换季被清掉。
+    can = days > 0 and (day + days) <= 28
     return {
         "season": season, "day": day, "crop": crop_name,
         "daysToMature": days, "remainingDays": remaining,
@@ -2231,7 +2242,16 @@ def normalize_action(a):
 def validate_actions(state, actions):
     tiles = {(t["x"], t["y"]): t for t in (state.get("tiles") or [])}
     dry = [(d["x"], d["y"]) for d in (state.get("dry_tiles") or [])]
-    tilled = [(t["x"], t["y"]) for t in (state.get("tiles") or []) if t.get("tilled")]
+    # 2026-11-21 修：tiles 里没有 "tilled" 字段（mod 只在顶层导出 tilled_tiles），
+    # 以前这里恒为空 → 模型下发的 plant 动作全被当「没有已锄好的地」丢掉。
+    tilled = []
+    for tok in (state.get("tilled_tiles") or []):
+        try:
+            a2, b2 = str(tok).split(",")[:2]
+            tilled.append((int(float(a2)), int(float(b2))))
+        except Exception:
+            continue
+    tilled += [(t["x"], t["y"]) for t in (state.get("tiles") or []) if t.get("tilled")]
     pt = state.get("tile") or {}
     px, py = int(pt.get("x", 0)), int(pt.get("y", 0))
 
@@ -2581,12 +2601,13 @@ def shop_state(st=None):
     return (len(reasons) == 0), reasons, WEEKDAY_CN[weekday]
 
 
-def wait_for_shop(log_fn=None, max_hours=6.0):
-    """等到商店可买（必要时睡觉过夜）。返回是否可买。"""
+def wait_for_shop(log_fn=None, max_hours=2.0):
+    """等到商店可买（当天买不到就睡到明天，最多睡两天）。返回是否可买。"""
     def _log(m):
         if log_fn:
             log_fn(m)
     t0 = time.time()
+    slept = 0
     while time.time() - t0 < max_hours * 3600:
         ok, reasons, wd = shop_state()
         if ok:
@@ -2594,16 +2615,20 @@ def wait_for_shop(log_fn=None, max_hours=6.0):
             return True
         st = summarize(read_state())
         _log("  [商店] 暂不可买：%s（%s %s %s）" % ("、".join(reasons), wd, st.get("season"), st.get("time")))
-        # 时间问题就等；日期问题（周三/节日）就睡到明天
-        if any("周三" in r or "节日" in r for r in reasons):
+        mins = _mins(st.get("time"))
+        date_issue = any(("周三" in r or "节日" in r) for r in reasons)
+        # 2026-11-21 修：打烊后（17:00 之后 / 凌晨）当天不会再开，干等只会等到 2:00 昏倒扣钱
+        late = mins >= _mins("17:00") or mins < _mins("06:00")
+        if date_issue or late:
+            if slept >= 2:
+                _log("  [商店] 连着睡两天还是买不了，放弃")
+                break
+            _log("  [商店] 今天买不到了（%s）→ 睡到明天再来" % "、".join(reasons))
             go_home_sleep(log_fn=log_fn)
-            # 睡醒后如果还是不可买（比如节日），再等一天
-            ok2, reasons2, wd2 = shop_state()
-            if not ok2 and any("节日" in r for r in reasons2):
-                _log("  [商店] 节日当天，睡到明天")
-                go_home_sleep(log_fn=log_fn)
-        else:
-            time.sleep(10)
+            slept += 1
+            t0 = time.time()
+            continue
+        time.sleep(10)
     _log("  [商店] 等待超时")
     return shop_state()[0]
 
@@ -2731,7 +2756,33 @@ def handle_midnight(log_fn=None, threshold=24 * 60):
 
 
 # ---------------- 出门整理（箱子 + 背包） ----------------
-CHEST_ROLES = ["seeds", "crop", "fish", "mineral", "treasure", "misc"]
+# 2026-11-21 修：mod 的 stash_all 只按 seeds/crop/misc 三个角色结算，
+# 传 6 个角色时 fish/mineral/treasure 全被折算成 misc，箱子不够就会把鱼矿塞进种子箱。
+CHEST_ROLES = ["seeds", "crop", "misc"]
+
+
+def _ensure_watering_can(log_fn=None):
+    """整理完把水壶取回背包（stash_all 会把水壶收进箱子，而 ensure_tools 不补造水壶）。
+
+    2026-11-21 加：不取回来的话，之后所有手动浇水都会报「没有 WateringCan」。
+    """
+    def _log(m):
+        if log_fn:
+            log_fn(m)
+    try:
+        inv = [str(x) for x in (summarize(read_state()).get("inventory") or [])]
+        if any("Watering Can" in x or "水壶" in x or "喷壶" in x for x in inv):
+            return True
+        _log("  [整理] 背包里没有水壶 → 从箱子取回")
+        send_order({"actionType": "withdraw_name", "name": "Watering Can", "count": 1})
+        time.sleep(2)
+        inv = [str(x) for x in (summarize(read_state()).get("inventory") or [])]
+        ok = any("Watering Can" in x or "水壶" in x or "喷壶" in x for x in inv)
+        _log("  [整理] 水壶取回%s" % ("成功" if ok else "失败（箱子里可能没有）"))
+        return ok
+    except Exception as e:
+        _log("  [整理] 取水壶异常：%s" % e)
+        return False
 
 
 def tidy_chests(log_fn=None):
@@ -2770,6 +2821,7 @@ def tidy_chests(log_fn=None):
         _log("  [整理] 完成：背包 %d 格" % len(st2.get("inventory") or []))
     except Exception:
         pass
+    _ensure_watering_can(log_fn=log_fn)
     return True
 
 
@@ -2799,9 +2851,20 @@ def wait_pos(target, timeout=None, tol=1, cur=None):
 
 
 def ensure_near(state, x, y):
-    """确保角色站在目标格旁边（1 格内），必要时先走过去。"""
-    p = state.get("tile") or {}
-    px, py = int(p.get("x", 0)), int(p.get("y", 0))
+    """确保角色站在目标格旁边（1 格内），必要时先走过去。
+
+    2026-11-21 修：以前用计划开始时的 state 快照判断距离，前面几步走完坐标早变了，
+    于是要么误判「已经在旁边」（实际很远，动作被 mod 拒绝），要么误判「太远不追」。
+    现在每次都重新读一次状态。
+    """
+    def _pos():
+        try:
+            p = summarize(read_state()).get("tile") or {}
+        except Exception:
+            p = {}
+        return int(p.get("x", -99)), int(p.get("y", -99))
+
+    px, py = _pos()
     if abs(px - x) + abs(py - y) <= 1:
         return True
     if abs(px - x) + abs(py - y) > 20:
