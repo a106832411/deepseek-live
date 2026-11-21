@@ -664,6 +664,63 @@ def clear_plot(log_fn=None, max_swings=400, budget_sec=600, face=1):
 
 
 
+def has_scythe():
+    """背包里有没有镰刀（1.6 叫 Iridium Scythe / 铱镰刀）。"""
+    try:
+        inv = summarize(read_state()).get("inventory") or []
+    except Exception:
+        return False
+    return any(("Scythe" in str(x)) or ("镰刀" in str(x)) for x in inv)
+
+
+def harvest_click(log_fn=None, max_tries=3):
+    """没有镰刀时的兜底收割：走到每株旁边发 harvest 订单（mod 直接调 Crop.harvest）。
+
+    2026-11-21 加：镰刀被地图清理送进「失物招领」后，镰刀扫荡一刀都收不到，
+    11-20 因此白跑一天（346 刀 0 株）。这里改成逐株收，慢但真能收进背包。
+    """
+    def _log(m):
+        if log_fn:
+            log_fn(m)
+
+    def _ready():
+        st = summarize(read_state())
+        return {(t["x"], t["y"]) for t in (st.get("tiles") or [])
+                if t.get("cropReady") and t.get("crop")}
+
+    ready = _ready()
+    if not ready:
+        _log("  [手割] 没有成熟作物")
+        return 0
+    _log("  [手割] 背包没有镰刀 → 逐株收割 %d 株" % len(ready))
+    got = 0
+    for rnd in range(1, max_tries + 1):
+        left = _ready()
+        if not left:
+            break
+        pos = summarize(read_state()).get("tile") or {}
+        cur = (pos.get("x", -99), pos.get("y", -99))
+        progressed = False
+        for (x, y) in sorted(left, key=lambda p: abs(p[0] - cur[0]) + abs(p[1] - cur[1])):
+            if (x, y) not in _ready():
+                continue
+            if not _go_near(x, y, log_fn, tries=3, wait=0.4):
+                continue
+            before = len(_ready())
+            send_order({"actionType": "harvest", "x": x, "y": y})
+            time.sleep(0.32)
+            after = len(_ready())
+            if after < before:
+                got += before - after
+                progressed = True
+        _log("  [手割] 第%d轮：累计收 %d 株，剩 %d 株" % (rnd, got, len(_ready())))
+        if not progressed:
+            _log("  [手割] 本轮一株没收（作物不可收 / 走不到位），提前收工")
+            break
+    _log("  [手割] 共收 %d 株（剩 %d 株）" % (got, len(_ready())))
+    return got
+
+
 def harvest_with_scythe(log_fn=None, max_rounds=300, face=1, band=3):
     """铱镰刀 3x3 蛇形收割：主扫一遍 + 针对性补漏。
 
@@ -689,6 +746,11 @@ def harvest_with_scythe(log_fn=None, max_rounds=300, face=1, band=3):
     if not ready:
         _log("  [收割] 没有成熟作物")
         return 0
+
+    # 没有镰刀就别挥了（2026-11-21）：改逐株手割，否则会白挥一天
+    if not has_scythe():
+        _log("  [收割] 背包没有镰刀 → 改逐株手割")
+        return harvest_click(log_fn=log_fn)
 
     # 优先用固定农田区规划带，保证每一行/列都被带覆盖到
     rect = plot_rect()
