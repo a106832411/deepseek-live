@@ -3041,7 +3041,7 @@ namespace WhalePlayer
             // 2026-11-21 用户要求：小游戏要看得见（以前 NibbleBranchPatch 直接发鱼）。
             // 现在打开自动玩小游戏：BobberBar 真的弹出来，绿条自己追鱼，钓上鱼走原版结算。
             WhalePlayer.ModEntry.AssistFishing = true;
-            WhalePlayer.ModEntry.AutoPlayMinigame = false;   // 2026-11-21：小游戏自动玩还没调通，先回到稳定秒钓
+            WhalePlayer.ModEntry.AutoPlayMinigame = false;   // 2026-11-21 夜：小游戏能弹出来但自动玩仍收不了杆，先关掉保产量；代码保留待继续调
         }
 
         private void ShopBuy(JObject jo)

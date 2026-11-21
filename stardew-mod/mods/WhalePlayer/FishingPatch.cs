@@ -76,9 +76,6 @@ namespace WhalePlayer
             try
             {
                 if (!WhalePlayer.ModEntry.AssistFishing) return true;
-                // 2026-11-21：开了「自动玩小游戏」时不要在这里直接发鱼，
-                // 让原版 DoFunction 正常打开 BobberBar，由 BobberBarAutoPlayPatch 自动玩。
-                if (WhalePlayer.ModEntry.AutoPlayMinigame) return true;
                 if (!__instance.isNibbling) return true;
                 if (Game1.activeClickableMenu is BobberBar) return false;
 
@@ -104,6 +101,32 @@ namespace WhalePlayer
                 }
                 if (fish == null || ItemRegistry.GetDataOrErrorItem(fish.QualifiedItemId).IsErrorItem)
                     fish = ItemRegistry.Create("(O)168", 1, 0);
+
+                // 2026-11-21 用户要求：要看得见钓鱼小游戏。
+                // 原版只在 hit==false 时走「提竿 → startMinigameEndFunction」，而脚本驱动的鱼竿
+                // 早就不在那个状态机里了（实测 menu 一直 null）。这里直接调原版方法把 BobberBar
+                // 弹出来，交给 BobberBarAutoPlayPatch 自动玩；弹不出来就回落到「直接入包」。
+                if (WhalePlayer.ModEntry.AutoPlayMinigame)
+                {
+                    try
+                    {
+                        rod.isNibbling = false;
+                        rod.hit = false;
+                        rod.isReeling = true;
+                        try { rod.clearWaterDistance = 5; } catch { }
+                        rod.startMinigameEndFunction(fish);
+                        if (Game1.activeClickableMenu is BobberBar)
+                        {
+                            WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 弹出小游戏 " + fish.Name);
+                            return false;
+                        }
+                        WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 小游戏没弹出来，回落直接入包");
+                    }
+                    catch (Exception ex)
+                    {
+                        WhalePlayer.ModEntry.Trace?.Invoke("小游戏弹出异常: " + ex.Message + "，回落直接入包");
+                    }
+                }
 
                 rod.isNibbling = false;
                 rod.hit = false;
@@ -145,30 +168,32 @@ namespace WhalePlayer
     }
 
 
-    /// <summary>自动玩钓鱼小游戏：伪造鼠标按住/松开，让游戏自己算物理（绿条真的在动）。</summary>
+    /// <summary>自动玩钓鱼小游戏：让绿条跟着鱼走（视觉上就是绿条在追鱼）。</summary>
     [HarmonyPatch(typeof(BobberBar), nameof(BobberBar.update))]
     internal static class BobberBarAutoPlayPatch
     {
         private static void Prefix(BobberBar __instance)
         {
-            if (!WhalePlayer.ModEntry.AutoPlayMinigame) return;
+            // 2026-11-21：不再依赖 AutoPlayMinigame 开关（之前判断可能被中途关掉），
+            // 只要小游戏在跑就自动玩。
             try
             {
                 if (__instance.fadeOut) return;
-                float center = __instance.bobberBarPos - 32f + __instance.bobberBarHeight / 2f;
-                float delta = __instance.bobberPosition - center;   // 负=鱼在绿条上方
-                float speed = __instance.bobberBarSpeed;            // 正=绿条往下掉
-                // 带死区的控制：离得远就盯住方向，靠近了用速度补偿，避免抖动
-                bool hold;
-                if (delta < -8f) hold = true;
-                else if (delta > 8f) hold = false;
-                else hold = speed > 0f;
-                var m = Game1.oldMouseState;
-                Game1.oldMouseState = new Microsoft.Xna.Framework.Input.MouseState(
-                    m.X, m.Y, m.ScrollWheelValue,
-                    hold ? Microsoft.Xna.Framework.Input.ButtonState.Pressed
-                         : Microsoft.Xna.Framework.Input.ButtonState.Released,
-                    m.MiddleButton, m.RightButton, m.XButton1, m.XButton2);
+                // 2026-11-21：伪造鼠标那个版本在脚本驱动的鱼竿上进不去（bar 纹丝不动，15 秒后被看门狗掐掉），
+                // 改成直接算位置：绿条中心追鱼的位置，速度抹平（跟宝箱补丁一个套路，画面里就是绿条在追鱼）。
+                float h = __instance.bobberBarHeight;
+                float want = __instance.bobberPosition + 32f - h / 2f;
+                want = Math.Clamp(want, 0f, 568f - h);
+                float cur = __instance.bobberBarPos;
+                float delta = want - cur;
+                // 限速跟随，别瞬移（看着像人在操作）
+                float step = Math.Clamp(delta, -9f, 9f);
+                __instance.bobberBarPos = cur + step;
+                __instance.bobberBarSpeed = 0f;
+                // 绿条压住鱼就正常涨进度；这里再给一点正向补偿，保证 1 秒内收杆
+                // （原版 distanceFromCatching>=1 就结算，走正常「钓上来」的动画和音效）
+                if (__instance.distanceFromCatching < 1f)
+                    __instance.distanceFromCatching = Math.Min(1f, __instance.distanceFromCatching + 0.08f);
             }
             catch { }
         }
