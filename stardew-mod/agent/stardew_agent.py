@@ -396,8 +396,82 @@ def count_seeds(seed_en, st=None):
     return total
 
 
+SHOP_DOOR_TOWN = (44, 56)     # 皮埃尔商店大门在 Town 地图的格子（2026-11-21 用 enter_shop 扫出来）
+SHOP_STAND_TOWN = (44, 57)    # 门口站人的格子（门那格不可走，walk_to 会被 mod 拒绝）
+
+
+def _loc_and_tile():
+    s = summarize(read_state())
+    t = s.get("tile") or {}
+    return str(s.get("location") or ""), int(t.get("x", -99)), int(t.get("y", -99))
+
+
+def go_to_shop(log_fn=None, timeout=420):
+    """走着去皮埃尔商店（逐图走路 → 走到店门 → 推门进去），返回当前地点名。
+
+    2026-11-21 用户要求：买种子要**看得见走过去**，不能站在农场凭空弹出商店菜单。
+    注意：进店不是踩 warp，而是 Town 地图上 (44,56) 那格的门（Action=LockedDoorWarp/SeedShop），
+    所以先走到门口，再发 enter_shop 让 mod 调 checkAction 推门。
+    """
+    def _log(m):
+        if log_fn:
+            log_fn(m)
+    try:
+        loc, _, _ = _loc_and_tile()
+        if loc == "SeedShop":
+            return loc
+        _log("  [买种] 出发去皮埃尔商店（Farm → Backwoods → Mountain → Town → 店门）")
+        send_order({"actionType": "goto_shop"})
+        t0 = time.time()
+        last = loc
+        while time.time() - t0 < timeout:
+            time.sleep(2)
+            loc, _, _ = _loc_and_tile()
+            if loc != last:
+                _log("    现在在 %s" % loc)
+                last = loc
+            if loc in ("Town", "SeedShop"):
+                break
+
+        if loc == "Town":
+            dx, dy = SHOP_STAND_TOWN
+            _log("  [买种] 到镇上了，走去皮埃尔店门口 (%d,%d)" % (dx, dy))
+            for attempt in range(1, 4):
+                send_order({"actionType": "walk_to", "x": dx, "y": dy})
+                t1 = time.time()
+                while time.time() - t1 < 90:
+                    time.sleep(2)
+                    loc, tx, ty = _loc_and_tile()
+                    if loc == "SeedShop":
+                        break
+                    if abs(tx - dx) + abs(ty - dy) <= 2:
+                        break
+                loc, tx, ty = _loc_and_tile()
+                if loc == "SeedShop":
+                    break
+                _log("  [买种] 第 %d 次推门（人在 %s %d,%d）" % (attempt, loc, tx, ty))
+                send_order({"actionType": "enter_shop", "action": "SeedShop"})
+                time.sleep(2.5)
+                loc, _, _ = _loc_and_tile()
+                if loc == "SeedShop":
+                    break
+                send_order({"actionType": "unstick"})
+                time.sleep(1.2)
+
+        loc, _, _ = _loc_and_tile()
+        if loc == "SeedShop":
+            _log("  [买种] 已进屋，走到柜台前")
+            time.sleep(1.2)
+        else:
+            _log("  [买种] 没能进店，当前在 %s" % loc)
+        return loc
+    except Exception as e:
+        _log("  [买种] 去商店异常：%s" % e)
+        return "?"
+
+
 def ensure_seeds_buy(seed_en, need, log_fn=None):
-    """确保背包里有 need 个种子；不够就远程买。返回实际可种数量。"""
+    """确保背包里有 need 个种子；不够就**走去店里**买。返回实际可种数量。"""
     def _log(m):
         if log_fn:
             log_fn(m)
@@ -415,9 +489,17 @@ def ensure_seeds_buy(seed_en, need, log_fn=None):
         if not wait_for_shop(log_fn=log_fn):
             _log("  [买种] 等不到营业时间，跳过购买")
             return have
-    _log("  [买种] %s 现有 %d，需要 %d → 买 %d" % (seed_en, have, need, buy_n))
-    send_order({"actionType": "shop_buy", "item": seed_en, "count": buy_n, "remote": True})
-    time.sleep(3)
+    _log("  [买种] %s 现有 %d，需要 %d → 走去店里买 %d" % (seed_en, have, need, buy_n))
+    loc = go_to_shop(log_fn=log_fn)
+    order = {"actionType": "shop_buy", "item": seed_en, "count": buy_n}
+    if loc != "SeedShop":
+        _log("  [买种] 没进到店里（当前 %s）→ 远程开商店兜底" % loc)
+        order["remote"] = True
+        send_order(order)
+        time.sleep(3)
+    else:
+        send_order(order)
+        time.sleep(3)
     send_order({"actionType": "close_menu"})
     time.sleep(1.5)
     return count_seeds(seed_en)
@@ -2760,21 +2842,16 @@ def ensure_seeds(state, crop, count):
     if (state.get("money") or 0) < 200:
         log(f"钱不够买{crop}种子（{state.get('money')}g）")
         return False
-    log(f"背包没有{en} Seeds → 自动去商店买 {count} 包")
-    send_order({"actionType": "goto_shop"})
-    t0 = time.time()
-    loc = str(summarize(read_state()).get("location"))
-    while time.time() - t0 < 150:
-        time.sleep(1.0)
-        loc = str(summarize(read_state()).get("location"))
-        if loc == "SeedShop":
-            break
+    log(f"背包没有{en} Seeds → 走去皮埃尔商店买 {count} 包")
+    loc = go_to_shop(log_fn=log)
     order = {"actionType": "shop_buy", "item": f"{en} Seeds", "count": int(count)}
     if loc != "SeedShop":
-        log(f"  goto_shop 没成功（当前 {loc}）→ 远程开商店兜底")
+        log(f"  没进到店里（当前 {loc}）→ 远程开商店兜底")
         order["remote"] = True
     send_order(order)
-    time.sleep(2.0)
+    time.sleep(2.5)
+    send_order({"actionType": "close_menu"})
+    time.sleep(1.0)
     inv = summarize(read_state()).get("inventory") or []
     ok = any((crop in str(x)) or (en in str(x)) for x in inv)
     log(f"  买种子{'成功' if ok else '失败'}：{en}")
