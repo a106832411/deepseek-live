@@ -82,6 +82,14 @@ namespace WhalePlayer
         private string lastOrder = "等待指令";          // HUD：最近收到的一条指令
         private string hudPlot = "";                 // HUD：固定农田区（读 .plot_rect）
         private long hudPlotReadTicks = 0;
+        // 看得见的买东西（2026-11-21 用户要求）：打开商店界面后分几次扣钱+入包，播收银音效
+        private bool buyPending = false;
+        private ISalable buyTarget = null;
+        private int buyUnit = 0;
+        private int buyLeft = 0;
+        private int buyChunk = 1;
+        private int buyDelayTicks = 0;
+        private int buySpent = 0;
 
         public override void Entry(IModHelper helper)
         {
@@ -528,6 +536,7 @@ namespace WhalePlayer
             // 跨图去商店：每 0.5 秒检查一次，到店/走不动就推进或结束
             if (this.gotoShop && e.IsMultipleOf(30)) this.TickTravel();
 
+            if (e.IsMultipleOf(6)) this.TickPurchase();      // 看得见的购买：分批扣钱入包
             if (e.IsMultipleOf(6)) this.ProcessOrders();     // ~0.1s，动作更跟手
             if (e.IsMultipleOf(15)) this.WriteState();           // ~0.25s，状态刷新更快
         }
@@ -3048,27 +3057,74 @@ namespace WhalePlayer
 
             var menu = new ShopMenu("SeedShop", stock, 0, "Pierre", null, null, true);
             Game1.activeClickableMenu = menu;                  // 画面里弹出商店
-            this.closeMenuInTicks = 90;
+            this.closeMenuInTicks = -1;                        // 由 TickPurchase 决定什么时候关
 
             var info = stock[target];
             int unit = info?.Price ?? 0;
             int maxBuy = (info == null || info.Stock < 0) ? count : Math.Min(count, info.Stock);
-            int total = unit * maxBuy;
-            if (unit <= 0 || maxBuy <= 0) { this.Monitor.Log($"shop_buy: {want} 价格/库存异常", LogLevel.Warn); return; }
-            if (Game1.player.Money < total) { this.Monitor.Log($"shop_buy: 钱不够({total}g)", LogLevel.Warn); return; }
-            if (!(target is Item proto)) return;
+            if (unit <= 0 || maxBuy <= 0) { this.Monitor.Log("shop_buy: 价格/库存异常", LogLevel.Warn); return; }
+            if (Game1.player.Money < unit) { this.Monitor.Log($"shop_buy: 钱不够（{unit}g/个）", LogLevel.Warn); return; }
 
-            var item = proto.getOne();
-            item.Stack = maxBuy;
-            if (!Game1.player.addItemToInventoryBool(item, false))
+            // 分几次买：每 0.33 秒一小把，扣钱、进包、播收银音效（看起来像真的在点购买）
+            this.buyTarget = target;
+            this.buyUnit = unit;
+            this.buyLeft = maxBuy;
+            this.buyChunk = Math.Max(1, Math.Min(10, maxBuy / 8 + 1));
+            this.buyDelayTicks = 30;
+            this.buySpent = 0;
+            this.buyPending = true;
+            this.Monitor.Log($"shop_buy: 打开商店，准备买 {maxBuy} × {target.Name}（{unit}g/个，分批购买）", LogLevel.Info);
+        }
+
+        /// <summary>看得见的购买：每 tick 检查，分批扣钱入包，买完再关界面。</summary>
+        private void TickPurchase()
+        {
+            if (!this.buyPending) return;
+            if (!(Game1.activeClickableMenu is ShopMenu))
             {
-                this.Monitor.Log("shop_buy: 背包放不下", LogLevel.Warn);
+                this.buyPending = false;
+                this.Monitor.Log("shop_buy: 商店界面被关掉，购买中止", LogLevel.Warn);
                 return;
             }
-            Game1.player.Money -= total;
-            if (info.Stock > 0) info.Stock -= maxBuy;
-            stock[target] = info;
-            this.Monitor.Log($"shop_buy: 买入 {maxBuy} × {proto.Name}，花 {total}g，余额 {Game1.player.Money}g", LogLevel.Info);
+            if (this.buyDelayTicks > 0) { this.buyDelayTicks--; return; }
+            this.buyDelayTicks = 20;
+
+            int n = Math.Min(this.buyChunk, this.buyLeft);
+            int cost = n * this.buyUnit;
+            if (Game1.player.Money < cost)
+            {
+                this.buyPending = false;
+                this.Monitor.Log($"shop_buy: 钱不够了，停止（还差 {this.buyLeft} 个）", LogLevel.Warn);
+                this.closeMenuInTicks = 60;
+                return;
+            }
+            var proto = this.buyTarget as Item;
+            if (proto == null)
+            {
+                this.buyPending = false;
+                this.closeMenuInTicks = 60;
+                return;
+            }
+            var piece = proto.getOne();
+            piece.Stack = n;
+            if (!Game1.player.addItemToInventoryBool(piece, false))
+            {
+                this.buyPending = false;
+                this.Monitor.Log("shop_buy: 背包放不下，停止购买", LogLevel.Warn);
+                this.closeMenuInTicks = 60;
+                return;
+            }
+            Game1.player.Money -= cost;
+            this.buySpent += cost;
+            try { Game1.playSound("purchase", 0); } catch { }
+            this.buyLeft -= n;
+            this.Monitor.Log($"shop_buy: 买 {n} × {proto.Name}（-{cost}g，余 {Game1.player.Money}g，还剩 {this.buyLeft}）", LogLevel.Info);
+            if (this.buyLeft <= 0)
+            {
+                this.buyPending = false;
+                this.closeMenuInTicks = 45;     // 界面再停 0.75 秒
+                this.Monitor.Log($"shop_buy: 买完了，共花 {this.buySpent}g，余额 {Game1.player.Money}g", LogLevel.Info);
+            }
         }
 
         private void Ship()

@@ -108,8 +108,15 @@ def morning():
         A.season_day_one_cleanup(log_fn=log)
     except Exception as e:
         log("  !! 换季清理异常 %s" % e)
-    # 农田：按「记忆」决定今天要不要查（没到成熟日就不去折腾）
+    # 农田：按「记忆」决定今天要不要查（没到成熟日就不去折腾）；
+    # 但背包里有种子 + 田里还有空地时，应该现在就去种（2026-11-21 加）
     due, wait = A.farm_due(log_fn=log)
+    if not due:
+        try:
+            if A.seeds_need_planting(log_fn=log):
+                due = True
+        except Exception as e:
+            log("  !! 补种判断异常 %s" % e)
     if not due:
         log("  今天不查田（还要等 %d 天）" % wait)
     else:
@@ -215,16 +222,21 @@ def main():
     max_days = int(sys.argv[1]) if len(sys.argv) > 1 else 60
     log("========== 通宵循环启动（最多 %d 天）==========" % max_days)
     s = snap('开始')
+    # 2026-11-21 修：DAY_START 以前从来没被赋值，night() 里「已经换天就别再睡」的守卫形同虚设，
+    # 2:00 昏倒自动换天后还会再睡一次，直接白跳一整天。
+    DAY_START['season'] = s.get('season')
+    DAY_START['day'] = s.get('day')
     for i in range(max_days):
         try:
             morning()
             afternoon(until="23:30")
             night()
-        except Exception as e:
+        except (Exception, SystemExit) as e:
+            # read_state() 在存档文件缺失时抛 SystemExit，原来抓不到 → 整个通宵循环静默退出
             log("  !! 第 %d 轮顶层异常 %s" % (i + 1, e))
             traceback.print_exc()
             recover('顶层异常')
-            time.sleep(3)
+            time.sleep(5)
     log("========== 通宵循环结束：%s ==========" % STATS)
 
 

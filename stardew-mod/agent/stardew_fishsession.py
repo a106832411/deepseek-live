@@ -95,6 +95,11 @@ def main():
         try:
             if A.handle_midnight(log_fn=log):
                 log("  已到 00:00，回家睡觉，钓鱼结束")
+                # 2026-11-21 修：原来这里直接 return，钓鱼泵还开着，
+                # 第二天它会自己抛竿并 player.CurrentTool = rod，把当前选中格覆盖成鱼竿
+                # （就是铱镰刀丢失那条路径），所以退出前必须收竿。
+                A.send_order({"actionType": "stop_fish"})
+                time.sleep(1.5)
                 return
         except Exception as e:
             log("  00:00 检查异常: %s" % e)

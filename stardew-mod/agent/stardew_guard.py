@@ -8,6 +8,7 @@
   3. 人物坐标长时间不变但游戏时间在走 → 先 unstick，再 warp 回农场，最后重启循环
 日志：D:\\live\\logs\\guard.log
 """
+import json
 import os
 import subprocess
 import sys
@@ -41,8 +42,22 @@ def loop_running():
     try:
         ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -match 'stardew_overnight' } | Measure-Object | Select-Object -ExpandProperty Count")
         out = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                             capture_output=True, text=True, errors="replace").stdout.strip()
+                             capture_output=True, text=True, errors="replace",
+                             timeout=20).stdout.strip()
         return int(out or 0) > 0
+    except Exception:
+        # 2026-11-21 修：查询失败/超时以前一律当「没在跑」，会每 45 秒再拉一个循环，多个循环抢人物。
+        # 现在查不出来就当没变化，宁可不动作。
+        return True
+
+
+def fishing_now():
+    """当前是不是在钓鱼：钓鱼时人物本来就不动，不能当卡住处理（2026-11-21 修）。"""
+    try:
+        with open(r"D:\live\logs\ai_status.json", encoding="utf-8") as f:
+            st = json.load(f)
+        txt = (str(st.get("activity") or "") + " " + str(st.get("order") or "")).lower()
+        return ("钓" in txt) or ("fish" in txt)
     except Exception:
         return False
 
@@ -75,29 +90,41 @@ def main():
     still = 0
     last_pos = None
     last_time = None
+    last_restart = 0.0
     while True:
         try:
             # ① 循环进程
             if not loop_running():
                 start_loop()
 
-            # ② 状态文件新鲜度
+            # ② 状态文件新鲜度（重启后给 5 分钟宽限，别反复重启把游戏吊死在启动阶段）
             m = os.path.getmtime(STATE) if os.path.exists(STATE) else 0
-            if m and last_state_m and (time.time() - m) > 180:
+            stale = m and last_state_m and (time.time() - m) > 180
+            if stale and (time.time() - last_restart) > 300:
                 log("  ⚠ 状态文件 180 秒没更新，判定软锁")
                 restart_game()
-                time.sleep(30)
-                start_loop()
-                last_state_m = m
+                last_restart = time.time()
+                # 等新存档真的读进来，最多 180 秒；读到就继续，读不到下一轮再来
+                t0 = time.time()
+                while time.time() - t0 < 180:
+                    time.sleep(5)
+                    if os.path.exists(STATE) and os.path.getmtime(STATE) > m:
+                        log("  游戏已重新读档（状态文件更新了）")
+                        break
+                if not loop_running():
+                    start_loop()
+                last_state_m = os.path.getmtime(STATE) if os.path.exists(STATE) else 0
                 continue
             last_state_m = m
 
-            # ③ 坐标停滞
+            # ③ 坐标停滞（钓鱼时本来就不动，直接跳过）
             s = A.summarize(A.read_state())
             t = s.get("tile") or {}
             p = (int(t.get("x", -99)), int(t.get("y", -99)))
             now_t = str(s.get("time"))
-            if p == last_pos and now_t != last_time:
+            if fishing_now():
+                still = 0
+            elif p == last_pos and now_t != last_time:
                 still += 1
             else:
                 still = 0

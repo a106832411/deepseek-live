@@ -253,6 +253,13 @@ def summarize(s):
         "tile": p.get("tile") or {},
         "tiles": _select_tiles(s),
         "dry_tiles": (s.get("dry_tiles") or [])[:24],
+        # 2026-11-21 补：这几个字段 mod 一直在导出，但 summarize 以前没透传，
+        # 导致「收机器 / 鱼饵判断 / 矿洞层数 / 已锄地」四块功能全是空转（读到的永远是空）。
+        "machines": s.get("machines") or [],
+        "mine_level": s.get("mine_level"),
+        "rod_bait": s.get("rod_bait"),
+        "rod_bait_count": s.get("rod_bait_count"),
+        "tilled_tiles": (s.get("tilled_tiles") or [])[:300],
     }
 
 
@@ -495,14 +502,40 @@ def ensure_seeds_buy(seed_en, need, log_fn=None):
     if loc != "SeedShop":
         _log("  [买种] 没进到店里（当前 %s）→ 远程开商店兜底" % loc)
         order["remote"] = True
-        send_order(order)
-        time.sleep(3)
-    else:
-        send_order(order)
-        time.sleep(3)
+    send_order(order)
+    # 2026-11-21：mod 改成「分批购买 + 收银音效」，固定 3 秒会被自己的 close_menu 打断，
+    # 这里改成轮询背包数量，买够/数量不再涨了再关界面。
+    got = wait_purchase(seed_en, have + buy_n, log_fn=log_fn)
     send_order({"actionType": "close_menu"})
-    time.sleep(1.5)
-    return count_seeds(seed_en)
+    time.sleep(1.0)
+    return got
+
+
+def wait_purchase(seed_en, want, log_fn=None, timeout=60):
+    """等商店分批买完：背包里该种子达到 want，或连续几轮不再增长就返回当前数量。"""
+    def _log(m):
+        if log_fn:
+            log_fn(m)
+    t0 = time.time()
+    last = -1
+    stable = 0
+    while time.time() - t0 < timeout:
+        time.sleep(1.2)
+        n = count_seeds(seed_en)
+        if n >= want:
+            _log("  [买种] 已买到 %d 个" % n)
+            return n
+        if n == last:
+            stable += 1
+            if stable >= 4 and n > 0:
+                break
+        else:
+            stable = 0
+            last = n
+    n = count_seeds(seed_en)
+    if n < want:
+        _log("  [买种] 只买到 %d / %d（可能背包满或钱不够）" % (n, want))
+    return n
 
 
 PLOT = (65, 18, 74, 37)      # 兜底
@@ -682,7 +715,8 @@ def clear_plot(log_fn=None, max_swings=400, budget_sec=600, face=1):
     def _log(m):
         if log_fn:
             log_fn(m)
-    SKIP = ("宝箱", "箱", "熔炉", "木桶", "床", "桌")
+    # 2026-11-21：果树/巨型作物绝对不能砍——树苗 850~4250g、28 天成材，砍了不可恢复
+    SKIP = ("宝箱", "箱", "熔炉", "木桶", "床", "桌", "果树", "巨型作物")
     t0 = time.time()
 
     def _targets():
@@ -714,7 +748,7 @@ def clear_plot(log_fn=None, max_swings=400, budget_sec=600, face=1):
         targets.sort(key=lambda t: abs(t["x"] - px) + abs(t["y"] - py))
         t = targets[0]
         x, y, name = t["x"], t["y"], str(t.get("obj") or "")
-        if "树" in name or "果树" in name or "嫩枝" in name or "树枝" in name or "Twig" in name:
+        if "树" in name or "嫩枝" in name or "树枝" in name or "Twig" in name:
             tool, max_swing = "axe", 8
         elif ("草" in name or "杂草" in name or "Weed" in name
               or "枯死" in name or "枯萎" in name):
@@ -744,6 +778,40 @@ def clear_plot(log_fn=None, max_swings=400, budget_sec=600, face=1):
          % (swings, cost, total0 - len(left), total0, len(left)))
     return swings
 
+
+
+def seeds_need_planting(log_fn=None):
+    """背包里有种子、农田里还有空地 → 现在就该去种。
+
+    2026-11-21 加：`farm_due` 只按「还有几天成熟」排期，于是今天买的 80 包种子
+    要等到下次查田（8 天后）才下地，白白空着地块。这里补一条「有货就种」的判据。
+    """
+    def _log(m):
+        if log_fn:
+            log_fn(m)
+    try:
+        s = summarize(read_state())
+        if str(s.get("location")) not in ("Farm", "FarmHouse"):
+            return False
+        inv = s.get("inventory") or []
+        seeds = [x for x in inv if "Seeds" in str(x)]
+        if not seeds:
+            return False
+        rect = plot_rect()
+        if not rect:
+            return False
+        x0, y0, x1, y1 = rect
+        area = (x1 - x0 + 1) * (y1 - y0 + 1)
+        crops = [t for t in (s.get("tiles") or [])
+                 if t.get("crop") and x0 <= t["x"] <= x1 and y0 <= t["y"] <= y1]
+        if len(crops) >= area:
+            return False
+        _log("  [补种] 背包有 %d 类种子、农田还空 %d 格 → 现在去种"
+             % (len(seeds), area - len(crops)))
+        return True
+    except Exception as e:
+        _log("  [补种] 检查异常：%s" % e)
+        return False
 
 
 def has_scythe():
@@ -2849,12 +2917,12 @@ def ensure_seeds(state, crop, count):
         log(f"  没进到店里（当前 {loc}）→ 远程开商店兜底")
         order["remote"] = True
     send_order(order)
-    time.sleep(2.5)
+    got = wait_purchase(f"{en} Seeds", int(count), log_fn=log)
     send_order({"actionType": "close_menu"})
     time.sleep(1.0)
     inv = summarize(read_state()).get("inventory") or []
     ok = any((crop in str(x)) or (en in str(x)) for x in inv)
-    log(f"  买种子{'成功' if ok else '失败'}：{en}")
+    log(f"  买种子{'成功' if ok else '失败'}：{en}（现有 {got}）")
     return ok
 
 def main():
