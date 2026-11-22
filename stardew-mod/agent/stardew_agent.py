@@ -1847,6 +1847,21 @@ def plant_best_crops(max_n=60, log_fn=None, clear=True, budget_sec=480):
             log_fn(m)
     season, day = current_season_day()
     picks = pick_crops(season, day)
+    # 2026-11-22：STARDEW_LLM_PLAN=1 时让本地模型参与「今天种什么」。
+    # 模型只用来在**已经算好、已经校验过**的候选里排序；名单外的作物一律忽略（规则表兜底）。
+    try:
+        if env("STARDEW_LLM_PLAN", "0") == "1" and llm_available():
+            _dp = ensure_day_plan(summarize(read_state()))
+            _mcrop = str(_dp.get("crop") or "")
+            if _mcrop:
+                _names = [p[0] for p in picks]
+                if _mcrop in _names:
+                    picks.sort(key=lambda p: 0 if p[0] == _mcrop else 1)
+                    _log("  [种植] 模型参与选种：%s（候选 %d 个里优先）" % (_mcrop, len(picks)))
+                else:
+                    _log("  [种植] 模型给的 %s 不在本季可行列表，按规则表" % _mcrop)
+    except Exception as e:
+        _log("  [种植] 模型选种失败（规则兜底）：%s" % e)
     try:
         _log("  [种植] 排期建议：" + plant_window_advice(season, day))
     except Exception:
@@ -2188,6 +2203,10 @@ def ensure_day_plan(state):
                                           temperature=0.2, max_tokens=400)) or {}
         except Exception as e:
             log(f"模型规划失败（规则兜底）：{e}")
+        try:
+            log("  [LLM计划] 模型给的是：crop=%s seeds=%s" % (plan.get("crop"), plan.get("seeds")))
+        except Exception:
+            pass
     rule = plan_day_rules(state)
     mcrop = str(plan.get("crop") or "")
     mgday = _gday(season_key, mcrop)
@@ -2267,6 +2286,109 @@ def make_plan(state, goal=None):
     raise ValueError("模型没返回合法 JSON：" + str(last))
 
 
+# ---------------- 卡住时让本地模型出主意 ----------------
+RESCUE_ACTIONS = {
+    "walk_to": "走路到某格", "use_tool": "用工具（tool=hoe/axe/pickaxe/wateringcan/scythe）",
+    "interact": "交互目标格（收作物/开箱子/捡东西）", "plant": "把背包种子种进已锄地",
+    "goto": "跨地图走过去（location=Farm/Town/Beach/Mountain/Backwoods/BusStop）",
+    "warp_to": "直接传送（location=Farm/FarmHouse/Desert）", "warp_house": "传送进农舍",
+    "unstick": "原地抖开（解卡）", "exit": "走到门口出门", "enter_home": "进农舍门",
+    "close_menu": "关掉当前界面/对话", "go_fish": "走到钓鱼点", "fish": "抛竿钓鱼",
+    "sleep": "睡觉进下一天",
+}
+_last_rescue_at = 0.0
+_rescue_used = 0
+
+
+def llm_available(timeout=3):
+    """本地模型在不在线（不在就完全不碰 LLM 路径）。"""
+    try:
+        req = urllib.request.Request(LLM_BASE.rstrip("/") + "/models",
+                                     headers={"Authorization": f"Bearer {LLM_KEY}"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def llm_rescue(log_fn=None, reason="", cooldown=300):
+    """卡住时让模型从白名单里挑**一个**动作，校验后发出去。返回执行的动作或 None。
+
+    - 有冷却（默认 5 分钟最多一次），避免模型瞎指挥把局面搞更糟；
+    - 动作仍要过 normalize_action + validate_actions（坐标瞎编会被丢掉）；
+    - 模型不可用 / 超时 / JSON 非法 → 返回 None，调用方继续走原来的兜底。
+    """
+    global _last_rescue_at, _rescue_used
+    def _log(m):
+        if log_fn:
+            log_fn(m)
+    if time.time() - _last_rescue_at < cooldown:
+        return None
+    if not llm_available():
+        return None
+    _last_rescue_at = time.time()
+    try:
+        st = read_state()
+        s = summarize(st)
+        t = s.get("tile") or {}
+        px, py = int(t.get("x", -99)), int(t.get("y", -99))
+        loc = str(s.get("location") or "")
+        # ① 本地确定性生成候选动作（坐标都来自真实状态，避免模型瞎编）
+        cands = [{"type": "unstick", "why": "原地抖开"},
+                 {"type": "warp_house", "why": "传送进农舍重置位置"},
+                 {"type": "close_menu", "why": "关掉可能卡住的操作界面"}]
+        if loc != "Farm":
+            cands.append({"type": "goto", "location": "Farm", "why": "回农场"})
+        passable = [z for z in (s.get("tiles") or [])
+                    if abs(z["x"] - px) <= 3 and abs(z["y"] - py) <= 3
+                    and not z.get("obj") and not z.get("breakable")]
+        for z in passable[:3]:
+            cands.append({"type": "walk_to", "x": z["x"], "y": z["y"],
+                          "why": "走到旁边空格 (%d,%d)" % (z["x"], z["y"])})
+        for z in [z for z in (s.get("tiles") or []) if z.get("cropReady")][:2]:
+            cands.append({"type": "interact", "x": z["x"], "y": z["y"], "why": "收成熟作物"})
+        if loc == "Farm":
+            cands.append({"type": "walk_to", "x": 64, "y": 16, "why": "走到小屋门口"})
+        cands.append({"type": "go_fish", "why": "去钓鱼点"})
+        cands = cands[:9]
+        menu_txt = "\n".join("%d. %s" % (i + 1, json.dumps(c, ensure_ascii=False)) for i, c in enumerate(cands))
+        info = {"season": s.get("season"), "day": s.get("day"), "time": s.get("time"),
+                "weather": s.get("weather"), "location": loc, "tile": t,
+                "money": s.get("money"), "stamina": s.get("stamina"),
+                "inventory": s.get("inventory")}
+        sys_p = ("你是星露谷物语的操作手。角色卡住了，下面是几个**已经校验过坐标**的候选动作，"
+                 "你只能选一个编号。只输出 {\"choice\": 编号}，不要解释、不要输出别的字。")
+        user_p = ("状态：" + json.dumps(info, ensure_ascii=False)
+                  + "\n卡住原因：" + (reason or "位置长时间不动")
+                  + "\n候选：\n" + menu_txt
+                  + "\n只输出 {\"choice\": 编号}。")
+        text = llm_chat([{"role": "system", "content": sys_p}, {"role": "user", "content": user_p}],
+                        temperature=0.0, max_tokens=40)
+        obj = _extract_json(text) or {}
+        try:
+            idx = int(obj.get("choice") or 0)
+        except Exception:
+            m = re.search(r"\d+", text or "")
+            idx = int(m.group(0)) if m else 0
+        if not (1 <= idx <= len(cands)):
+            _log("  [LLM救援] 模型没选中有效编号（原文：%s），放弃" % str(text)[:60])
+            return None
+        act = dict(cands[idx - 1])
+        act.pop("why", None)
+        # 再次过一遍校验（防止候选之外的字段混进来）
+        kept = validate_actions(s, [normalize_action(act) or act])
+        if not kept:
+            _log("  [LLM救援] 校验没过：%s" % act)
+            return None
+        send_order(kept[0])
+        _rescue_used += 1
+        _log("  [LLM救援] 模型选了 #%d %s（第 %d 次）" % (idx, json.dumps(kept[0], ensure_ascii=False), _rescue_used))
+        return kept[0]
+    except Exception as e:
+        _log("  [LLM救援] 异常：%s" % e)
+        return None
+
+
 def _extract_json(text):
     text = (text or "").strip()
     if text.startswith("```"):
@@ -2288,7 +2410,9 @@ def _extract_json(text):
 def normalize_action(a):
     t = a.get("type")
     if t in ("walk_to", "exit", "use_tool", "interact", "shop_buy", "ship", "sleep", "plant",
-             "goto_shop", "goto", "fish"):
+             "goto_shop", "goto", "fish",
+             # 2026-11-22：救援动作也要能过白名单（原来这几个全被当非法丢掉）
+             "unstick", "warp_house", "warp_to", "close_menu", "enter_home", "go_fish", "stop_fish"):
         a = dict(a)
         a["actionType"] = t
         a.pop("type", None)
@@ -2330,7 +2454,8 @@ def validate_actions(state, actions):
         if indoor and t in ("walk_to", "use_tool", "interact", "plant"):
             log(f"  丢弃（人在屋里，先出门）：{a}")
             continue
-        if t in ("walk_to", "exit", "shop_buy", "ship", "sleep", "goto_shop", "goto", "fish"):
+        if t in ("walk_to", "exit", "shop_buy", "ship", "sleep", "goto_shop", "goto", "fish",
+                      "unstick", "warp_house", "warp_to", "close_menu", "enter_home", "go_fish", "stop_fish"):
             if t == "walk_to" and a.get("x") is not None:
                 tx, ty = a.get("x"), a.get("y")
                 if (tx, ty) not in tiles and (tx, ty) not in dry and abs(tx - px) + abs(ty - py) > 12:

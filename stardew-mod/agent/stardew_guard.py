@@ -75,9 +75,11 @@ def fishing_now():
 
 def start_loop():
     log("  拉起通宵循环")
+    env = dict(os.environ)
+    env["STARDEW_LLM_PLAN"] = "1"          # 2026-11-22：让本地 qwen 参与「今天种什么」
     subprocess.Popen([PY, "-u", "stardew_overnight.py", "70"], cwd=HERE,
                      stdout=open(r"D:\live\logs\overnight_stdout.log", "a", encoding="utf-8"),
-                     stderr=subprocess.STDOUT, creationflags=0x00000008)
+                     stderr=subprocess.STDOUT, creationflags=0x00000008, env=env)
 
 
 def restart_game():
@@ -172,8 +174,16 @@ def main():
                 log("  ⚠ 位置 %s 3 分钟没动（游戏时间在走），unstick" % (p,))
                 A.send_order({"actionType": "unstick"})
             elif still == 8:
-                log("  ⚠ unstick 无效，传送回农场")
-                A.send_order({"actionType": "warp_to", "location": "Farm"})
+                # 2026-11-22：unstick 无效时先问本地模型（从校验过的候选里挑一步），不行再走老兜底
+                log("  ⚠ unstick 无效，先让本地模型出主意")
+                try:
+                    picked = A.llm_rescue(log_fn=log, reason="位置 %s 连续 6 分钟没动" % (p,))
+                except Exception as e:
+                    picked = None
+                    log("  LLM 救援异常：%s" % e)
+                if not picked:
+                    log("  ⚠ 模型没给建议，传送回农场")
+                    A.send_order({"actionType": "warp_to", "location": "Farm"})
             elif still >= 14:
                 log("  ⚠ 还是卡着，重启循环")
                 try:
