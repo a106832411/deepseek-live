@@ -83,49 +83,53 @@ def main():
     start = time.time()
     base = None
     last_count = 0
-    while time.time() - start < args.minutes * 60:
-        time.sleep(15)
-        # 到点收工
-        if args.until:
-            cur = A._mins(st_date.get("time") if False else state().get("time"))
-            if cur >= A._mins(args.until):
-                log("  到点收工（%s >= %s）" % (state().get("time"), args.until))
-                break
-        # 00:00 自动回家睡觉
+    try:
+        while time.time() - start < args.minutes * 60:
+            time.sleep(15)
+            # 到点收工
+            if args.until:
+                cur = A._mins(st_date.get("time") if False else state().get("time"))
+                if cur >= A._mins(args.until):
+                    log("  到点收工（%s >= %s）" % (state().get("time"), args.until))
+                    break
+            # 00:00 自动回家睡觉
+            try:
+                if A.handle_midnight(log_fn=log):
+                    log("  已到 00:00，回家睡觉，钓鱼结束")
+                    break
+            except Exception as e:
+                log("  00:00 检查异常: %s" % e)
+            try:
+                s = state()
+            except Exception as e:
+                log("  读状态失败: %s" % e)
+                continue
+            if str(s.get("location")) != "Beach":
+                log("  不在海滩了（%s），重新过去" % s.get("location"))
+                if not go_to_beach():
+                    break
+                A.send_order({"actionType": "go_fish"})
+                time.sleep(10)
+                A.protect_scythe_from_fish(log_fn=log)
+                A.send_order({"actionType": "fish"})
+                continue
+            inv = s.get("inventory") or []
+            cnt = len([i for i in inv if i not in TOOLS])
+            if base is None:
+                base = cnt
+            if cnt != last_count:
+                gained = cnt - (base or 0)
+                log("  物品变化 +%d（共 %d）：%s" % (gained, cnt, inv[-3:]))
+                last_count = cnt
+            # 卡住自愈：位置和物品都没变化太久 → 重发 fish
+    finally:
+        # 2026-11-22：不管怎么退出（正常收工 / 异常 / 被父进程 terminate）都要先收竿，
+        # 否则 mod 的钓鱼泵会自己抛竿到第二天，抛竿时 CurrentTool=rod 会覆盖选中格（丢镐子/镰刀）。
         try:
-            if A.handle_midnight(log_fn=log):
-                log("  已到 00:00，回家睡觉，钓鱼结束")
-                # 2026-11-21 修：原来这里直接 return，钓鱼泵还开着，
-                # 第二天它会自己抛竿并 player.CurrentTool = rod，把当前选中格覆盖成鱼竿
-                # （就是铱镰刀丢失那条路径），所以退出前必须收竿。
-                A.send_order({"actionType": "stop_fish"})
-                time.sleep(1.5)
-                return
-        except Exception as e:
-            log("  00:00 检查异常: %s" % e)
-        try:
-            s = state()
-        except Exception as e:
-            log("  读状态失败: %s" % e)
-            continue
-        if str(s.get("location")) != "Beach":
-            log("  不在海滩了（%s），重新过去" % s.get("location"))
-            if not go_to_beach():
-                break
-            A.send_order({"actionType": "go_fish"})
-            time.sleep(10)
-            A.protect_scythe_from_fish(log_fn=log)
-            A.send_order({"actionType": "fish"})
-            continue
-        inv = s.get("inventory") or []
-        cnt = len([i for i in inv if i not in TOOLS])
-        if base is None:
-            base = cnt
-        if cnt != last_count:
-            gained = cnt - (base or 0)
-            log("  物品变化 +%d（共 %d）：%s" % (gained, cnt, inv[-3:]))
-            last_count = cnt
-        # 卡住自愈：位置和物品都没变化太久 → 重发 fish
+            A.send_order({"actionType": "stop_fish"})
+            time.sleep(1.5)
+        except Exception:
+            pass
     s = state()
     log("收工: 钱%s 时间%s" % (s.get("money"), s.get("time")))
     log("背包: %s" % s.get("inventory"))

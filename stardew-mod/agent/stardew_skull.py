@@ -71,16 +71,21 @@ def down_candidates(s):
     return out
 
 
-def mine_some(s, n=6):
+def mine_some(s, n=8, failed=None):
+    """挖最近的 n 处石头/矿。failed 里的格子跳过（走不到的别反复试）。"""
+    failed = failed if failed is not None else set()
     px, py = pos()
-    tiles = [t for t in (s.get('tiles') or []) if t.get('breakable')]
+    tiles = [t for t in (s.get('tiles') or [])
+             if t.get('breakable') and (t['x'], t['y']) not in failed]
     tiles.sort(key=lambda t: abs(t['x'] - px) + abs(t['y'] - py))
     hit = 0
     for t in tiles[:n]:
-        if go_near(t['x'], t['y']):
-            A.send_order({'actionType': 'use_tool', 'tool': 'pickaxe', 'x': t['x'], 'y': t['y']})
-            time.sleep(0.7)
-            hit += 1
+        if not go_near(t['x'], t['y']):
+            failed.add((t['x'], t['y']))
+            continue
+        A.send_order({'actionType': 'use_tool', 'tool': 'pickaxe', 'x': t['x'], 'y': t['y']})
+        time.sleep(0.7)
+        hit += 1
     return hit
 
 
@@ -114,7 +119,7 @@ def descend():
                 log('  %s (%d,%d) 走不到，换目标' % (c.get('obj'), c['x'], c['y']))
 
         # 本层没梯子（或够不到）→ 挖石头，原版挖够就会冒梯子
-        hit = mine_some(st(), 8)
+        hit = mine_some(st(), 8, failed=failed)
         if hit == 0:
             log('  本层没有能挖的石头了，下不去')
             break

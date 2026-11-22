@@ -113,7 +113,8 @@ def main():
 
             # ② 状态文件新鲜度（重启后给 5 分钟宽限，别反复重启把游戏吊死在启动阶段）
             m = os.path.getmtime(STATE) if os.path.exists(STATE) else 0
-            stale = m and last_state_m and (time.time() - m) > 180
+            # 2026-11-22：文件不存在/读不到也算 stale（以前 m=0 时永远不判，游戏没读档就没人重启）
+            stale = (not m) or (last_state_m and (time.time() - m) > 180)
             if stale and (time.time() - last_restart) > 300:
                 log("  ⚠ 状态文件 180 秒没更新，判定软锁")
                 restart_game()
@@ -186,15 +187,27 @@ def main():
                     A.send_order({"actionType": "warp_to", "location": "Farm"})
             elif still >= 14:
                 log("  ⚠ 还是卡着，重启循环")
+                # 2026-11-22 修：原来用 wmic（Win11 上根本没有这个命令），杀不掉旧循环
+                # 还照样 start_loop()，结果两个 overnight 抢同一个角色。改用 PowerShell + 确认已退出。
                 try:
-                    subprocess.run(["wmic", "process", "where", "name='python.exe' and CommandLine like '%stardew_overnight%'", "call", "terminate"],
-                                   capture_output=True, text=True, errors="replace")
-                except Exception:
-                    pass
-                time.sleep(3)
-                start_loop()
+                    ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and "
+                          "$_.CommandLine -match 'stardew_overnight' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }")
+                    subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                                   capture_output=True, text=True, errors="replace", timeout=30)
+                except Exception as e:
+                    log("  杀旧循环失败：%s" % e)
+                t0 = time.time()
+                while time.time() - t0 < 15:
+                    time.sleep(2)
+                    if not loop_running():
+                        break
+                if loop_running():
+                    log("  ⚠ 旧循环杀不掉，先不新拉（避免两个循环抢角色）")
+                else:
+                    start_loop()
                 still = 0
-        except Exception as e:
+        except (Exception, SystemExit) as e:
+            # read_state() 在 player_state.json 缺失时抛 SystemExit，原来抓不到 → 守卫静默退出
             log("守卫异常: %s" % e)
         time.sleep(45)
 

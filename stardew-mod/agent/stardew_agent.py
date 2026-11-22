@@ -453,7 +453,7 @@ def go_to_shop(log_fn=None, timeout=420):
                     loc, tx, ty = _loc_and_tile()
                     if loc == "SeedShop":
                         break
-                    if abs(tx - dx) + abs(ty - dy) <= 2:
+                    if abs(tx - dx) + abs(ty - dy) <= 1:   # mod 的 EnterHouse 只有 ≤1 格才会真的推门
                         break
                 loc, tx, ty = _loc_and_tile()
                 if loc == "SeedShop":
@@ -529,7 +529,7 @@ def wait_purchase(seed_en, want, log_fn=None, timeout=60):
             return n
         if n == last:
             stable += 1
-            if stable >= 4 and n > 0:
+            if stable >= 4:      # 2026-11-22：买不动（n=0）也要提前收工，否则白等 60 秒
                 break
         else:
             stable = 0
@@ -722,7 +722,13 @@ def hard_unstick(log_fn=None):
 
 
 def _go_near(x, y, log_fn=None, tries=8, wait=1.2):
-    """走到目标附近（相邻即可）。tries/wait 可调，种植用更短的等待。"""
+    """走到目标附近（相邻即可）。tries/wait 可调，种植用更短的等待。
+
+    2026-11-22 修：原来只要 tries×wait 到点就认定「走不过去」并调 hard_unstick
+    （传送进农舍再出门），而 harvest_click 只给 1.2 秒、种植只给 3.6 秒，
+    正常赶路 7 格以上就被误判成卡死，人被反复传送回农舍，远处的作物永远收不到。
+    现在改成：**连续两次采样距离都没变小**才算卡住，而且必须整轮真的没走到才 unstick。
+    """
     def _pos():
         st = summarize(read_state())
         t = st.get("tile") or {}
@@ -735,13 +741,20 @@ def _go_near(x, y, log_fn=None, tries=8, wait=1.2):
     if abs(px - x) + abs(py - y) <= 2:
         return True
     send_order({"actionType": "walk_to", "x": x, "y": y})
+    best = abs(px - x) + abs(py - y)
+    no_progress = 0
     for _ in range(tries):
         time.sleep(wait)
         st, px, py = _pos()
-        if abs(px - x) + abs(py - y) <= 2:
+        d = abs(px - x) + abs(py - y)
+        if d <= 2:
             return True
-    # 2026-11-22：走不过去多半是人被围死了 → 强制脱困一次再试
-    if hard_unstick(log_fn=log_fn):
+        if d < best:
+            best, no_progress = d, 0
+        else:
+            no_progress += 1
+    # 只有「距离一次都没缩小」才认为真卡住，才允许强制脱困
+    if no_progress >= max(2, tries - 1) and hard_unstick(log_fn=log_fn):
         send_order({"actionType": "walk_to", "x": x, "y": y})
         for _ in range(tries):
             time.sleep(wait)
@@ -959,19 +972,32 @@ def protect_scythe_from_fish(log_fn=None):
         pos = st.get("tile") or {}
         px, py = pos.get("x", -99), pos.get("y", -99)
         target = None
-        for w in (st.get("water_tiles") or []):
-            wx, wy = w.get("x"), w.get("y")
-            if wx is None or wy is None:
-                continue
-            if abs(int(wx) - int(px)) + abs(int(wy) - int(py)) <= 2:
-                target = (int(wx), int(wy))
+        # 2026-11-22 修：summarize 不透传 water_tiles（mod 侧也一直是空数组），
+        # 原来这里永远拿不到水面 → 兜底朝自己脚下挥镐，可能把脚下耕地/作物挖掉。
+        # 改成用 water_cache()（扫描结果），找不到水面就直接去「最近的可走空地」占位；
+        # 连空地都没有就返回 False，不发这一刀。
+        try:
+            water = water_cache(log_fn=log_fn) or set()
+        except Exception:
+            water = set()
+        for (wx, wy) in sorted(water, key=lambda c: abs(c[0] - px) + abs(c[1] - py)):
+            if abs(wx - px) + abs(wy - py) <= 2:
+                target = (wx, wy)
                 break
         if target is None:
-            target = (px, py)      # 兜底：朝自己脚下挥（没有石头就什么都不会发生）
+            for z in (st.get("tiles") or []):
+                if z.get("crop") or z.get("obj"):
+                    continue
+                if abs(z["x"] - px) + abs(z["y"] - py) <= 2:
+                    target = (z["x"], z["y"])
+                    break
+        if target is None:
+            _log("  [护镰刀] 附近没有水格/空地可占位，这一刀跳过（不朝脚下挖）")
+            return False
         send_order({"actionType": "use_tool", "tool": "pickaxe",
                     "x": target[0], "y": target[1]})
         time.sleep(1.2)
-        _log("  [护镰刀] 选中格已挪到镐子（钓鱼时被顶掉的是镐子，ensure_tools 会补回）")
+        _log("  [护镰刀] 选中格已挪到镐子（朝 %d,%d 挥了一下）" % target)
         return True
     except Exception as e:
         _log("  [护镰刀] 异常：%s" % e)
@@ -1411,13 +1437,14 @@ def farm_maintenance(log_fn=None):
         for (x, y) in cand[:20]:
             if done >= tappers:
                 break
+            if inv_count("Tapper") <= 0:      # 2026-11-22：背包没采集器了就别再跑
+                break
             send_order({"actionType": "walk_to", "x": x, "y": y})
             time.sleep(1.2)
             send_order({"actionType": "place_item", "name": "Tapper", "x": x, "y": y})
             time.sleep(0.8)
-            if done == 0:
-                pass
-        _log("  [维护] 采集器检查完毕（背包还剩 %d）" % inv_count("Tapper"))
+            done += 1                          # 原来这里没累加，done>=tappers 永远不成立，每天白跑 20 棵树
+        _log("  [维护] 采集器检查完毕（本轮试挂 %d 台，背包还剩 %d）" % (done, inv_count("Tapper")))
 
     # ② 脱水机：材料够就补（30 木 + 2 粘土 + 1 火石英）
     if inv_count("Dehydrator") == 0 and inv_count("Wood") >= 30 * 3 and inv_count("Clay") >= 6 and inv_count("Fire Quartz") >= 3:
@@ -1550,13 +1577,39 @@ def go_skull_walk(log_fn=None):
             time.sleep(6)
 
     # ④ 洞口房间 → 第 1 层
-    if loc() == "SkullCave":
-        if int(st().get("mine_level") or 0) < 121:
-            send_order({"actionType": "warp_to", "location": "SkullCave"})
-            time.sleep(7)
+    # 2026-11-22 修：以前这里发 warp_to SkullCave —— 人已经在 SkullCave 时
+    # WarpDirect 直接 return（cur==dest），永远下不去；而且成功判据只认 location=="SkullCave"，
+    # 真进洞后 location 是 UndergroundMine121+，反而判失败。现在改成走真实梯子 + 只看 mine_level。
+    if loc() == "SkullCave" and int(st().get("mine_level") or 0) < 121:
+        _log("  [骷髅洞穴] 在洞口小房间，找真实梯子下第 1 层")
+        got = False
+        for _ in range(3):
+            s = st()
+            cands = [z for z in (s.get("tiles") or [])
+                     if z.get("interactable")
+                     and any(k in str(z.get("obj") or "") for k in ("梯", "竖井", "Ladder", "Shaft"))]
+            for c in cands[:2]:
+                # 梯子格本身不可走：走到四邻格再交互
+                for (tx, ty) in ((c["x"], c["y"] + 1), (c["x"], c["y"] - 1), (c["x"] + 1, c["y"]), (c["x"] - 1, c["y"])):
+                    send_order({"actionType": "walk_to", "x": tx, "y": ty})
+                    time.sleep(2.5)
+                    send_order({"actionType": "interact", "x": c["x"], "y": c["y"]})
+                    time.sleep(2.5)
+                    if int(st().get("mine_level") or 0) >= 121:
+                        got = True
+                        break
+                if got:
+                    break
+            if got:
+                break
+        if not got:
+            _log("  [骷髅洞穴] 房间里没梯子，用「楼梯」兜底（mine_goto 121）")
+            send_order({"actionType": "mine_goto", "level": 121})
+            time.sleep(8)
     s2 = st()
-    ok = str(s2.get("location")) == "SkullCave" and int(s2.get("mine_level") or 0) >= 121
-    _log("  [骷髅洞穴] 进洞结果：%s 层 %s（%s）" % (s2.get("location"), s2.get("mine_level"), "成功" if ok else "失败"))
+    lvl2 = int(s2.get("mine_level") or 0)
+    ok = lvl2 >= 121 or str(s2.get("location") or "").startswith("UndergroundMine")
+    _log("  [骷髅洞穴] 进洞结果：%s 层 %s（%s）" % (s2.get("location"), lvl2, "成功" if ok else "失败"))
     return ok
 
 
@@ -1626,37 +1679,68 @@ def spare_time_activity(until="20:00", log_fn=None):
     try:
         # 用 Popen 自己盯游戏时间：脚本偶尔会把 --until 越过（挖矿一局太久），
         # 一过线就掐掉，否则回家太晚会在 2:00 昏倒扣 1000g（2026-11-19 修）
+        # 2026-11-22 修：① 子脚本输出直接写文件（用 PIPE 又从不读，4KB 缓冲写满就死锁）；
+        # ② 掐脚本前先 stop_fish / leave_mine，否则 mod 的钓鱼泵会自己抛竿到第二天
+        #   （抛竿会 player.CurrentTool=rod → 覆盖选中格，就是丢镐子/镰刀那条路）。
+        sub_log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "logs",
+                               ("fishsession_run.log" if go_fish else "mine_run.log"))
+        sub_log = os.path.abspath(sub_log)
+        os.makedirs(os.path.dirname(sub_log), exist_ok=True)
+        logf = open(sub_log, "a", encoding="utf-8")
+        logf.write("\n===== %s 启动 %s =====\n" % (script, time.strftime("%m-%d %H:%M:%S")))
+        logf.flush()
         p = subprocess.Popen([sys.executable, "-u", os.path.join(os.path.dirname(os.path.abspath(__file__)), script)] + args,
                              cwd=os.path.dirname(os.path.abspath(__file__)),
-                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             text=True, encoding="utf-8", errors="replace")
+                             stdout=logf, stderr=subprocess.STDOUT)
         deadline = _mins(act_until) + 15          # 到点后再宽限 15 游戏分钟
         t_start = time.time()
+
+        def _stop_child(reason):
+            _log("  [收工] %s → 先复位游戏侧状态（stop_fish / leave_mine），再掐脚本" % reason)
+            try:
+                send_order({"actionType": "stop_fish" if go_fish else "leave_mine"})
+            except Exception:
+                pass
+            time.sleep(2.0)
+            try:
+                p.terminate()
+            except Exception:
+                pass
+            try:
+                p.wait(timeout=10)
+            except Exception:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+
         while p.poll() is None:
             try:
                 cur = _mins(summarize(read_state()).get("time"))
             except Exception:
                 cur = None
             if cur is not None and cur >= deadline:
-                _log("  [收工] 游戏时间 %s 已过 %s，掐掉活动脚本" % (summarize(read_state()).get("time"), act_until))
-                try:
-                    p.terminate()
-                except Exception:
-                    pass
+                _stop_child("游戏时间 %s 已过 %s" % (summarize(read_state()).get("time"), act_until))
                 break
             if time.time() - t_start > 3000:
-                _log("  [收工] 活动超时 50 分钟，强制结束")
-                try:
-                    p.terminate()
-                except Exception:
-                    pass
+                _stop_child("活动超时 50 分钟")
                 break
             time.sleep(10)
         try:
-            out = p.communicate(timeout=30)[0] or ""
+            p.wait(timeout=10)
         except Exception:
-            out = ""
-        for line in out.strip().splitlines()[-8:]:
+            pass
+        try:
+            logf.flush()
+            logf.close()
+        except Exception:
+            pass
+        try:
+            with open(sub_log, encoding="utf-8", errors="replace") as f:
+                tail = f.read().splitlines()[-8:]
+        except Exception:
+            tail = []
+        for line in tail:
             _log("    | " + line)
         return True
     except Exception as e:
@@ -2376,7 +2460,11 @@ def llm_rescue(log_fn=None, reason="", cooldown=300):
         act = dict(cands[idx - 1])
         act.pop("why", None)
         # 再次过一遍校验（防止候选之外的字段混进来）
-        kept = validate_actions(s, [normalize_action(act) or act])
+        # 2026-11-22 修：validate_actions 只认 a["type"]，必须先用原始候选（带 type）过校验，
+        # 再把通过的动作用 normalize_action 转成 actionType 发出去，否则 unstick/goto 这类会被全丢掉。
+        raw = dict(act)
+        kept_raw = validate_actions(s, [raw])
+        kept = [normalize_action(k) or k for k in kept_raw]
         if not kept:
             _log("  [LLM救援] 校验没过：%s" % act)
             return None
@@ -2448,7 +2536,10 @@ def validate_actions(state, actions):
         return best if abs(best[0] - px) + abs(best[1] - py) <= maxd else None
 
     keep = []
-    indoor = not (state.get("tiles") or [])
+    # 2026-11-22 修：tiles 为空只代表「没扫到」，Town/Beach/Desert 这些图本来就没有农田格，
+    # 以前被当成「人在屋里」，把该地图上所有 walk_to/use_tool/interact/plant 全丢掉（LLM 救援也一起废）。
+    _loc = str(state.get("location") or "").lower()
+    indoor = _loc in ("farmhouse", "farmhouse2", "shed", "coop", "barn", "greenhouse", "cabin")
     for a in actions:
         t = a.get("type")
         if indoor and t in ("walk_to", "use_tool", "interact", "plant"):
@@ -3079,7 +3170,7 @@ def ensure_near(state, x, y):
     if abs(px - x) + abs(py - y) > 20:
         log(f"  目标 ({x},{y}) 太远（{abs(px-x)+abs(py-y)} 格），不追")
         return False
-    for cand in ((x - 1, y), (x + 1, y), (x, y + 1), (x, y - 1))[:2]:
+    for cand in ((x - 1, y), (x + 1, y), (x, y + 1), (x, y - 1)):   # 2026-11-22：四个都试，别只试左右
         log(f"  先走到 ({cand[0]},{cand[1]}) 旁边")
         send_order({"actionType": "walk_to", "x": cand[0], "y": cand[1]})
         if wait_pos(cand, timeout=min(8.0, 2.0 + (abs(px - cand[0]) + abs(py - cand[1])) * 0.3)):
@@ -3190,7 +3281,14 @@ def ensure_seeds(state, crop, count):
         return False
     inv = state.get("inventory") or []
     en = CROP_EN.get(crop, crop)
-    if any((crop in str(x)) or (en in str(x)) for x in inv):
+    # 2026-11-22 修：以前只要物品名包含作物名就算「有种子」，收获下来的果实
+    # （Blueberry / 蓝莓）也满足 → 误判不用买种，后面 plant 全被 mod 以「没有种子」拒绝。
+    # 现在必须名字里真的带 Seeds/种子。
+    def _is_seed(nm):
+        s = str(nm)
+        return (("Seed" in s) or ("种子" in s)) and ((crop in s) or (en in s))
+
+    if any(_is_seed(x) for x in inv):
         return True
     if (state.get("money") or 0) < 200:
         log(f"钱不够买{crop}种子（{state.get('money')}g）")
