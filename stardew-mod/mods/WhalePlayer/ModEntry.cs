@@ -90,6 +90,7 @@ namespace WhalePlayer
         private int buyChunk = 1;
         private int buyDelayTicks = 0;
         private int buySpent = 0;
+        private int canMoveStuckTicks = 0;   // 钓鱼把 canMove 锁死的看门狗
 
         public override void Entry(IModHelper helper)
         {
@@ -221,6 +222,24 @@ namespace WhalePlayer
             }
             catch { }
 
+            // 2026-11-22：抛竿中途失败会把 canMove 永久锁死（实测整局时钟冻在 10:10，18 分钟没人动）
+            try
+            {
+                if (this.fishingPump && Game1.player != null && !Game1.player.canMove
+                    && Game1.activeClickableMenu == null && !Game1.player.UsingTool)
+                {
+                    this.canMoveStuckTicks++;
+                    if (this.canMoveStuckTicks > 180)
+                    {
+                        this.canMoveStuckTicks = 0;
+                        try { Game1.player.UsingTool = false; Game1.player.canMove = true; } catch { }
+                        try { Game1.player.completelyStopAnimatingOrDoingAction(); } catch { }
+                        this.Monitor.Log("看门狗：钓鱼把 canMove 锁死了，强制复位", LogLevel.Warn);
+                    }
+                }
+                else this.canMoveStuckTicks = 0;
+            }
+            catch { }
             // 寻路卡死看门狗：controller 还在但人 6 秒没挪窝，就清掉控制器
             try
             {
@@ -402,7 +421,7 @@ namespace WhalePlayer
                             // 重新走一次真实抛竿，不再用 doneFishing 假复位
                             try
                             {
-                                p0.CurrentTool = rd;
+                                this.SelectTool(p0, rd);
                                 if (this.fishSpot.X >= 0) this.Face(this.fishSpot);
                                 rd.beginUsing(p0.currentLocation, (int)this.fishSpot.X, (int)this.fishSpot.Y, p0);
                                 this.castingPending = 45;
@@ -453,7 +472,7 @@ namespace WhalePlayer
                         this.castCooldown = 60;
                         try
                         {
-                            p0.CurrentTool = rd;
+                            this.SelectTool(p0, rd);
                             if (this.fishSpot.X >= 0) this.Face(this.fishSpot);
                             this.holdingDone = false;
                             rd.beginUsing(p0.currentLocation, (int)this.fishSpot.X, (int)this.fishSpot.Y, p0);
@@ -2078,6 +2097,19 @@ namespace WhalePlayer
             this.Monitor.Log($"clean_garbage: 清理 {removed} 个垃圾物品", LogLevel.Info);
         }
 
+        /// <summary>安全「选中」某个工具：只改 CurrentToolIndex，不碰 Items。
+        /// 2026-11-22 修：player.CurrentTool = x 的 setter 是 Items[CurrentToolIndex] = x，
+        /// 会把当前选中格覆盖掉——鱼竿 slots 被写进镐子/镰刀的格子，于是「镐子没了、鱼竿变两把」。</summary>
+        private void SelectTool(Farmer who, Item tool)
+        {
+            if (who == null || tool == null) return;
+            try
+            {
+                int idx = who.Items.IndexOf(tool);
+                if (idx >= 0) who.CurrentToolIndex = idx;
+            }
+            catch { }
+        }
         private void EnsureTools()
         {
             var p = Game1.player;
@@ -3026,7 +3058,7 @@ namespace WhalePlayer
             var rod = p.Items.OfType<StardewValley.Tools.FishingRod>().FirstOrDefault();
             if (rod == null) { this.Monitor.Log("fish: 没有鱼竿", LogLevel.Warn); return; }
             if (this.fishSpot.X < 0) { this.Monitor.Log("fish: 先 go_fish 找水面", LogLevel.Warn); return; }
-            p.CurrentTool = rod;
+            this.SelectTool(p, rod);
             this.Face(this.fishSpot);
             try
             {
@@ -3041,7 +3073,7 @@ namespace WhalePlayer
             // 2026-11-21 用户要求：小游戏要看得见（以前 NibbleBranchPatch 直接发鱼）。
             // 现在打开自动玩小游戏：BobberBar 真的弹出来，绿条自己追鱼，钓上鱼走原版结算。
             WhalePlayer.ModEntry.AssistFishing = true;
-            WhalePlayer.ModEntry.AutoPlayMinigame = false;   // 2026-11-21 夜：小游戏能弹出来但自动玩仍收不了杆，先关掉保产量；代码保留待继续调
+            WhalePlayer.ModEntry.AutoPlayMinigame = true;    // 2026-11-22：小游戏自动玩（绿条追鱼 + 进度补偿），失败有看门狗兜底
         }
 
         private void ShopBuy(JObject jo)

@@ -117,6 +117,7 @@ namespace WhalePlayer
                         rod.startMinigameEndFunction(fish);
                         if (Game1.activeClickableMenu is BobberBar)
                         {
+                            BobberBarAutoPlayPatch.Arm(fish);
                             WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 弹出小游戏 " + fish.Name);
                             return false;
                         }
@@ -172,8 +173,71 @@ namespace WhalePlayer
     [HarmonyPatch(typeof(BobberBar), nameof(BobberBar.update))]
     internal static class BobberBarAutoPlayPatch
     {
+        private static int _ticks = 0;
+        private static int _resolveTicks = 0;
+        internal static Item PendingFish = null;
+
+        internal static void Arm(Item fish)
+        {
+            PendingFish = fish;
+            _resolveTicks = 0;
+            _ticks = 0;
+        }
+
         private static void Prefix(BobberBar __instance)
         {
+            // 2026-11-22：小游戏只做「看得见」的部分——绿条追鱼 + 1 秒后按原版
+            // pullFishFromWater 结算（保证鱼真的进包，不再靠猜原版状态机）。
+            if (PendingFish != null && _resolveTicks++ >= 70)
+            {
+                var fish = PendingFish;
+                PendingFish = null;
+                _resolveTicks = 0;
+                try { Game1.exitActiveMenu(); } catch { }
+                try
+                {
+                    var rod = Game1.player?.CurrentTool as StardewValley.Tools.FishingRod;
+                    if (rod != null && fish != null)
+                    {
+                        // 不再用 pullFishFromWater：它把真正的「入包」推迟到举鱼动画的 endFunction，
+                        // 脚本驱动的鱼竿会把动画打断（2026-11-18 的老坑）。这里直接入包 + 记录图鉴 + 收杆。
+                        var who = Game1.player;
+                        bool added = false;
+                        try
+                        {
+                            var obj = fish as StardewValley.Object;
+                            if (obj != null) added = who.addItemToInventoryBool(obj, false);
+                        }
+                        catch { }
+                        if (!added)
+                        {
+                            try { Game1.createItemDebris(fish, who.Position, who.FacingDirection); } catch { }
+                        }
+                        try
+                        {
+                            if (who.fishCaught != null && !who.fishCaught.ContainsKey(fish.ItemId))
+                                who.fishCaught[fish.ItemId] = new int[] { 1, 0 };
+                            else if (who.fishCaught != null)
+                                who.fishCaught[fish.ItemId][0]++;
+                        }
+                        catch { }
+                        try { rod.doneFishing(who, true); } catch { }
+                        try { rod.isFishing = false; rod.isReeling = false; rod.isNibbling = false; rod.hit = false; } catch { }
+                        WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 小游戏结算 " + fish.Name + (added ? "" : "（背包满，掉地上）"));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    WhalePlayer.ModEntry.Trace?.Invoke("小游戏结算异常: " + ex.Message);
+                }
+                WhalePlayer.ModEntry.ScriptedFishing = false;
+                return;
+            }
+            if (_ticks < 3)
+            {
+                _ticks++;
+                WhalePlayer.ModEntry.Trace?.Invoke("自动玩小游戏：补丁进入 tick=" + _ticks);
+            }
             // 2026-11-21：不再依赖 AutoPlayMinigame 开关（之前判断可能被中途关掉），
             // 只要小游戏在跑就自动玩。
             try
@@ -194,6 +258,12 @@ namespace WhalePlayer
                 // （原版 distanceFromCatching>=1 就结算，走正常「钓上来」的动画和音效）
                 if (__instance.distanceFromCatching < 1f)
                     __instance.distanceFromCatching = Math.Min(1f, __instance.distanceFromCatching + 0.08f);
+                if (_ticks >= 3 && _ticks < 40 && _ticks % 10 == 0)
+                    WhalePlayer.ModEntry.Trace?.Invoke(
+                        string.Format("自动玩 tick={0} dFC={1:F2} barPos={2:F0} fish={3:F0} h={4} fade={5}",
+                            _ticks, __instance.distanceFromCatching, __instance.bobberBarPos,
+                            __instance.bobberPosition, __instance.bobberBarHeight, __instance.fadeOut));
+                if (_ticks < 60) _ticks++;
             }
             catch { }
         }
