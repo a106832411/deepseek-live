@@ -199,8 +199,9 @@ namespace WhalePlayer
                     var rod = Game1.player?.CurrentTool as StardewValley.Tools.FishingRod;
                     if (rod != null && fish != null)
                     {
-                        // 不再用 pullFishFromWater：它把真正的「入包」推迟到举鱼动画的 endFunction，
-                        // 脚本驱动的鱼竿会把动画打断（2026-11-18 的老坑）。这里直接入包 + 记录图鉴 + 收杆。
+                        // 2026-11-22：要「举着鱼」的动画。pullFishFromWater 的动画要求鱼竿状态完整，
+                        // 脚本驱动下会被打断（实测：动画一进去就断），所以改用原版
+                        // Farmer.holdUpItemThenMessage —— 这就是钓鱼后举鱼的那个动作，然后再手动入包。
                         var who = Game1.player;
                         bool added = false;
                         try
@@ -209,10 +210,7 @@ namespace WhalePlayer
                             if (obj != null) added = who.addItemToInventoryBool(obj, false);
                         }
                         catch { }
-                        if (!added)
-                        {
-                            try { Game1.createItemDebris(fish, who.Position, who.FacingDirection); } catch { }
-                        }
+                        if (!added) { try { Game1.createItemDebris(fish, who.Position, who.FacingDirection); } catch { } }
                         try
                         {
                             if (who.fishCaught != null && !who.fishCaught.ContainsKey(fish.ItemId))
@@ -221,9 +219,10 @@ namespace WhalePlayer
                                 who.fishCaught[fish.ItemId][0]++;
                         }
                         catch { }
+                        try { who.holdUpItemThenMessage(fish, false); } catch { }
                         try { rod.doneFishing(who, true); } catch { }
                         try { rod.isFishing = false; rod.isReeling = false; rod.isNibbling = false; rod.hit = false; } catch { }
-                        WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 小游戏结算 " + fish.Name + (added ? "" : "（背包满，掉地上）"));
+                        WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 举鱼入包 " + fish.Name + (added ? "" : "（背包满，掉地上）"));
                     }
                 }
                 catch (Exception ex)

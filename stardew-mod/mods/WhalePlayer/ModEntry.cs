@@ -32,6 +32,11 @@ namespace WhalePlayer
         public static bool AssistFishing = false;
         /// <summary>钓鱼小游戏自动操作（让绿条自己追鱼，保留小游戏动画）。</summary>
         public static bool AutoPlayMinigame = false;
+        // 2026-11-22：举鱼动画兜底——动画被打断也要把鱼补进背包
+        public static Item PendingCatchFish = null;
+        public static int PendingCatchTicks = 0;
+        public static int PendingCatchBefore = 0;
+
         public static bool TreasureAssist = true;
         public static Action<string> Trace = null;
         private string ordersDir;
@@ -263,7 +268,8 @@ namespace WhalePlayer
             try { this.CheckToolDrift(); } catch { }
 
             // 钓鱼泵：抛竿 → 等咬钩 → 提竿 → 等鱼真入包 → 才抛下一竿
-            if (this.fishingPump)
+            // 举鱼动画期间（PendingCatchFish 未清）先别插手，否则会把动画/入包打断
+            if (this.fishingPump && PendingCatchFish == null)
             {
                 var p0 = Game1.player;
                 var rd = p0.Items.OfType<StardewValley.Tools.FishingRod>().FirstOrDefault();
@@ -570,6 +576,7 @@ namespace WhalePlayer
             // 跨图去商店：每 0.5 秒检查一次，到店/走不动就推进或结束
             if (this.gotoShop && e.IsMultipleOf(30)) this.TickTravel();
 
+            if (e.IsMultipleOf(3)) this.TickCatchVerify();
             if (e.IsMultipleOf(6)) this.TickPurchase();      // 看得见的购买：分批扣钱入包
             if (e.IsMultipleOf(6)) this.ProcessOrders();     // ~0.1s，动作更跟手
             if (e.IsMultipleOf(15)) this.WriteState();           // ~0.25s，状态刷新更快
@@ -2109,6 +2116,68 @@ namespace WhalePlayer
                 if (idx >= 0) who.CurrentToolIndex = idx;
             }
             catch { }
+        }
+        /// <summary>记录「刚钓上来的鱼」，3 秒后校验是否真的进包（举鱼动画被打断时兜底补上）。</summary>
+        public static void ArmCatchVerify(Item fish)
+        {
+            try
+            {
+                PendingCatchFish = fish;
+                PendingCatchTicks = 180;
+                PendingCatchBefore = CountItem(fish == null ? null : fish.ItemId);
+            }
+            catch { }
+        }
+
+        private static int CountItem(string id)
+        {
+            if (string.IsNullOrEmpty(id) || Game1.player == null) return 0;
+            int n = 0;
+            try
+            {
+                foreach (var it in Game1.player.Items)
+                {
+                    if (it != null && it.ItemId == id) n += Math.Max(1, it.Stack);
+                }
+            }
+            catch { }
+            return n;
+        }
+
+        private void TickCatchVerify()
+        {
+            if (PendingCatchFish == null) return;
+            if (--PendingCatchTicks > 0) return;
+            var fish = PendingCatchFish;
+            PendingCatchFish = null;
+            try
+            {
+                int now = CountItem(fish.ItemId);
+                if (now > PendingCatchBefore)
+                {
+                    this.Monitor.Log("钓鱼: 举鱼动画正常结束，已入包 " + fish.Name, LogLevel.Trace);
+                    return;
+                }
+                var who = Game1.player;
+                bool added = false;
+                try
+                {
+                    var obj = fish as StardewValley.Object;
+                    if (obj != null) added = who.addItemToInventoryBool(obj, false);
+                }
+                catch { }
+                if (!added) { try { Game1.createItemDebris(fish, who.Position, who.FacingDirection); } catch { } }
+                try
+                {
+                    if (who.fishCaught != null && !who.fishCaught.ContainsKey(fish.ItemId))
+                        who.fishCaught[fish.ItemId] = new int[] { 1, 0 };
+                    else if (who.fishCaught != null)
+                        who.fishCaught[fish.ItemId][0]++;
+                }
+                catch { }
+                this.Monitor.Log("钓鱼: 举鱼动画被打断，兜底入包 " + fish.Name, LogLevel.Info);
+            }
+            catch (Exception ex) { this.Monitor.Log("兜底入包异常: " + ex.Message, LogLevel.Warn); }
         }
         private void EnsureTools()
         {
