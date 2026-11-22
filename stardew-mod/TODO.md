@@ -280,3 +280,39 @@ python D:\live\deepseek-live\stardew-mod\agent\stardew_plot_rect.py --set 50,20,
 ```
 
 播种 / 清障 / 收割三处读的都是 `D:\live\logs\.plot_rect`，改一处即全部生效。
+
+---
+
+## 2026-11-22 暂停点（下次从这里接着干）
+
+**当前状态**：存档已存（冬 第 8 天 15:10，钱 1,396,970，蔓越莓已收两轮）。守卫/循环/监视/星露谷/ollama 全部已停。
+
+### 今天做完的（已提交）
+| 提交 | 内容 |
+|---|---|
+| `13d6247` | 根治「双鱼竿」：`CurrentTool = x` 的 setter 会写 `Items[CurrentToolIndex]`，改成只切索引 `SelectTool()` |
+| `1edf925` | 钓鱼结算补「举鱼动画」（`Farmer.holdUpItemThenMessage`）+ 保证入包 |
+| `5d2643e` | 本地 qwen 接入两处：每日选种参与排序（规则兜底）、卡死时从候选动作里选一步（5 分钟冷却） |
+| `c072655` | 沙漠矿洞改成真玩：走真实梯子/竖井、挖石头挖梯子、`go_near` 走四邻格、进洞先试真实洞口 |
+| `2e6345c` | AI 审查修 14 条：`_go_near` 误判卡死传送、`go_skull_walk` 永远下不去、子进程 PIPE 死锁、掐脚本不发 stop_fish、`llm_rescue` 校验顺序、守卫 SystemExit/wmic、fishsession try-finally、店门口阈值、买种等待、护镰刀乱挥镐、采集器 done 不累加、indoor 误判、ensure_near 邻格、ensure_seeds 误认果实 |
+
+### 下次继续的命令
+```powershell
+# 1) 起本地模型（挂机 LLM 用，24h 常驻）
+$env:OLLAMA_MODELS='D:\live\models\ollama'; $env:OLLAMA_KEEP_ALIVE='24h'
+Start-Process D:\live\.tools\ollama\ollama.exe -ArgumentList serve -WindowStyle Hidden
+
+# 2) 起游戏（WhaleAutoLoad 会自动读档，约 40 秒）
+powershell -ExecutionPolicy Bypass -File D:\live\.tools\launch_stardew.ps1
+
+# 3) 起守卫（它会自己拉起通宵循环，并带 STARDEW_LLM_PLAN=1）
+Start-Process D:\live\.tools\python310\python.exe -ArgumentList '-u','D:\live\deepseek-live\stardew-mod\agent\stardew_guard.py' -WindowStyle Hidden
+```
+
+### 还没做完的
+1. `mine2.py` 普通矿洞仍会用电梯跳层、`descend()` 取 `downs[0]` 不判可达（沙漠矿洞已修，普通矿洞没动）；
+2. `validate_actions` 对字符串坐标没有类型校验（模型给 `"x":"64"` 会抛 TypeError）；
+3. `execute()` 里 `fish` 之后固定等 3 秒，新钓鱼流程要 5~8 秒，计划会撞上小游戏；
+4. 水壶（Watering Can）确实丢了，箱子里没有——要不要补由用户决定；
+5. 两个采集器 (13,9)/(16,9) 始终走不到，原因未查；
+6. 冬天地里没作物，`seeds_need_planting` 仍会每天触发一次空流程（可加 winter 短路）。
