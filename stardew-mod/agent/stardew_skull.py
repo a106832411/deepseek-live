@@ -40,15 +40,21 @@ def lvl():
 
 
 def go_near(x, y, tries=3):
+    """走到目标旁边一格。
+
+    2026-11-22 修：梯子/竖井那一格本身是不可走的（mod 的 walk_to 会直接拒绝
+    「不可通行、防穿模」），所以不能直接 walk_to 梯子格——要依次试四邻格。
+    """
     px, py = pos()
     if abs(px - x) + abs(py - y) <= 1:
         return True
-    A.send_order({'actionType': 'walk_to', 'x': x, 'y': y})
-    for _ in range(tries):
-        time.sleep(1.0)
-        px, py = pos()
-        if abs(px - x) + abs(py - y) <= 1:
-            return True
+    for (tx, ty) in ((x, y + 1), (x, y - 1), (x + 1, y), (x - 1, y), (x, y)):
+        A.send_order({'actionType': 'walk_to', 'x': tx, 'y': ty})
+        for _ in range(tries):
+            time.sleep(0.9)
+            px, py = pos()
+            if abs(px - x) + abs(py - y) <= 1:
+                return True
     return False
 
 
@@ -79,43 +85,63 @@ def mine_some(s, n=6):
 
 
 def descend():
-    """优先走真实梯子：梯子没出现就先挖矿，还没有才用楼梯道具。"""
-    s = st()
+    """真实的下一层：先找本层已出现的梯子/竖井（走真实格子），没有就挖石头把梯子挖出来。
+
+    2026-11-22 重写：原来全程走 `mine_goto`（= Game1.enterMine 直接传送），
+    日志里每一层都是「下楼 → N 层」，既没有挖矿也没有走梯子，等于没在玩；
+    而且跳层之后地上的矿物全丢了。现在改成只认真实梯子/竖井，
+    实在挖不出来就返回 False，让上层决定换层或收工（不再偷偷传送）。
+    """
     cur = lvl()
-    lx = int(s.get('ladder_x') or -1)
-    ly = int(s.get('ladder_y') or -1)
-    spawned = bool(s.get('ladder_spawned'))
-
-    if spawned and lx >= 0:
-        if go_near(lx, ly):
-            A.send_order({'actionType': 'interact', 'x': lx, 'y': ly})
-            time.sleep(2.2)
-            if lvl() != cur:
-                log('  走梯子 → %d 层' % lvl())
-                return True
-
-    # 梯子没出现：挖附近的石头/矿（原版规则：挖够就会冒梯子）
-    for _ in range(3):
-        mine_some(st(), 6)
-        s2 = st()
-        if s2.get('ladder_spawned'):
-            lx = int(s2.get('ladder_x') or -1)
-            ly = int(s2.get('ladder_y') or -1)
-            if lx >= 0 and go_near(lx, ly):
-                A.send_order({'actionType': 'interact', 'x': lx, 'y': ly})
-                time.sleep(2.2)
+    failed = set()
+    for round_no in range(1, 6):
+        s = st()
+        cands = [c for c in down_candidates(s) if (c['x'], c['y']) not in failed]
+        if cands:
+            # 竖井优先：一次能下 3~15 层
+            cands.sort(key=lambda t: 0 if ('竖井' in str(t.get('obj')) or 'Shaft' in str(t.get('obj'))) else 1)
+            c = cands[0]
+            if go_near(c['x'], c['y'], tries=4):
+                A.send_order({'actionType': 'interact', 'x': c['x'], 'y': c['y']})
+                time.sleep(2.5)
                 if lvl() != cur:
-                    log('  挖出梯子 → %d 层' % lvl())
+                    log('  走%s (%d,%d) → %d 层' % (c.get('obj'), c['x'], c['y'], lvl()))
                     return True
-        if A._mins(s2.get('time')) >= A._mins('21:15'):
-            return False
+                log('  交互了%s但没下去，换个目标' % c.get('obj'))
+                failed.add((c['x'], c['y']))
+            else:
+                failed.add((c['x'], c['y']))
+                log('  %s (%d,%d) 走不到，换目标' % (c.get('obj'), c['x'], c['y']))
 
-    # 最后兜底：原版下层接口（等价于玩家用楼梯道具下潜）
-    A.send_order({'actionType': 'mine_goto', 'level': cur + 1})
-    time.sleep(3.5)
-    if lvl() != cur:
-        log('  下楼 → %d 层' % lvl())
-        return True
+        # 本层没梯子（或够不到）→ 挖石头，原版挖够就会冒梯子
+        hit = mine_some(st(), 8)
+        if hit == 0:
+            log('  本层没有能挖的石头了，下不去')
+            break
+        log('  第 %d 轮：挖了 %d 处石头找梯子' % (round_no, hit))
+        time.sleep(0.5)
+    return False
+
+
+def enter_cavern():
+    """走到沙漠里真正的骷髅洞穴洞口交互进洞。返回是否进去了。"""
+    try:
+        s = st()
+        if str(s.get('location')) != 'Desert':
+            return False
+        cands = [t for t in (s.get('tiles') or []) if t.get('interactable')]
+        cands = [t for t in cands
+                 if any(k in str(t.get('obj') or '') for k in ('洞', 'Cave', 'Skull', 'Entrance', '井'))]
+        for c in cands[:3]:
+            if go_near(c['x'], c['y'], tries=4):
+                log('  走到洞口 %s (%d,%d)，交互' % (c.get('obj'), c['x'], c['y']))
+                A.send_order({'actionType': 'interact', 'x': c['x'], 'y': c['y']})
+                time.sleep(3)
+                if lvl() >= 121 or str(st().get('location')) == 'SkullCave':
+                    return True
+        log('  沙漠里没找到可交互的洞口')
+    except Exception as e:
+        log('  进洞口异常：%s' % e)
     return False
 
 
@@ -148,11 +174,14 @@ def main():
             log('走路到沙漠失败，传送兜底')
             A.send_order({'actionType': 'warp_to', 'location': 'Desert'})
             time.sleep(6)
-        # ② 洞口小房间是死路，直接用「楼梯」进第 1 层（等价玩家放楼梯下洞）
+        # ② 进洞：优先走真实洞口，进不去才用「楼梯」兜底
         if lvl() < 121:
-            log('用楼梯进骷髅洞穴第 1 层')
-            A.send_order({'actionType': 'mine_goto', 'level': 121})
-            time.sleep(8)
+            if enter_cavern():
+                log('  从真实洞口进洞成功')
+            else:
+                log('  洞口进不去 → 用「楼梯」兜底进第 1 层（这不是走路，日志标明）')
+                A.send_order({'actionType': 'mine_goto', 'level': 121})
+                time.sleep(8)
     s = st()
     if lvl() < 121:
         log('进洞失败（%s 层%d），退回沙漠不硬耗' % (s.get('location'), lvl()))

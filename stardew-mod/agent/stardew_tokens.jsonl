@@ -5,3 +5,4 @@
 {"ts": 1795318042.2931676, "model": "qwen25-7b-local", "prompt": 1735, "completion": 125, "total": 1860}
 {"ts": 1795318051.3241472, "model": "qwen25-7b-local", "prompt": 1735, "completion": 122, "total": 1857}
 {"ts": 1795318071.087347, "model": "qwen25-7b-local", "prompt": 1735, "completion": 122, "total": 1857}
+{"ts": 1795318415.4802356, "model": "qwen25-7b-local", "prompt": 1513, "completion": 100, "total": 1613}
