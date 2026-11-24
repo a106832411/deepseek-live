@@ -37,7 +37,7 @@
   .season { margin-left: 10px; font-size: 14px; font-weight: 700; color: #ffd977; border: 1px solid rgba(216,178,90,.55); border-radius: 99px; padding: 2px 10px; background: rgba(255,212,121,.1); }
   .metrics { margin-top: 8px; display: flex; gap: 16px; justify-content: flex-start; font-size: 13px; color: #a89f8b; }
   .metrics b { color: #ffd977; font-weight: 700; }
-  .talk { margin-top: 5px; font-size: 13px; color: #cfe8c9; min-height: 16px; }
+  .talk { display: none; }
 </style>
 </head>
 <body>
@@ -129,12 +129,9 @@ async function tick() {
     const se = $('season');
     if (se) se.textContent = [(SEASON_CN[d.season] || '') + '季', WEATHER_CN[d.weather] || ''].filter(Boolean).join(' · ');
     const talk = $('talk');
-    const spoken = (d.talk && d.talkAge != null && d.talkAge < 150) ? d.talk : '';
-    if (talk) talk.textContent = spoken || talkLine(doing, d);
+    if (talk) talk.textContent = '';                 // 最后一行恢复成「最近指令」
     const o = d.lastOrder || d.order || '';
-    // 「存档/赶路」这类指令没信息量，不占版面
-    const boring = !o || /存档|^走路|^赶路|^待机/.test(o);
-    $('order').textContent = (boring || talk) ? '' : ('最近指令：' + o);
+    $('order').textContent = o ? ('最近指令：' + o) : '';
   } catch (e) {
     $('dot').className = 'dot off';
     $('doing').innerHTML = '<span class="offline">连接不上</span>';
