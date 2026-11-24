@@ -71,6 +71,16 @@ while ($true) {
       Write-Log "new game window hwnd=$hwnd pid=$($p.Id)"
       Start-Sleep -Milliseconds 2500
       Move-ToCorner $hwnd
+      # 游戏重启后 OBS 的窗口采集会指向旧窗口标题（标题里带 mod 数量），这里顺手重指一次
+      try {
+        $repoint = Join-Path $PSScriptRoot 'obs-repoint-window.ps1'
+        if (Test-Path $repoint) {
+          Start-Process -FilePath 'powershell' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$repoint -WindowStyle Hidden
+          Write-Log 'obs repoint scheduled'
+        }
+      } catch {
+        Write-Log ('obs repoint failed: ' + $_.Exception.Message)
+      }
       $pending[$hwnd] = 2      # 2 秒后再补一次，6 秒后再补一次
       $lastHwnd = $hwnd
     } elseif ($hwnd -eq [IntPtr]::Zero -and $lastHwnd -ne [IntPtr]::Zero) {
