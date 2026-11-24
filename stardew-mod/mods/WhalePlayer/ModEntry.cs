@@ -1357,11 +1357,19 @@ namespace WhalePlayer
                 if (this.graph == null) this.BuildGraph();
                 if (this.graph != null && this.graph.TryGetValue(from, out var nbrs))
                 {
+                    int d0 = this.DistTo(from, dest);
+                    var strict = new List<string>();
+                    var loose = new List<string>();
                     foreach (var n in nbrs)
                     {
-                        if (n == dest) { list.Insert(0, n); continue; }
-                        if (this.DistTo(n, dest) >= 0) list.Add(n);
+                        if (n == dest) { strict.Insert(0, n); continue; }
+                        int dn = this.DistTo(n, dest);
+                        if (dn < 0) continue;
+                        loose.Add(n);
+                        // 只走「离目标更近一步」的邻居，避免在两张图之间来回弹（2026-11-25）
+                        if (d0 < 0 || dn == d0 - 1) strict.Add(n);
                     }
+                    list = strict.Count > 0 ? strict : loose;
                     list = list.OrderBy(x => x == dest ? 0 : this.DistTo(x, dest)).ToList();
                 }
             }
