@@ -72,6 +72,15 @@ ACTION_CN = {
     "ship": "出货", "fish": "钓鱼", "go_fish": "去钓鱼点", "stop_fish": "收竿",
     "unstick": "脱困", "fix_position": "校正坐标", "tidy": "整理", "scan_all": "扫描",
 }
+ACTION_HUMAN = {
+    "fish": "在钓鱼", "go_fish": "去钓鱼", "stop_fish": "收竿",
+    "use_tool": "在用工具", "harvest": "在收菜", "plant": "在播种",
+    "walk_to": "在赶路", "warp_to": "传送中", "sleep": "去睡觉",
+    "save": "存档", "close_menu": "关菜单", "ensure_tools": "整理工具",
+    "stash_all": "归箱", "ship": "出货", "unstick": "脱困",
+    "fix_position": "校正坐标", "tidy": "整理", "scan_all": "扫描",
+    "interact": "在互动",
+}
 _activity = {"text": "待机", "order": "", "at": 0.0}
 
 
@@ -115,6 +124,7 @@ def send_order(action):
         elif a == "walk_to":
             extra = " (%s,%s)" % (action.get("x"), action.get("y"))
         _activity["order"] = (label + extra).strip()
+        _activity["text"] = ACTION_HUMAN.get(a, label)
         _activity["at"] = time.time()
         _write_activity()
     except Exception:

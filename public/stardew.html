@@ -15,7 +15,7 @@
   .panel {
     width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; text-align: left;
     min-width: 0;
-    padding: 16px 18px 16px;
+    padding: 12px 16px 12px;
     border-radius: 18px;
     background: linear-gradient(160deg, rgba(22,20,16,.62), rgba(10,10,10,.55));
     border: 1px solid rgba(216,178,90,.65);
@@ -24,19 +24,20 @@
   .head { display: flex; align-items: center; justify-content: flex-start; gap: 8px; margin-bottom: 10px; }
   .dot { width: 10px; height: 10px; border-radius: 50%; background: #6fcf7f; box-shadow: 0 0 10px #6fcf7f; }
   .dot.off { background: #e06666; box-shadow: 0 0 10px #e06666; }
-  .title { color: #d8b25a; font-weight: 800; font-size: 17px; letter-spacing: 1px; }
-  .doing { font-size: 24px; font-weight: 800; margin: 6px 0 2px; }
+  .title { color: #d8b25a; font-weight: 800; font-size: 16px; letter-spacing: 1px; }
+  .doing { font-size: 22px; font-weight: 800; margin: 4px 0 0; }
   .doing .big { color: #ffd977; }
-  .sub { font-size: 16px; color: #ddd4bd; margin-top: 4px; }
+  .sub { font-size: 14px; color: #ddd4bd; margin-top: 3px; }
   .sub b { color: #ffd977; font-weight: 700; }
   .bar { margin-top: 12px; height: 10px; border-radius: 6px; background: rgba(255,255,255,.12); overflow: hidden; }
   .bar i { display: block; height: 100%; background: linear-gradient(90deg, #d8b25a, #f6e2a8); border-radius: 6px; transition: width .6s; }
   .lab { font-size: 12.5px; color: #a89f8b; margin-top: 6px; }
-  .foot { margin-top: 10px; font-size: 13px; color: #9a9282; }
+  .foot { margin-top: 4px; font-size: 12px; color: #9a9282; }
   .offline { font-size: 20px; font-weight: 800; color: #e06666; }
   .season { margin-left: 10px; font-size: 14px; font-weight: 700; color: #ffd977; border: 1px solid rgba(216,178,90,.55); border-radius: 99px; padding: 2px 10px; background: rgba(255,212,121,.1); }
   .metrics { margin-top: 8px; display: flex; gap: 16px; justify-content: flex-start; font-size: 13px; color: #a89f8b; }
   .metrics b { color: #ffd977; font-weight: 700; }
+  .talk { margin-top: 5px; font-size: 13px; color: #cfe8c9; min-height: 16px; }
 </style>
 </head>
 <body>
@@ -44,6 +45,7 @@
     <div class="head"><span class="dot" id="dot"></span><span class="title">星露谷 · 大肥鱼体验中</span><span class="season" id="season"></span></div>
     <div class="doing" id="doing">正在进入游戏…</div>
     <div class="sub" id="sub"></div>
+    <div class="talk" id="talk"></div>
     <div class="foot" id="order" style="color:#ffe9a8"></div>
     <div class="foot" id="foot"></div>
   </div>
@@ -87,6 +89,25 @@ function doingText(d) {
     return ['正在赶路', '🚶 走去下一个地方'];
   return ['自己玩着呢', '🎮 星露谷'];
 }
+const TALK = {
+  fish: ['鱼咬钩了，屏住呼吸…', '今天这条必须拿下！', '水面下好像有大货～'],
+  farm: ['先把这片地浇透，作物才长得欢。', '收成不错，今天没白干。', '这行种下去，过两天就冒芽了。'],
+  mine: ['矿洞里凉飕飕的，别被史莱姆撞到。', '再敲一块，说不定就出宝石。'],
+  travel: ['路上顺便看看风景。', '走快点，别耽误正事～'],
+  night: ['夜深了，明天再战吧。', '有点困了，收工睡觉？'],
+  idle: ['今天想干点什么好呢…', '先看看状态，再决定去哪。']
+};
+function talkLine(doing, d) {
+  const t = String(doing || '');
+  let k = 'idle';
+  if (/钓|鱼/.test(t)) k = 'fish';
+  else if (/农|浇|种|收|干活/.test(t)) k = 'farm';
+  else if (/矿/.test(t)) k = 'mine';
+  else if (/赶路|走|传送/.test(t)) k = 'travel';
+  else if ((d.time || 0) >= 2200 || (d.time || 0) < 600) k = 'night';
+  const arr = TALK[k] || TALK.idle;
+  return arr[Math.floor(Date.now() / 9000) % arr.length];
+}
 async function tick() {
   try {
     const r = await fetch('/api/stardew', { cache: 'no-store' });
@@ -99,13 +120,21 @@ async function tick() {
     }
     const fresh = d.age < 30;
     $('dot').className = 'dot' + (fresh ? '' : ' off');
-    const [doing, act] = doingText(d);
-    $('doing').innerHTML = `<span class="big">${doing}</span>　<small>${act}</small>`;
+    const [guessDoing, guessAct] = doingText(d);
+    // agent 写的 activity 更准（新鲜的话优先用）
+    const agentAct = (d.activity && d.activityAge != null && d.activityAge < 120) ? d.activity : '';
+    const doing = agentAct || guessDoing;
+    $('doing').innerHTML = `<span class="big">${doing}</span>　<small>${guessAct}</small>`;
     $('sub').innerHTML = `${sceneName(d.location)} · 第 <b>${d.day}</b> 天 · ${timeText(d.time)} · 金币 <b>${(d.money || 0).toLocaleString()}</b>`;
     const se = $('season');
     if (se) se.textContent = [(SEASON_CN[d.season] || '') + '季', WEATHER_CN[d.weather] || ''].filter(Boolean).join(' · ');
+    const talk = $('talk');
+    const spoken = (d.talk && d.talkAge != null && d.talkAge < 150) ? d.talk : '';
+    if (talk) talk.textContent = spoken || talkLine(doing, d);
     const o = d.lastOrder || d.order || '';
-    $('order').textContent = o ? ('最近指令：' + o) : '';
+    // 「存档/赶路」这类指令没信息量，不占版面
+    const boring = !o || /存档|^走路|^赶路|^待机/.test(o);
+    $('order').textContent = (boring || talk) ? '' : ('最近指令：' + o);
   } catch (e) {
     $('dot').className = 'dot off';
     $('doing').innerHTML = '<span class="offline">连接不上</span>';

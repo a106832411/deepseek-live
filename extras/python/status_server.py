@@ -34,13 +34,16 @@ def activity_status():
     try:
         with open(ACTIVITY_FILE, encoding="utf-8") as fh:
             a = json.load(fh)
+        talk_at = float(a.get("talkAt") or 0)
         return {
             "activity": a.get("activity") or "",
             "lastOrder": a.get("order") or "",
             "activityAge": max(0, round(time.time() - float(a.get("at") or 0), 1)),
+            "talk": a.get("talk") or "",
+            "talkAge": (max(0, round(time.time() - talk_at, 1)) if talk_at else None),
         }
     except Exception:
-        return {"activity": "", "lastOrder": "", "activityAge": None}
+        return {"activity": "", "lastOrder": "", "activityAge": None, "talk": "", "talkAge": None}
 
 
 def state_file():

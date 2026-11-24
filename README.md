@@ -152,6 +152,22 @@ python extras/python/stardew_agent.py --loop         # 循环
 
 架构、能力和限制见 [docs/星露谷AI.md](docs/星露谷AI.md)。
 
+## 干活旁白（让 AI 边玩边说话）
+
+游戏里干活时偶尔冒一句人话，走鲸live 自己的 TTS 队列播出来，同时显示在 OBS 左上角状态卡上：
+
+```powershell
+python extras/python/stardew_narration.py          # 常驻（建议配合游戏一起开）
+python extras/python/stardew_narration.py --once   # 只出一句（调试）
+python extras/python/stardew_narration.py --dry    # 只打印不播
+```
+
+- 触发：动作变化 20 秒后、或距上一句 90 秒
+- 台词：优先用 `config.json` 里配的模型生成（本地 Ollama / DeepSeek 都行），失败用内置短语兜底
+- 音量：走 `/api/say`，和弹幕回复共用 TTS 队列，不会叠音
+
+状态卡（`/stardew`）会优先显示 agent 写的当前动作（`logs/ai_status.json` 的 `activity`），并显示最近这句台词（`talk`）。
+
 ## 星露谷 mod 依赖
 
 游戏内角色 / 钓鱼这部分依赖两类 mod：**第三方框架包**（自己从 Nexus 下，不进本仓库）和**本仓库自带的 mod**（`stardew-mod/mods/`，编译后拷进游戏 `Mods`）。
