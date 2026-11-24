@@ -1878,6 +1878,14 @@ async function handleEvent(ev) {
   }
   state.stats[ev.type] = (state.stats[ev.type] || 0) + 1;
   if (ev.type === 'gift') {
+    // 容错：中继/测试可能把礼物发成对象 {name,count}
+    if (ev.gift && typeof ev.gift === 'object') {
+      const g = ev.gift;
+      if (ev.num === undefined && ev.count === undefined) ev.num = g.count || g.num || 1;
+      ev.gift = g.name || g.giftName || '礼物';
+    }
+    if (ev.num === undefined && ev.count !== undefined) ev.num = ev.count;
+    if (typeof ev.gift !== 'string') ev.gift = '礼物';
     // 抖币价目表 1:1 换算成 token
     const m = config.metrics || {};
     const prices = m.giftPrices || {};
