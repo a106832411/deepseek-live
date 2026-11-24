@@ -318,6 +318,8 @@ CROPS = {
 # ---------------- 季节作物选择（确定性逻辑） ----------------
 # 中文作物名 → 英文种子名（商店按英文名买，种植也按英文名匹配）
 # 皮埃尔（SeedShop）不卖的种子：杨桃(沙漠)、上古种子、仙人掌、芋头、菠萝、宝石甜莓等
+BAD_TILES = {}   # (x,y) -> 时间戳：走不到的格子，短期内别再试
+
 NOT_IN_PIERRE = ("Starfruit Seeds", "Ancient Seeds", "Cactus Seeds", "Taro Tuber",
                  "Pineapple Seeds", "Rare Seed", "Rice Shoot")
 
@@ -2403,6 +2405,13 @@ def _rule_plan(state, goal=None):
     px0, py0 = int(pt0.get("x", 0)), int(pt0.get("y", 0))
     def _dist(t):
         return abs(int(t.get("x", 0)) - px0) + abs(int(t.get("y", 0)) - py0)
+    now_ts = time.time()
+    def _ok(t):
+        ts = BAD_TILES.get((int(t.get("x", 0)), int(t.get("y", 0))))
+        return not ts or now_ts - ts > 900
+    ready = [t for t in ready if _ok(t)]
+    dry = [t for t in dry if _ok(t)]
+    tilled = [t for t in tilled if _ok(t)]
     ready.sort(key=_dist)
     dry.sort(key=_dist)
     tilled.sort(key=_dist)
@@ -3332,7 +3341,8 @@ def execute(plan, state=None, dry=False):
             log(f"  {i}/{len(actions)} walk_to ({tx},{ty}) → {'到达' if ok else '走不到'}")
         elif at in ("use_tool", "interact", "plant"):
             if not ensure_near(state or summarize(read_state()), act["x"], act["y"]):
-                log(f"  {i}/{len(actions)} 走不到 ({act['x']},{act['y']}) 旁边，跳过")
+                BAD_TILES[(act["x"], act["y"])] = time.time()
+                log(f"  {i}/{len(actions)} 走不到 ({act['x']},{act['y']}) 旁边，跳过（记为坏点）")
                 continue
             send_order(act)
             time.sleep(0.55 if at == "use_tool" else 0.45)
