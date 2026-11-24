@@ -3444,10 +3444,20 @@ def execute(plan, state=None, dry=False):
             send_order(act)
             want = act.get("location")
             t0 = time.time()
+            last_t, last_change = None, time.time()
             while time.time() - t0 < 180:
                 time.sleep(0.8)
-                if str(summarize(read_state()).get("location") or "") == want:
+                _st = summarize(read_state())
+                if str(_st.get("location") or "") == want:
                     break
+                # 时间 10 秒没动 = 有界面（电梯/商店/对话）把游戏暂停了 → 关掉继续走
+                if _st.get("time") != last_t:
+                    last_t, last_change = _st.get("time"), time.time()
+                elif time.time() - last_change > 10:
+                    log("  goto 途中时间停滞，关闭界面继续")
+                    send_order({"actionType": "close_menu"})
+                    send_order({"actionType": "wake"})
+                    last_change = time.time()
             log(f"  {i}/{len(actions)} goto {want} → {summarize(read_state()).get('location')}")
         elif at == "fish":
             send_order(act)
