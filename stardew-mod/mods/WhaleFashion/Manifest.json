@@ -1,0 +1,12 @@
+{
+  "Name": "Whale Fashion",
+  "Author": "Whale",
+  "Version": "0.1.0",
+  "Description": "Apply a Fashion Sense outfit automatically on save load.",
+  "UniqueID": "Whale.Fashion",
+  "EntryDll": "WhaleFashion.dll",
+  "MinimumApiVersion": "4.0.0",
+  "Dependencies": [
+    { "UniqueID": "PeacefulEnd.FashionSense", "IsRequired": true }
+  ]
+}

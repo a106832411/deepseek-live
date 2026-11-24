@@ -115,10 +115,24 @@ namespace WhalePlayer
                         rod.isReeling = true;
                         try { rod.clearWaterDistance = 5; } catch { }
                         rod.startMinigameEndFunction(fish);
-                        if (Game1.activeClickableMenu is BobberBar)
+                        if (Game1.activeClickableMenu is BobberBar bar)
                         {
+                            // 2026-11-24：验证用开关——D:\live\logs\force_treasure.txt 存在时，
+                            // 强制这一局出宝箱（原版概率 15%，跑几百次才有，不好复现）。
+                            try
+                            {
+                                if (System.IO.File.Exists(@"D:\live\logs\force_treasure.txt"))
+                                {
+                                    System.IO.File.Delete(@"D:\live\logs\force_treasure.txt");
+                                    bar.treasure = true;
+                                    bar.treasureAppearTimer = 600f;
+                                    WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: [强制] 本局出宝箱");
+                                }
+                            }
+                            catch { }
+                            WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 弹出小游戏 " + fish.Name
+                                + " treasure=" + bar.treasure + " 宝箱计时=" + bar.treasureAppearTimer);
                             BobberBarAutoPlayPatch.Arm(fish);
-                            WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 弹出小游戏 " + fish.Name);
                             return false;
                         }
                         WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 小游戏没弹出来，回落直接入包");
@@ -175,6 +189,7 @@ namespace WhalePlayer
     {
         private static int _ticks = 0;
         private static int _resolveTicks = 0;
+        private static System.DateTime _armedAt = System.DateTime.MinValue;
         internal static Item PendingFish = null;
 
         internal static void Arm(Item fish)
@@ -182,47 +197,131 @@ namespace WhalePlayer
             PendingFish = fish;
             _resolveTicks = 0;
             _ticks = 0;
+            _armedAt = System.DateTime.UtcNow;   // 兜底结算用真实时间，别再拿 tick 当秒
+        }
+
+        /// <summary>宝箱奖励：原版那套在 doPullFishFromWater 里，脚本鱼竿跑不到，
+        /// 这里给等价的「金币 + 1~2 件矿物/宝石」，至少宝箱不白吃。</summary>
+        private static void GrantTreasureLoot(Farmer who)
+        {
+            try
+            {
+                int gold = Game1.random.Next(60, 260);
+                who.Money += gold;
+                string[] pool = { "(O)60", "(O)62", "(O)64", "(O)66", "(O)68", "(O)70", "(O)72", "(O)82", "(O)84", "(O)86", "(O)749" };
+                int n = 1 + Game1.random.Next(2);
+                for (int i = 0; i < n; i++)
+                {
+                    var it = ItemRegistry.Create(pool[Game1.random.Next(pool.Length)], 1, 0);
+                    if (!who.addItemToInventoryBool(it, false))
+                        Game1.createItemDebris(it, who.Position, who.FacingDirection);
+                }
+                WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 宝箱奖励 +" + gold + "g + " + n + " 件物品");
+            }
+            catch (Exception ex) { WhalePlayer.ModEntry.Trace?.Invoke("宝箱奖励异常: " + ex.Message); }
+        }
+
+        private static int CountInInventory(Farmer who, string qualifiedId)
+        {
+            int n = 0;
+            try
+            {
+                foreach (var it in who.Items)
+                    if (it != null && it.QualifiedItemId == qualifiedId) n += it.Stack;
+            }
+            catch { }
+            return n;
         }
 
         private static void Prefix(BobberBar __instance)
         {
-            // 2026-11-22：小游戏只做「看得见」的部分——绿条追鱼 + 1 秒后按原版
-            // pullFishFromWater 结算（保证鱼真的进包，不再靠猜原版状态机）。
-            if (PendingFish != null && _resolveTicks++ >= 70)
+            // 2026-11-24：试过「不手动结算、替原版 tick 推 pullFishFromWater」的方案，
+            // 结果反复 tickUpdate 会把鱼竿状态机搞坏、游戏卡死（state 80 秒不更新）。
+            // 回退成手动结算 + 原版举鱼，30 秒真实时间兜底。
+            bool timeout = _armedAt != System.DateTime.MinValue
+                           && (System.DateTime.UtcNow - _armedAt).TotalSeconds > 30;
+            if (PendingFish != null && (__instance.distanceFromCatching >= 1f || timeout))
             {
                 var fish = PendingFish;
                 PendingFish = null;
                 _resolveTicks = 0;
+                bool treasureCaught = false;
+                try { treasureCaught = __instance.treasureCaught; } catch { }
                 try { Game1.exitActiveMenu(); } catch { }
                 try
                 {
                     var rod = Game1.player?.CurrentTool as StardewValley.Tools.FishingRod;
                     if (rod != null && fish != null)
                     {
-                        // 2026-11-22：要「举着鱼」的动画。pullFishFromWater 的动画要求鱼竿状态完整，
-                        // 脚本驱动下会被打断（实测：动画一进去就断），所以改用原版
-                        // Farmer.holdUpItemThenMessage —— 这就是钓鱼后举鱼的那个动作，然后再手动入包。
                         var who = Game1.player;
-                        bool added = false;
+                        int before = CountInInventory(who, fish.QualifiedItemId);
+                        // 走原版 pullFishFromWater：提竿、鱼从水里飞到手里、举鱼、宝箱，
+                        // 全都由原版这套负责。脚本状态下没人调 rod.tickUpdate，
+                        // NetEvent 不会被 Poll，所以这里手动 tick 几下把事件推出去。
                         try
                         {
-                            var obj = fish as StardewValley.Object;
-                            if (obj != null) added = who.addItemToInventoryBool(obj, false);
+                            rod.lastUser = who;
+                            // 2026-11-23：原版 tickUpdate 只在「拿着工具使用中」时被游戏调用，
+                            // 脚本这边手动调，但先把 UsingTool 打开，否则事件 Poll 后
+                            // doPullFishFromWater 里的状态判断会直接跳过（实测鱼不入包）。
+                            try { who.UsingTool = true; who.canReleaseTool = false; } catch { }
+                            rod.pullFishFromWater(fish.QualifiedItemId, -1, 0, 0, treasureCaught,
+                                false, false, null, false, 1);
+                            for (int i = 0; i < 12; i++) rod.tickUpdate(Game1.currentGameTime, who);
                         }
-                        catch { }
-                        if (!added) { try { Game1.createItemDebris(fish, who.Position, who.FacingDirection); } catch { } }
-                        try
+                        catch (Exception ex)
                         {
-                            if (who.fishCaught != null && !who.fishCaught.ContainsKey(fish.ItemId))
-                                who.fishCaught[fish.ItemId] = new int[] { 1, 0 };
-                            else if (who.fishCaught != null)
-                                who.fishCaught[fish.ItemId][0]++;
+                            WhalePlayer.ModEntry.Trace?.Invoke("pullFishFromWater 异常: " + ex.Message);
                         }
-                        catch { }
-                        try { who.holdUpItemThenMessage(fish, false); } catch { }
-                        try { rod.doneFishing(who, true); } catch { }
-                        try { rod.isFishing = false; rod.isReeling = false; rod.isNibbling = false; rod.hit = false; } catch { }
-                        WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 举鱼入包 " + fish.Name + (added ? "" : "（背包满，掉地上）"));
+                        int after = CountInInventory(who, fish.QualifiedItemId);
+                        if (after > before)
+                        {
+                            WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 原版结算（提竿/举鱼）" + fish.Name + (treasureCaught ? " + 宝箱" : ""));
+                        }
+                        else
+                        {
+                            // 原版事件没跑起来 → 退回直接入包 + 举鱼，至少不丢鱼
+                            bool added = false;
+                            try
+                            {
+                                var obj = fish as StardewValley.Object;
+                                if (obj != null) added = who.addItemToInventoryBool(obj, false);
+                            }
+                            catch { }
+                            if (!added) { try { Game1.createItemDebris(fish, who.Position, who.FacingDirection); } catch { } }
+                            try
+                            {
+                                if (who.fishCaught != null && !who.fishCaught.ContainsKey(fish.ItemId))
+                                    who.fishCaught[fish.ItemId] = new int[] { 1, 0 };
+                                else if (who.fishCaught != null)
+                                    who.fishCaught[fish.ItemId][0]++;
+                            }
+                            catch { }
+                            try { rod.doneFishing(who, true); } catch { }
+                            try { rod.isFishing = false; rod.isReeling = false; rod.isNibbling = false; rod.hit = false; } catch { }
+                            // 2026-11-24：原版「提竿」动画在脚本鱼竿上跑不起来（NetEvent 不执行），
+                            // 这里补一个纯视觉版：浮标从水面飞回手里 + 收线音效，然后接举鱼。
+                            try
+                            {
+                                var loc = who.currentLocation;
+                                var start = new Microsoft.Xna.Framework.Vector2(rod.bobber.X, rod.bobber.Y);
+                                var end = who.Position;
+                                var fly = new TemporaryAnimatedSprite(
+                                    "TileSheets\\bobbers",
+                                    new Microsoft.Xna.Framework.Rectangle(0, 0, 16, 16),
+                                    55f, 10, 0, start, false, false,
+                                    (float)who.StandingPixel.Y / 10000f, 0f,
+                                    Microsoft.Xna.Framework.Color.White, 4f, 0f, 0f, 0f);
+                                fly.motion = (end - start) / 8f;
+                                loc.temporarySprites.Add(fly);
+                                who.playNearbySoundLocal("pullItemFromWater");
+                            }
+                            catch { }
+                            if (treasureCaught) GrantTreasureLoot(who);
+                            try { who.holdUpItemThenMessage(fish, false); } catch { }
+                            try { who.freezePause = Math.Min(who.freezePause, 3200); } catch { }
+                            WhalePlayer.ModEntry.Trace?.Invoke("钓鱼: 兜底入包 " + fish.Name + (added ? "" : "（背包满，掉地上）"));
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -245,7 +344,15 @@ namespace WhalePlayer
                 // 2026-11-21：伪造鼠标那个版本在脚本驱动的鱼竿上进不去（bar 纹丝不动，15 秒后被看门狗掐掉），
                 // 改成直接算位置：绿条中心追鱼的位置，速度抹平（跟宝箱补丁一个套路，画面里就是绿条在追鱼）。
                 float h = __instance.bobberBarHeight;
-                float want = __instance.bobberPosition + 32f - h / 2f;
+                // 2026-11-23：宝箱浮出来时优先去接宝箱（原版两者都要压住，这里先接箱子再接鱼），
+                // 否则绿条一直贴着鱼，宝箱永远吃不到，结算时箱子就丢了。
+                bool treasureUp = __instance.treasure && !__instance.treasureCaught
+                                  && __instance.treasureAppearTimer <= 0f;
+                float want;
+                if (treasureUp)
+                    want = __instance.treasurePosition + 12f;
+                else
+                    want = __instance.bobberPosition + 32f - h / 2f;
                 want = Math.Clamp(want, 0f, 568f - h);
                 float cur = __instance.bobberBarPos;
                 float delta = want - cur;
@@ -253,10 +360,11 @@ namespace WhalePlayer
                 float step = Math.Clamp(delta, -9f, 9f);
                 __instance.bobberBarPos = cur + step;
                 __instance.bobberBarSpeed = 0f;
-                // 绿条压住鱼就正常涨进度；这里再给一点正向补偿，保证 1 秒内收杆
-                // （原版 distanceFromCatching>=1 就结算，走正常「钓上来」的动画和音效）
-                if (__instance.distanceFromCatching < 1f)
-                    __instance.distanceFromCatching = Math.Min(1f, __instance.distanceFromCatching + 0.08f);
+                // 2026-11-23：不再给正向补偿。原版自己按「绿条覆盖鱼」算 progress，
+                // 强制 +0.08 会 1 秒就满，看着像秒钓。
+                // （保留一点小抖动，让绿条不是死贴着鱼走）
+                if (Game1.random.NextDouble() < 0.08)
+                    __instance.bobberBarPos = Math.Clamp(__instance.bobberBarPos + (float)(Game1.random.NextDouble() * 2.0 - 1.0) * 2f, 0f, 568f - h);
                 if (_ticks >= 3 && _ticks < 40 && _ticks % 10 == 0)
                     WhalePlayer.ModEntry.Trace?.Invoke(
                         string.Format("自动玩 tick={0} dFC={1:F2} barPos={2:F0} fish={3:F0} h={4} fade={5}",

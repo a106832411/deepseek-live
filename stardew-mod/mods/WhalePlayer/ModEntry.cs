@@ -70,6 +70,8 @@ namespace WhalePlayer
         private string pendingCatch = null;
         private int castingPending = -1;
         private int caughtTicks = 0;
+
+        private int dtMs = 16;   // 本 tick 真实耗时(ms)：游戏 ~900fps，不能再拿 tick 当 1/60 秒
         private bool holdingDone = false;
         private bool catchDone = false;
         private int hopIndex = 0;
@@ -188,6 +190,7 @@ namespace WhalePlayer
 
         private void OnUpdateTicked(object sender, UpdateTickedEventArgs e)
         {
+            this.dtMs = Math.Max(1, Math.Min(100, (int)Game1.currentGameTime.ElapsedGameTime.TotalMilliseconds));
             // 自动修复：早上已经能动了但 isInBed 还挂着（会一直躺床姿势）
             try
             {
@@ -282,22 +285,13 @@ namespace WhalePlayer
                     if (!(menu is StardewValley.Menus.BobberBar)) this.barTicks = 0;
                     if (menu is StardewValley.Menus.BobberBar)
                     {
-                        // 卡死看门狗：小游戏超过 ~15 秒没结束就强制关掉，防止整夜卡在钓鱼条里
-                        // （2026-11-21：原来是 180 tick≈3 秒，太短，正常小游戏都被掐掉）
+                        // 2026-11-23：删掉这里的「看门狗强制关闭」。
+                        // 实测它用 tick 计数当时间（游戏跑 900+ fps 时 4 秒就到 3600），
+                        // 而且从 UpdateTicked 里调 Game1.exitActiveMenu() 会把 mod 自己的 tick 卡死
+                        // （之后 player_state.json 不再更新、订单也不消费，整局钓鱼死掉）。
+                        // 兜底改到 BobberBarAutoPlayPatch 里按真实时间结算（30 秒），
+                        // 那边是在 update 内部关菜单，跟原版收尾同一个位置，安全。
                         this.barTicks++;
-                        if (this.barTicks > 900)
-                        {
-                            this.barTicks = 0;
-                            try { Game1.exitActiveMenu(); } catch { }
-                            try
-                            {
-                                var rod2 = Game1.player.Items.OfType<StardewValley.Tools.FishingRod>().FirstOrDefault();
-                                if (rod2 != null) { rod2.isFishing = false; rod2.isNibbling = false; rod2.hit = false; rod2.isReeling = false; }
-                            }
-                            catch { }
-                            try { Game1.player.UsingTool = false; Game1.player.canMove = true; } catch { }
-                            this.Monitor.Log("看门狗：钓鱼小游戏卡住，强制关闭", LogLevel.Warn);
-                        }
                     }
                     else if (menu is StardewValley.Menus.ItemGrabMenu grab)
                     {
@@ -318,13 +312,13 @@ namespace WhalePlayer
                         catch (Exception ex) { this.Monitor.Log($"收物异常：{ex.Message}", LogLevel.Warn); }
                         try { grab.exitThisMenu(true); } catch { }
                         this.Monitor.Log($"钓鱼: 收下 {taken} 件物品并关闭菜单", LogLevel.Info);
-                        this.castCooldown = 90;
+                        this.castCooldown = 1500;
                     }
                     else
                     {
                         try { menu.exitThisMenu(true); } catch { }
                         this.Monitor.Log($"钓鱼: 关闭菜单 {menu.GetType().Name}", LogLevel.Trace);
-                        this.castCooldown = 60;
+                        this.castCooldown = 1000;
                     }
                 }
                 else
@@ -333,6 +327,9 @@ namespace WhalePlayer
                     if (Game1.activeClickableMenu is StardewValley.Menus.BobberBar)
                     {
                         // 小游戏进行中：交给 BobberBarAutoPlayPatch，别插手（原版会自动发鱼）
+                        // 2026-11-23：新一局开始就重置看门狗计数，否则连钓时计数会被上一局带高，
+                        // 出现过「刚开局 2 秒就被看门狗强制关闭」。
+                        if (!this.barSeen) this.barTicks = 0;
                         this.caughtTicks = 0;
                         this.barSeen = true;
                         return;
@@ -341,22 +338,25 @@ namespace WhalePlayer
                     {
                         // 小游戏刚结束：让原版的举鱼动画走完，再抛下一竿
                         this.barSeen = false;
-                        this.castCooldown = 90;
+                        // 原版自己结算掉了就清掉待处理鱼，别留到下一局
+                        // 小游戏结束后，替原版鱼竿 tick ~3 秒，推 pullFishFromWater 事件（提竿/飞鱼/举鱼）
+                        try { BobberBarAutoPlayPatch.PendingFish = null; } catch { }
+                        this.castCooldown = 500;
                         this.waitTicks = 0;
                         this.Monitor.Log("钓鱼: 小游戏结束，准备下一竿", LogLevel.Info);
                         return;
                     }
                     if (rd.fishCaught)
                     {
-                        this.caughtTicks++;
-                        if (this.caughtTicks > 60 && !this.holdingDone)
+                        this.caughtTicks += this.dtMs;
+                        if (this.caughtTicks > 1000 && !this.holdingDone)
                         {
                             this.holdingDone = true;
                             // 小游戏结束后原版自己发鱼，这里不再调用 doneHoldingFish
                             this.catchDone = true; this.Monitor.Log("钓鱼: 本条完成，准备下一竿", LogLevel.Info);
                             this.catchDone = true;
                             try { rd.fishCaught = false; rd.isReeling = false; rd.isFishing = false; rd.isNibbling = false; rd.hit = false; } catch { }
-                            this.castCooldown = 150;
+                            this.castCooldown = 2500;
                         }
                         return;
                     }
@@ -365,15 +365,15 @@ namespace WhalePlayer
                     if (this.catchDone)
                     {
                         this.catchDone = false;
-                        this.castCooldown = 24;
+                        this.castCooldown = 400;
                         this.waitTicks = 0;
                         this.Monitor.Log("钓鱼: 本条结算完成，准备下一竿", LogLevel.Info);
                     }
                     // 抛竿动画进行中
                     else if (this.castingPending > 0)
                     {
-                        this.castingPending--;
-                        if (this.castingPending == 0)
+                        this.castingPending -= this.dtMs;
+                        if (this.castingPending <= 0)
                         {
                             try { rd.castingEndFunction(p0); } catch { }
                             // castingEndFunction 之后必须清掉 isCasting，
@@ -381,8 +381,10 @@ namespace WhalePlayer
                             try { rd.isCasting = false; p0.canMove = false; p0.UsingTool = true; } catch { }
                             // 自己给一个极短咬钩时间：CJB 1.38 的 InstantBite 对脚本抛竿不生效，
                             // 不设的话原版要 3~10 秒，远超我们的等待窗口（2026-11-19）
-                            try { rd.timeUntilFishingBite = 250f; rd.fishingBiteAccumulator = 0f; } catch { }
-                            // 落点：沿朝向在 1~6 格里找水
+                            // 2026-11-23：250ms 太「秒咬」了，改 1.2 秒，看起来像真等鱼咬。
+                            try { rd.timeUntilFishingBite = 1200f; rd.fishingBiteAccumulator = 0f; } catch { }
+                            // 落点：沿朝向在 1~12 格里找水；找不到就退回 go_fish 扫出来的水面点。
+                            // 2026-11-23：以前找不到就直接 stop 整个钓鱼泵（表现为「钓着钓着就不钓了」）。
                             try
                             {
                                 int dir = p0.FacingDirection;
@@ -390,7 +392,7 @@ namespace WhalePlayer
                                 int dy = dir == 2 ? 1 : (dir == 0 ? -1 : 0);
                                 int tx = (int)p0.Tile.X, ty = (int)p0.Tile.Y;
                                 int best = -1;
-                                for (int d = 1; d <= 6; d++)
+                                for (int d = 1; d <= 12; d++)
                                 {
                                     int x = tx + dx * d, y = ty + dy * d;
                                     bool water = false;
@@ -399,12 +401,13 @@ namespace WhalePlayer
                                 }
                                 if (best > 0)
                                     rd.bobber.Value = new Microsoft.Xna.Framework.Vector2((tx + dx * best) * 64f + 32f, (ty + dy * best) * 64f + 32f);
+                                else if (this.fishSpot.X >= 0)
+                                {
+                                    this.Monitor.Log($"钓鱼: 朝向没水，用 go_fish 的水面点 ({this.fishSpot.X},{this.fishSpot.Y})", LogLevel.Info);
+                                    rd.bobber.Value = new Microsoft.Xna.Framework.Vector2(this.fishSpot.X * 64f + 32f, this.fishSpot.Y * 64f + 32f);
+                                }
                                 else
-                            {
-                                this.Monitor.Log("钓鱼: 朝向 6 格内没有水面 → 停止钓鱼泵", LogLevel.Warn);
-                                this.fishingPump = false;
-                                return;
-                            }
+                                    this.Monitor.Log("钓鱼: 没找到水面，这一竿落空，下一轮重试", LogLevel.Warn);
                             }
                             catch { }
                             try
@@ -419,18 +422,18 @@ namespace WhalePlayer
                     else if (rd.isFishing && !rd.isNibbling)
                     {
                         // 交给游戏 tick 咬钩；但等太久就复位重抛
-                        this.waitTicks++;
-                        if (this.waitTicks > 120)
+                        this.waitTicks += this.dtMs;
+                        if (this.waitTicks > 2000)
                         {
                             this.waitTicks = 0;
-                            this.castCooldown = 30;
+                            this.castCooldown = 500;
                             // 重新走一次真实抛竿，不再用 doneFishing 假复位
                             try
                             {
                                 this.SelectTool(p0, rd);
                                 if (this.fishSpot.X >= 0) this.Face(this.fishSpot);
                                 rd.beginUsing(p0.currentLocation, (int)this.fishSpot.X, (int)this.fishSpot.Y, p0);
-                                this.castingPending = 45;
+                                this.castingPending = 750;
                             }
                             catch { }
                             this.Monitor.Log("钓鱼: 重抛", LogLevel.Trace);
@@ -439,9 +442,9 @@ namespace WhalePlayer
                     // 咬钩 → 提竿
                     else if (rd.isNibbling)
                     {
-                        if (this.castCooldown > 0) { this.castCooldown--; return; }
+                        if (this.castCooldown > 0) { this.castCooldown -= this.dtMs; return; }
                         // 一次咬钩只提一次竿：先清 nibbling，冷却期间不会再进这里
-                        this.castCooldown = 120;
+                        this.castCooldown = 2000;
                         try
                         {
                             if (WhalePlayer.ModEntry.AutoPlayMinigame)
@@ -471,18 +474,23 @@ namespace WhalePlayer
                     else
                     {
                         // 没收到 catchDone 时，最多等 4 秒就重抛
-                        this.waitTicks++;
-                        if (this.castCooldown > 0) { this.castCooldown--; return; }
-                        if (this.waitTicks < 8) return;
+                        this.waitTicks += this.dtMs;
+                        if (this.castCooldown > 0) { this.castCooldown -= this.dtMs; return; }
+                        // 举鱼动画期间（holdUpItemThenMessage 把 freezePause 拉满）别抛竿：
+                        // beginUsing 会 completelyStopAnimatingOrDoingAction，直接把动画打断。
+                        if (Game1.player.freezePause > 0) return;
+                        // 提竿动画 / 收杆动画没播完也别抛
+                        if (rd.pullingOutOfWater || Game1.player.UsingTool) return;
+                        if (this.waitTicks < 130) return;
                         this.waitTicks = 0;
-                        this.castCooldown = 60;
+                        this.castCooldown = 1000;
                         try
                         {
                             this.SelectTool(p0, rd);
                             if (this.fishSpot.X >= 0) this.Face(this.fishSpot);
                             this.holdingDone = false;
                             rd.beginUsing(p0.currentLocation, (int)this.fishSpot.X, (int)this.fishSpot.Y, p0);
-                            this.castingPending = 45;
+                            this.castingPending = 750;
                             this.Monitor.Log("钓鱼: 抛竿", LogLevel.Trace);
                         }
                         catch { }
@@ -1228,7 +1236,10 @@ namespace WhalePlayer
                 this.Monitor.Log($"goto: 已到达 {name}", LogLevel.Info);
                 return;
             }
-            if (this.warpCooldown > 0) { this.warpCooldown--; return; }
+            // 2026-11-23：TickTravel 每 30 tick 才调用一次，以前这里按 tick 递减 warpCooldown=60，
+            // 等于要 60 次调用 × 30 tick = 1800 tick ≈ 30 秒站着不动才继续走。
+            // 改成按调用次数递减（每调用扣 30），warpCooldown=120 → 4 次 ≈ 2 秒，够等黑屏淡入。
+            if (this.warpCooldown > 0) { this.warpCooldown -= 30; return; }
 
             var next = this.DynamicNextHop(name, this.travelDest ?? "") ?? NextHop(name, this.travelDest ?? "");
             if (next == null)
@@ -1273,7 +1284,7 @@ namespace WhalePlayer
                     }
                 }
                 catch { }
-                this.warpCooldown = 60;
+                this.warpCooldown = 120;
                 this.hopApproach = Point.Zero;
                 this.hopAttempts.Clear();
                 this.Monitor.Log($"goto: {name} 走到门口，过图 → {warp.TargetName}", LogLevel.Info);
@@ -3132,7 +3143,7 @@ namespace WhalePlayer
             try
             {
                 bool ok = rod.beginUsing(p.currentLocation, (int)this.fishSpot.X, (int)this.fishSpot.Y, p);
-                this.castingPending = 45;   // 等挥杆动画结束
+                this.castingPending = 750;   // 等挥杆动画结束
                 this.Monitor.Log($"fish: beginUsing={ok}，等挥杆动画…", LogLevel.Info);
             }
             catch (Exception ex) { this.Monitor.Log($"fish 异常：{ex.Message}", LogLevel.Warn); }

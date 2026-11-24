@@ -1,0 +1,9 @@
+{
+  "Name": "Whale Asset Dump",
+  "Author": "Whale",
+  "Version": "0.1.0",
+  "Description": "Dump farmer textures to PNG (temporary helper).",
+  "UniqueID": "Whale.AssetDump",
+  "EntryDll": "AssetDump.dll",
+  "MinimumApiVersion": "4.0.0"
+}

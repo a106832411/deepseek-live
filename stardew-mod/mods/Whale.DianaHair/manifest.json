@@ -1,0 +1,11 @@
+{
+  "Name": "[FashionSense] Whale Long Blue Hair",
+  "Author": "Whale",
+  "Version": "1.0.0",
+  "Description": "Long straight blue hair for Fashion Sense.",
+  "UniqueID": "Whale.LongBlueHair",
+  "ContentPackFor": {
+    "UniqueID": "PeacefulEnd.FashionSense",
+    "MinimumVersion": "4.3.0"
+  }
+}

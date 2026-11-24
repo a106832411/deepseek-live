@@ -38,6 +38,8 @@ STATE_FILE = os.path.join(PLAYER_DIR, "player_state.json")
 ORDER_DIR = os.path.join(PLAYER_DIR, "orders")
 LLM_BASE = env("STARDEW_LLM_BASE", "http://127.0.0.1:11434/v1")
 LLM_MODEL = env("STARDEW_LLM_MODEL", "qwen25-7b-local")
+# 跨图移动方式：walk=只走路 / warp=连相邻地图也传送 / auto=两段以上路程直接传送（默认）
+TRAVEL_MODE = env("STARDEW_TRAVEL", "auto").lower()
 LLM_KEY = env("STARDEW_LLM_KEY", "ollama")
 TOKEN_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stardew_tokens.jsonl")
 
@@ -2742,12 +2744,29 @@ def travel_to(dst, hop_timeout=200, log_fn=None):
         if str(summarize(read_state()).get("location")) == dst:
             return True
     path = route_path(cur, dst)
+    hops = (len(path) - 1) if path else 99
+    # 2026-11-23：加传送模式。走路一段要 40~55 秒，FarmHouse→Beach 四段要 3 分半；
+    # 传送落地 2 秒。auto 只对「两段以上」的跨图用传送，相邻地图（进农舍/出门）照旧走。
+    want_warp = TRAVEL_MODE == "warp" or (TRAVEL_MODE == "auto" and hops >= 2)
+    if want_warp:
+        _log("  传送 → %s（跳过 %s 段走路）" % (dst, hops if path else "?"))
+        try:
+            send_order({"actionType": "warp_to", "location": dst})
+            t0 = time.time()
+            while time.time() - t0 < 25:
+                time.sleep(2)
+                if str(summarize(read_state()).get("location") or "") == dst:
+                    _log("    已到 %s（%.0f 秒）" % (dst, time.time() - t0))
+                    return True
+            _log("  传送没生效，回退走路")
+        except Exception as e:
+            _log("  传送异常：%s，回退走路" % e)
     if not path:
         # 兜底：直接 goto
         send_order({"actionType": "goto", "location": dst})
         t0 = time.time()
         while time.time() - t0 < hop_timeout:
-            time.sleep(3)
+            time.sleep(1)
             if str(summarize(read_state()).get("location")) == dst:
                 return True
         return False
@@ -2759,7 +2778,7 @@ def travel_to(dst, hop_timeout=200, log_fn=None):
         t0 = time.time()
         ok = False
         while time.time() - t0 < hop_timeout:
-            time.sleep(3)
+            time.sleep(1)
             now = str(summarize(read_state()).get("location") or "")
             if now == hop:
                 ok = True

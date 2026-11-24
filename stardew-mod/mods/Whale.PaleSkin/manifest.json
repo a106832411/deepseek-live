@@ -1,0 +1,10 @@
+{
+  "Name": "Whale Pale Skin",
+  "Author": "Whale",
+  "Version": "1.0.0",
+  "Description": "Custom pale skin tone (#FBF8EF) replacing skin palette row 23.",
+  "UniqueID": "Whale.PaleSkin",
+  "ContentPackFor": {
+    "UniqueID": "Pathoschild.ContentPatcher"
+  }
+}

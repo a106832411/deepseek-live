@@ -1,0 +1,10 @@
+{
+  "Format": "2.0.0",
+  "Changes": [
+    {
+      "Action": "EditImage",
+      "Target": "Characters/Farmer/skinColors",
+      "FromFile": "assets/skinColors.png"
+    }
+  ]
+}

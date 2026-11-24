@@ -6,6 +6,7 @@
 """
 import argparse
 import os
+import re
 import sys
 import time
 
@@ -16,6 +17,20 @@ import stardew_agent as A  # noqa: E402
 LOG = r"D:\live\logs\fishsession.log"
 _fh = None
 TOOLS = ("Fishing Rod", "Hoe", "Pickaxe", "Watering Can", "Axe", "Iridium Scythe", "Slingshot")
+
+
+def inv_total(inv):
+    """背包里非工具物品的「总数量」（不是堆数）。
+
+    2026-11-23：以前用堆数判断有没有上鱼，鱼叠起来后堆数不变 → 自愈被误触发。
+    """
+    total = 0
+    for it in inv or []:
+        if it in TOOLS:
+            continue
+        m = re.match(r"(.*?)\s*x(\d+)$", it)
+        total += int(m.group(2)) if m else 1
+    return total
 
 
 def log(msg):
@@ -83,6 +98,7 @@ def main():
     start = time.time()
     base = None
     last_count = 0
+    last_change = time.time()
     try:
         while time.time() - start < args.minutes * 60:
             time.sleep(15)
@@ -95,8 +111,12 @@ def main():
             # 00:00 自动回家睡觉
             try:
                 if A.handle_midnight(log_fn=log):
-                    log("  已到 00:00，回家睡觉，钓鱼结束")
-                    break
+                    # 2026-11-24：长时段验证时睡觉不等于收工——睡醒继续钓，
+                    # 由循环里「不在海滩」那条路自动走回去重开一竿。
+                    log("  已到 00:00，回家睡觉，睡醒继续")
+                    time.sleep(10)
+                    last_change = time.time()
+                    continue
             except Exception as e:
                 log("  00:00 检查异常: %s" % e)
             try:
@@ -114,13 +134,23 @@ def main():
                 A.send_order({"actionType": "fish"})
                 continue
             inv = s.get("inventory") or []
-            cnt = len([i for i in inv if i not in TOOLS])
+            cnt = inv_total(inv)
             if base is None:
                 base = cnt
             if cnt != last_count:
                 gained = cnt - (base or 0)
                 log("  物品变化 +%d（共 %d）：%s" % (gained, cnt, inv[-3:]))
                 last_count = cnt
+                last_change = time.time()
+            elif time.time() - last_change > 600:
+                # 2026-11-23：长时间没上鱼（泵被掐 / 竿子卡住 / 镜头切走）→ 自愈一次
+                log("  [自愈] 10 分钟没上鱼，重发 go_fish + fish")
+                try:
+                    A.send_order({"actionType": "go_fish"}); time.sleep(3)
+                    A.send_order({"actionType": "fish"}); time.sleep(5)
+                except Exception as e:
+                    log("  [自愈] 失败: %s" % e)
+                last_change = time.time()
             # 卡住自愈：位置和物品都没变化太久 → 重发 fish
     finally:
         # 2026-11-22：不管怎么退出（正常收工 / 异常 / 被父进程 terminate）都要先收竿，
