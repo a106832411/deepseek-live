@@ -2433,7 +2433,7 @@ def _rule_plan(state, goal=None):
             return {"goal": "背包快满了，去出货", "actions": [
                 {"type": "goto", "location": "Farm"}, {"type": "ship"}]}
     # 23:00 之后必须回家睡觉：不然凌晨 2 点累倒，每晚扣 1000g（实测钱每天准时 -1000）
-    if _t >= 2300:
+    if _t >= 2100:   # 21:00 就回家：从田里走回农舍要 1~2 小时游戏时间，23:00 动身会过午夜挨罚
         if loc == "FarmHouse":
             return {"goal": "累了，睡觉", "actions": [{"type": "sleep"}]}
         return {"goal": "回家睡觉", "actions": [{"type": "goto", "location": "FarmHouse"},
