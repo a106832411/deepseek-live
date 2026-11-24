@@ -353,7 +353,7 @@ SEED_EN = {
     "蓝爵": "Jazz Seeds", "郁金香": "Tulip Bulb", "草莓": "Strawberry Seeds",
     "大黄": "Rhubarb Seeds",
     "蓝莓": "Blueberry Seeds", "甜瓜": "Melon Seeds", "杨桃": "Starfruit Seeds",
-    "红叶卷心菜": "Red Cabbage Seeds", "啤酒花": "Hops Starter", "辣椒": "Hot Pepper Seeds",
+    "红叶卷心菜": "Red Cabbage Seeds", "啤酒花": "Hops Starter", "辣椒": "Pepper Seeds",   # 游戏内部名是 Pepper Seeds，不是 Hot Pepper Seeds（2026-11-25 修）
     "西红柿": "Tomato Seeds", "小萝卜": "Radish Seeds", "虞美人": "Poppy Seeds",
     "小麦": "Wheat Seeds", "玉米": "Corn Seeds",
     "蔓越莓": "Cranberry Seeds", "南瓜": "Pumpkin Seeds", "洋蓟": "Artichoke Seeds",
