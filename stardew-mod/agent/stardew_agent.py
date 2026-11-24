@@ -2408,8 +2408,18 @@ def make_hints(state):
 
 
 def _rule_plan(state, goal=None):
-    """LLM 不可用时的规则动作计划：出室内→去农场→收菜/浇水/播种/除草。"""
+    """LLM 不可用时的规则动作计划：出室内→去农场→收菜/浇水/播种/除草/回家睡觉。"""
     loc = str(state.get("location") or "")
+    try:
+        _t = int(state.get("time") or 0)
+    except Exception:
+        _t = 0
+    # 23:00 之后必须回家睡觉：不然凌晨 2 点累倒，每晚扣 1000g（实测钱每天准时 -1000）
+    if _t >= 2300:
+        if loc == "FarmHouse":
+            return {"goal": "累了，睡觉", "actions": [{"type": "sleep"}]}
+        return {"goal": "回家睡觉", "actions": [{"type": "goto", "location": "FarmHouse"},
+                                                {"type": "sleep"}]}
     dp = _day_plan or {}
     crop = str(dp.get("crop") or "")
     seed_en = SEED_EN.get(crop, "")

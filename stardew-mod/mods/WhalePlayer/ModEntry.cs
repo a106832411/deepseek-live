@@ -1271,6 +1271,16 @@ namespace WhalePlayer
                 {
                     var t = this.DoorTarget(loc, w, pt0);
                     int probe = this.ProbePath(loc, t);
+                    if (probe <= 0)
+                    {
+                        // 门格本身可能是「不可落脚的门」（如农舍门），改试门口相邻格
+                        var t2 = this.DoorAdjacent(loc, w, pt0);
+                        if (t2 != Point.Zero)
+                        {
+                            int p2 = this.ProbePath(loc, t2);
+                            if (p2 > 0) { t = t2; probe = p2; }
+                        }
+                    }
                     if (probe > 0) { next = hop; warp = w; target = t; break; }
                     this.Monitor.Log($"goto: {name} 门 {hop}({w.X},{w.Y}) 不可达（探路={probe}），换一个", LogLevel.Debug);
                 }
@@ -1408,6 +1418,19 @@ namespace WhalePlayer
         }
 
         /// <summary>算门口落脚点：门可走就踩门上，否则用最近的可走邻格，边缘再往内收 2 格。</summary>
+        /// <summary>门口相邻的可走格（门格本身不可落脚时用）。</summary>
+        private Point DoorAdjacent(GameLocation loc, StardewValley.Warp warp, Vector2 from)
+        {
+            var near = new[]
+            {
+                new Point(warp.X, warp.Y + 1), new Point(warp.X, warp.Y - 1),
+                new Point(warp.X + 1, warp.Y), new Point(warp.X - 1, warp.Y),
+                new Point(warp.X, warp.Y + 2), new Point(warp.X + 2, warp.Y)
+            }.OrderBy(c => Math.Abs(c.X - (int)from.X) + Math.Abs(c.Y - (int)from.Y));
+            foreach (var c in near) if (this.IsSafeTile(loc, c.X, c.Y)) return c;
+            return Point.Zero;
+        }
+
         private Point DoorTarget(GameLocation loc, StardewValley.Warp warp, Vector2 from)
         {
             Point target;
