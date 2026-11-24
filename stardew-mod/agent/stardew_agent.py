@@ -2424,6 +2424,14 @@ def _rule_plan(state, goal=None):
                 _t = int("".join(ch for ch in _s if ch.isdigit()) or 0)
     except Exception:
         _t = 0
+    # 背包快满：先去出货，免得后面收菜/钓鱼没地方放
+    _inv = state.get("inventory") or []
+    if len(_inv) >= 30:
+        _junk = any(not any(k in str(x) for k in ("Rod", "Pickaxe", "Hoe", "Axe", "Scythe", "Seeds"))
+                    for x in _inv)
+        if _junk:
+            return {"goal": "背包快满了，去出货", "actions": [
+                {"type": "goto", "location": "Farm"}, {"type": "ship"}]}
     # 23:00 之后必须回家睡觉：不然凌晨 2 点累倒，每晚扣 1000g（实测钱每天准时 -1000）
     if _t >= 2300:
         if loc == "FarmHouse":
