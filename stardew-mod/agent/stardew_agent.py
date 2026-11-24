@@ -2422,7 +2422,11 @@ def _rule_plan(state, goal=None):
     ready = [t for t in tiles if t.get("cropReady")]
     dry = state.get("dry_tiles") or []
     tilled = []
-    for tok in (state.get("tilled_tiles") or []):
+    try:
+        _raw_tilled = read_state().get("tilled_tiles") or []
+    except Exception:
+        _raw_tilled = []
+    for tok in (_raw_tilled or state.get("tilled_tiles") or []):
         try:
             a2, b2 = str(tok).split(",")[:2]
             tilled.append({"x": int(float(a2)), "y": int(float(b2))})
@@ -2457,12 +2461,22 @@ def _rule_plan(state, goal=None):
             for t in tilled[:6]:
                 acts.append({"type": "plant", "x": t["x"], "y": t["y"], "seed": seed_en})
         if not acts and have > 0:
-            # 没有耕地就先锄地（找附近空地），下一轮再种
-            empties = [t for t in tiles if not t.get("obj") and not t.get("crop")
-                       and not t.get("tilled") and _ok(t)]
-            empties.sort(key=_dist)
-            for t in empties[:4]:
-                acts.append({"type": "use_tool", "tool": "hoe", "x": t["x"], "y": t["y"]})
+            # 没有耕地就先锄地：mod 只导出「有东西」的格子，空地在 tiles 里查不到，
+            # 所以直接在玩家周围找「不在 tiles 里」的坐标当候选（下一轮 tilled_tiles 会更新）
+            occupied = {(int(t.get("x", -9)), int(t.get("y", -9))) for t in tiles}
+            water = set()
+            for w in (state.get("water_tiles") or []):
+                try: water.add((int(w.get("x")), int(w.get("y"))))
+                except Exception: pass
+            cand = []
+            for dx in range(-6, 7):
+                for dy in range(-6, 7):
+                    x, y = px0 + dx, py0 + dy
+                    if (x, y) in occupied or (x, y) in water: continue
+                    cand.append((abs(dx) + abs(dy), x, y))
+            cand.sort()
+            for _, x, y in cand[:4]:
+                acts.append({"type": "use_tool", "tool": "hoe", "x": x, "y": y})
         if not acts:
             # 没事干：用镰刀清一片草（看着像在干活）
             pt = state.get("tile") or {}
@@ -2478,7 +2492,16 @@ def _rule_plan(state, goal=None):
                 acts.append({"type": "use_tool", "tool": TOOL_BY_OBJ[t["obj"]], "x": t["x"], "y": t["y"]})
     if not acts:
         acts.append({"type": "goto", "location": "Farm"})
-    return {"goal": goal or (dp.get("goal") or "规则模式：农场干活"), "actions": acts}
+    # 去重：同一坐标的同类动作只留一个（避免 plant 三次都吸到同一块地）
+    seen_a = set()
+    dedup = []
+    for a in acts:
+        k = (a.get("type"), a.get("x"), a.get("y"), a.get("tool"))
+        if k in seen_a:
+            continue
+        seen_a.add(k)
+        dedup.append(a)
+    return {"goal": goal or (dp.get("goal") or "规则模式：农场干活"), "actions": dedup}
 
 
 def make_plan(state, goal=None):
@@ -2712,9 +2735,15 @@ def validate_actions(state, actions):
                 log(f"  锄地坐标吸附：({a.get('x')},{a.get('y')}) → {snap}")
                 a = dict(a, x=snap[0], y=snap[1])
                 tile = {"x": snap[0], "y": snap[1], "crop": None, "obj": None}
+        if tile is None and t == "use_tool" and str(a.get("tool") or "").lower() == "hoe":
+            # mod 不导出空地，镰刀割过的空地这里查不到 → 允许直接锄（执行时会走过去）
+            tile = {"x": a.get("x"), "y": a.get("y"), "crop": None, "obj": None}
         if tile is None and t == "use_tool" and str(a.get("tool") or "").lower() in ("wateringcan", "watering_can"):
             if (a.get("x"), a.get("y")) in dry:
                 tile = {"x": a.get("x"), "y": a.get("y"), "crop": "?", "waterState": "干地"}
+        if tile is None and t == "plant" and (a.get("x"), a.get("y")) in tilled:
+            # 已锄好的地就算离得远也允许（执行时 ensure_near 会走过去）
+            tile = {"x": a.get("x"), "y": a.get("y"), "crop": None, "tilled": True}
         if tile is None and t == "plant":
             snap = nearest(tilled)
             if snap:
