@@ -788,7 +788,7 @@ function enqueueSpeech(text) {
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
 // ---- 网易云点歌健壮性：登录 Cookie / 限速 / 重试 / 缓存 / 外链兜底 ----
-const NETEASE_COOKIE = String(process.env.DEEPLIVE_NETEASE_COOKIE || '').trim();
+const NETEASE_COOKIE = String(envOf('DEEPLIVE_NETEASE_COOKIE', '') || '').trim();
 const NE_MIN_INTERVAL = 800;
 let neLastAt = 0;
 const neCache = new Map();
@@ -1052,7 +1052,8 @@ async function songQueueLoop() {
       await enqueueSpeech(`下面播放${item.by}点的《${item.song.name}》。`);
       const file = path.join(os.tmpdir(), 'wt_song_' + item.song.id + '.mp3');
       try {
-        if (!fs.existsSync(file) || fs.statSync(file).size < 10000) {
+        try { if (fs.existsSync(file)) fs.unlinkSync(file); } catch (e0) {}   // 每次重新下载，避免复用上次的音频（可能不是同一首/已过期）
+        if (true) {
           const u = item.url || await neteaseUrl(item.song.id);
           if (!u) throw new Error('无播放地址');
           await downloadFile(u, file);
