@@ -318,6 +318,7 @@ CROPS = {
 # ---------------- 季节作物选择（确定性逻辑） ----------------
 # 中文作物名 → 英文种子名（商店按英文名买，种植也按英文名匹配）
 # 皮埃尔（SeedShop）不卖的种子：杨桃(沙漠)、上古种子、仙人掌、芋头、菠萝、宝石甜莓等
+_watch = {"time": None, "stuck": 0}
 BAD_TILES = {}   # (x,y) -> 时间戳：走不到的格子，短期内别再试
 BAD_FILE = r"D:\live\logs\.bad_tiles.json"
 
@@ -2413,7 +2414,11 @@ def _rule_plan(state, goal=None):
     crop = str(dp.get("crop") or "")
     seed_en = SEED_EN.get(crop, "")
     have = count_seeds(seed_en, state) if seed_en else 0
-    tiles = state.get("tiles") or []
+    try:
+        _raw = read_state()
+        tiles = (_raw.get("tiles") or []) or (state.get("tiles") or [])
+    except Exception:
+        tiles = state.get("tiles") or []
     ready = [t for t in tiles if t.get("cropReady")]
     dry = state.get("dry_tiles") or []
     tilled = []
@@ -2650,7 +2655,13 @@ def normalize_action(a):
 
 
 def validate_actions(state, actions):
-    tiles = {(t["x"], t["y"]): t for t in (state.get("tiles") or [])}
+    # 用原始扫描的 tiles（summarize 只保留 10 格，校验时会把远处合法目标当无效坐标丢掉）
+    try:
+        _raw_tiles = read_state().get("tiles") or []
+    except Exception:
+        _raw_tiles = []
+    _base = _raw_tiles if _raw_tiles else (state.get("tiles") or [])
+    tiles = {(t["x"], t["y"]): t for t in _base}
     dry = [(d["x"], d["y"]) for d in (state.get("dry_tiles") or [])]
     # 2026-11-21 修：tiles 里没有 "tilled" 字段（mod 只在顶层导出 tilled_tiles），
     # 以前这里恒为空 → 模型下发的 plant 动作全被当「没有已锄好的地」丢掉。
@@ -3490,6 +3501,27 @@ def main():
     for r in range(1, rounds + 1):
         try:
             state = summarize(read_state())
+            # 格子太少说明扫描数据过期/范围太小 → 主动重新扫描，否则规则计划没目标可选（会空转）
+            if state.get("location") == "Farm" and len(state.get("tiles") or []) < 30:
+                send_order({"actionType": "scan_all"})
+                time.sleep(2.0)
+                state = summarize(read_state())
+                log(f"  重新扫描：格子 {len(state.get('tiles') or [])}")
+            # 时间停滞（多半是商店/对话界面没关）→ 主动关界面，别干等
+            _now_t = state.get("time")
+            if _now_t is not None and _now_t == _watch.get("time"):
+                _watch["stuck"] = _watch.get("stuck", 0) + 1
+            else:
+                _watch["stuck"] = 0
+            _watch["time"] = _now_t
+            if _watch.get("stuck", 0) >= 2:
+                log("  游戏时间停滞，尝试关闭界面")
+                send_order({"actionType": "close_menu"})
+                time.sleep(1.5)
+                send_order({"actionType": "wake"})
+                time.sleep(1.0)
+                state = summarize(read_state())
+                _watch["stuck"] = 0
             ensure_day_plan(state)
             if _day_plan.get("crop"):
                 ensure_seeds(state, _day_plan.get("crop"), _day_plan.get("seeds") or 5)
