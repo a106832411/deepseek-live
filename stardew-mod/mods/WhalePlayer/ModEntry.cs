@@ -955,7 +955,20 @@ namespace WhalePlayer
             }
             try
             {
-                bool ok = dirt.crop.harvest(x, y, dirt, null);
+                bool ok = false;
+                try { ok = dirt.crop.harvest(x, y, dirt, null); } catch { }
+                if (!ok)
+                {
+                    // 兜底：直接按作物产物入包（游戏 API 有时在脚本环境里返回 false 但不产出）
+                    try
+                    {
+                        string hid = dirt.crop.indexOfHarvest.Value;
+                        int n = 1;
+                        var loot = ItemRegistry.Create<StardewValley.Object>("(O)" + hid, n);
+                        if (loot != null && Game1.player.addItemToInventoryBool(loot, false)) ok = true;
+                    }
+                    catch (Exception ex2) { this.Monitor.Log("harvest 兜底异常：" + ex2.Message, LogLevel.Warn); }
+                }
                 this.Monitor.Log($"harvest: ({x},{y}) {dirt.crop.indexOfHarvest.Value} = {ok}", LogLevel.Info);
                 // 不重复收割：非再生作物收割后清掉
                 if (dirt.crop != null)

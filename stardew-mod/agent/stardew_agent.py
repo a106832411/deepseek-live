@@ -2705,7 +2705,7 @@ def _extract_json(text):
 def normalize_action(a):
     t = a.get("type")
     if t in ("walk_to", "exit", "use_tool", "interact", "shop_buy", "ship", "sleep", "plant",
-             "goto_shop", "goto", "fish",
+             "goto_shop", "goto", "fish", "harvest",
              # 2026-11-22：救援动作也要能过白名单（原来这几个全被当非法丢掉）
              "unstick", "warp_house", "warp_to", "close_menu", "enter_home", "go_fish", "stop_fish"):
         a = dict(a)
@@ -2759,7 +2759,8 @@ def validate_actions(state, actions):
             log(f"  丢弃（人在屋里，先出门）：{a}")
             continue
         if t in ("walk_to", "exit", "shop_buy", "ship", "sleep", "goto_shop", "goto", "fish",
-                      "unstick", "warp_house", "warp_to", "close_menu", "enter_home", "go_fish", "stop_fish"):
+                      "unstick", "warp_house", "warp_to", "close_menu", "enter_home", "go_fish", "stop_fish",
+                      "harvest"):
             if t == "walk_to" and a.get("x") is not None:
                 tx, ty = a.get("x"), a.get("y")
                 if (tx, ty) not in tiles and (tx, ty) not in dry and abs(tx - px) + abs(ty - py) > 12:
@@ -3454,7 +3455,7 @@ def execute(plan, state=None, dry=False):
                 if not ok:   # 直接走不到就试着站旁边
                     ok = ensure_near(state or summarize(read_state()), tx, ty)
             log(f"  {i}/{len(actions)} walk_to ({tx},{ty}) → {'到达' if ok else '走不到'}")
-        elif at in ("use_tool", "interact", "plant"):
+        elif at in ("use_tool", "interact", "plant", "harvest"):
             if not ensure_near(state or summarize(read_state()), act["x"], act["y"]):
                 BAD_TILES[(act["x"], act["y"])] = time.time()
                 _save_bad()
