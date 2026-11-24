@@ -2489,10 +2489,20 @@ def _rule_plan(state, goal=None):
                 try: water.add((int(w.get("x")), int(w.get("y"))))
                 except Exception: pass
             cand = []
+            _now2 = time.time()
+            # 锄地位置：优先在已有作物/耕地的农田区域找（玩家脚边可能是农舍地基，锄不动）
+            _crop_xy = [(int(t.get("x", 0)), int(t.get("y", 0))) for t in tiles if t.get("crop")]
+            if _crop_xy:
+                _ax = sum(p[0] for p in _crop_xy) // len(_crop_xy)
+                _ay = sum(p[1] for p in _crop_xy) // len(_crop_xy)
+            else:
+                _ax, _ay = px0, py0
             for dx in range(-6, 7):
                 for dy in range(-6, 7):
-                    x, y = px0 + dx, py0 + dy
+                    x, y = _ax + dx, _ay + dy
                     if (x, y) in occupied or (x, y) in water: continue
+                    _ts = BAD_TILES.get((x, y))
+                    if _ts and _now2 - _ts < 900: continue   # 锄不出耕地的坏点
                     cand.append((abs(dx) + abs(dy), x, y))
             cand.sort()
             for _, x, y in cand[:4]:
@@ -3443,6 +3453,24 @@ def execute(plan, state=None, dry=False):
             send_order(act)
             time.sleep(0.55 if at == "use_tool" else 0.45)
             log(f"  {i}/{len(actions)} {at} ({act['x']},{act['y']})")
+            # 锄地没效果（锄不出耕地）→ 记坏点，别每轮原地重复
+            if at == "use_tool" and str(act.get("tool") or "").lower() == "hoe":
+                try:
+                    _r = read_state()
+                    _til = set()
+                    for _tok in (_r.get("tilled_tiles") or []):
+                        try:
+                            _a, _b = str(_tok).split(",")[:2]; _til.add((int(_a), int(_b)))
+                        except Exception:
+                            pass
+                    _has_crop = any(t.get("x") == act["x"] and t.get("y") == act["y"] and t.get("crop")
+                                    for t in (_r.get("tiles") or []))
+                    if (act["x"], act["y"]) not in _til and not _has_crop:
+                        BAD_TILES[(act["x"], act["y"])] = time.time()
+                        _save_bad()
+                        log(f"    锄不出耕地 ({act['x']},{act['y']}) → 记坏点")
+                except Exception:
+                    pass
         elif at == "exit":
             send_order(act)
             t0 = time.time()
