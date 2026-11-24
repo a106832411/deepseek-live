@@ -1249,6 +1249,31 @@ namespace WhalePlayer
             // 改成按调用次数递减（每调用扣 30），warpCooldown=120 → 4 次 ≈ 2 秒，够等黑屏淡入。
             if (this.warpCooldown > 0) { this.warpCooldown -= 30; return; }
 
+            // 目标是农舍：Farm 里的农舍也是「门」，不是 warp → 走到 (64,16) 再进屋
+            if ((this.travelDest ?? "") == "FarmHouse" && name == "Farm")
+            {
+                try
+                {
+                    var pp = Game1.player;
+                    int dhome = Math.Abs((int)pp.Tile.X - 64) + Math.Abs((int)pp.Tile.Y - 15);
+                    if (dhome <= 3)
+                    {
+                        this.gotoShop = false;
+                        this.hopAttempts.Clear();
+                        this.Monitor.Log("goto: 到农舍门口，进屋", LogLevel.Info);
+                        Game1.warpFarmer("FarmHouse", 9, 9, 2);
+                        return;
+                    }
+                    if (pp.controller == null)
+                    {
+                        var homeTarget = new Point(64, 16);
+                        Game1.player.controller = new StardewValley.Pathfinding.PathFindController(Game1.player, loc, homeTarget, 3);
+                        this.Monitor.Log($"goto: 走向农舍门口 (64,16)，距门 {dhome} 格", LogLevel.Info);
+                    }
+                    return;
+                }
+                catch (Exception exHome) { this.Monitor.Log("goto 农舍异常：" + exHome.Message, LogLevel.Warn); }
+            }
             // 目标是矿洞：Mountain 里的矿洞入口是「门」不是传送点，单独走门进去
             if ((this.travelDest ?? "") == "Mine" && name == "Mountain" && this.TryEnterMineDoor(loc))
             {
