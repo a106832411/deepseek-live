@@ -41,6 +41,7 @@ src/                   Vue 3 控制台（Vite 构建）
 public/                免构建页面：console/dashboard/live2d/overlay/songs
 server/index.cjs       纯 Node 启动入口（无 Electron）
 extras/python/         可选增强脚本（清唱音频管线 sing_tts.py/点歌/合成/游戏画面等）
+stardew-mod/           星露谷 mod 源码（WhalePlayer / WhaleFashion / CP 皮肤包）
 ```
 
 ## 快速开始
@@ -150,6 +151,35 @@ python extras/python/stardew_agent.py --loop         # 循环
 ```
 
 架构、能力和限制见 [docs/星露谷AI.md](docs/星露谷AI.md)。
+
+## 星露谷 mod 依赖
+
+游戏内角色 / 钓鱼这部分依赖两类 mod：**第三方框架包**（自己从 Nexus 下，不进本仓库）和**本仓库自带的 mod**（`stardew-mod/mods/`，编译后拷进游戏 `Mods`）。
+
+第三方（必装）：
+
+| 用途 | Mod | 来源 |
+|---|---|---|
+| mod 框架 | SMAPI 4.5+ | <https://smapi.io> |
+| 改贴图 | Content Patcher 2.9.1 | [Nexus 1915](https://www.nexusmods.com/stardewvalley/mods/1915) |
+| 换装框架 | Fashion Sense 7.5.0 | [Nexus 9969](https://www.nexusmods.com/stardewvalley/mods/9969) |
+| 女仆装 | Maid Dress (Fashion Sense) | [Nexus 20195](https://www.nexusmods.com/stardewvalley/mods/20195) |
+| 可选长发 | Super-long Hairpack 1 | [Nexus 22722](https://www.nexusmods.com/stardewvalley/mods/22722) |
+
+> `Maid Dress` 压缩包里有两个文件夹（`Maid Dress`、`LWA Skintone`），要拆开分别放进 `Mods`；它自带 `Diana Maid Hair` 长发和 `maid hairband` 发箍。
+
+本仓库自带（`stardew-mod/mods/`，`dotnet build` 后把 `bin/Release` 里的文件拷进游戏 `Mods`）：
+
+| Mod | 作用 |
+|---|---|
+| `WhalePlayer` | 星露谷 AI 本体：状态/订单、寻路、钓鱼、商店等 |
+| `WhaleFashion` | 读档时通过 Fashion Sense API 自动穿装扮（发/帽/衣/裤/鞋/袖），不用手动点镜子 |
+| `Whale.PaleSkin` | Content Patcher 包：把肤色调色板 23 号换成 `#FBF8EF` |
+| `Whale.MaidSkin` | 早期 CP 像素皮肤（女仆装上色版），已停用，留作备用 |
+| `Whale.DianaHair` | 自制 FS 长发包，尺寸参数没调好，已停用 |
+| `AssetDump` | 开发工具：导出 farmer 贴图、按 `look.json` 一键换装 |
+
+当前采用的组合：`WhaleFashion` 套上 `Diana Maid Hair + maid hairband + maid shirt/dress/shoes/sleeves`，发色 `#5F75B3`，肤色 `#FBF8EF`。
 
 ## 本地模型（省钱模式）
 
