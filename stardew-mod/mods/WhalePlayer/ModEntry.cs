@@ -3670,9 +3670,13 @@ namespace WhalePlayer
                     ["water_tiles"] = waterTiles,
                     ["tilled_tiles"] = new JArray(tilledSet.Cast<object>().ToArray())
                 };
-                var tmp = this.statePath + ".tmp";
-                File.WriteAllText(tmp, state.ToString());
-                File.Move(tmp, this.statePath, true);
+                // 直接覆盖写（FileShare.ReadWrite）：之前 tmp+Move 在读取方持有句柄时会 Access denied
+                var jsonText = state.ToString();
+                using (var fs2 = new FileStream(this.statePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+                using (var sw = new StreamWriter(fs2, new System.Text.UTF8Encoding(false)))
+                {
+                    sw.Write(jsonText);
+                }
             }
             catch (Exception ex)
             {

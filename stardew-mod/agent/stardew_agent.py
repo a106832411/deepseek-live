@@ -2411,7 +2411,9 @@ def _rule_plan(state, goal=None):
     else:
         for t in ready[:4]:
             acts.append({"type": "harvest", "x": t["x"], "y": t["y"]})
-        if not acts and dry:
+        inv0 = [str(x) for x in (state.get("inventory") or [])]
+        has_can = any(("Watering" in x) or ("喷壶" in x) for x in inv0)
+        if not acts and dry and has_can:
             for d in dry[:6]:
                 acts.append({"type": "use_tool", "tool": "wateringcan", "x": d["x"], "y": d["y"]})
         if not acts and have > 0 and tilled:
