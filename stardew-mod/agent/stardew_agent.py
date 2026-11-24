@@ -3576,6 +3576,23 @@ def ensure_seeds(state, crop, count):
 
     if any(_is_seed(x) for x in inv):
         return True
+    # 商店 9:00-18:00 营业：关门的时段别白跑（凌晨/深夜去店里只会『买不到』空转）
+    try:
+        _rt = state.get("time")
+        if isinstance(_rt, int):
+            _tm = _rt
+        else:
+            _ts = str(_rt or "")
+            if ":" in _ts:
+                _h, _m = _ts.split(":")[:2]
+                _tm = int(_h) * 100 + int(_m)
+            else:
+                _tm = int("".join(c for c in _ts if c.isdigit()) or 0)
+        if _tm and (_tm < 900 or _tm >= 1800):
+            log(f"  商店已关门（{state.get('time')}），这一轮先不买种子")
+            return False
+    except Exception:
+        pass
     if (state.get("money") or 0) < 200:
         log(f"钱不够买{crop}种子（{state.get('money')}g）")
         return False
