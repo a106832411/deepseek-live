@@ -2503,6 +2503,8 @@ def _rule_plan(state, goal=None):
             if _crop_xy:
                 _ax = sum(p[0] for p in _crop_xy) // len(_crop_xy)
                 _ay = sum(p[1] for p in _crop_xy) // len(_crop_xy)
+            elif loc == "Farm":
+                _ax, _ay = 60, 38     # 已知能种的老田位置（作物死光后仍然去这里扩种）
             else:
                 _ax, _ay = px0, py0
             for dx in range(-6, 7):
@@ -3611,6 +3613,22 @@ def main():
                 except Exception:
                     _n = len(state.get("tiles") or [])
                 log(f"  重新扫描：格子 {_n}（摘要只显示 {len(state.get('tiles') or [])}）")
+            # 位置连续 3 轮不动（多半被树/水塘围住）→ 回农舍再出来，重置到开阔地
+            _pt = state.get("tile") or {}
+            _ptk = (_pt.get("x"), _pt.get("y"))
+            if _watch.get("tile") == _ptk:
+                _watch["same"] = _watch.get("same", 0) + 1
+            else:
+                _watch["same"] = 0
+            _watch["tile"] = _ptk
+            if _watch.get("same", 0) >= 3 and str(state.get("location") or "") == "Farm":
+                log("  位置卡住 3 轮，回农舍再出来重置")
+                send_order({"actionType": "warp_house"})
+                time.sleep(3)
+                send_order({"actionType": "goto", "location": "Farm"})
+                time.sleep(8)
+                state = summarize(read_state())
+                _watch["same"] = 0
             # 时间停滞（多半是商店/对话界面没关）→ 主动关界面，别干等
             _now_t = state.get("time")
             if _now_t is not None and _now_t == _watch.get("time"):
