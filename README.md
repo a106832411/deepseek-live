@@ -154,7 +154,9 @@ python extras/python/stardew_agent.py --loop         # 循环
 
 ## 干活旁白（让 AI 边玩边说话）
 
-游戏里干活时偶尔冒一句人话，走鲸live 自己的 TTS 队列播出来，同时显示在 OBS 左上角状态卡上：
+> 默认**不启动**，需要时手动跑；不跑就不会自言自语。
+
+游戏里干活时偶尔冒一句人话，走鲸live 自己的 TTS 队列播出来：
 
 ```powershell
 python extras/python/stardew_narration.py          # 常驻（建议配合游戏一起开）
