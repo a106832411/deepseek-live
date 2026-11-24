@@ -2450,7 +2450,14 @@ def _rule_plan(state, goal=None):
                 acts.append({"type": "use_tool", "tool": "wateringcan", "x": d["x"], "y": d["y"]})
         if not acts and have > 0 and tilled:
             for t in tilled[:6]:
-                acts.append({"type": "plant", "x": t["x"], "y": t["y"]})
+                acts.append({"type": "plant", "x": t["x"], "y": t["y"], "seed": seed_en})
+        if not acts and have > 0:
+            # 没有耕地就先锄地（找附近空地），下一轮再种
+            empties = [t for t in tiles if not t.get("obj") and not t.get("crop")
+                       and not t.get("tilled") and _ok(t)]
+            empties.sort(key=_dist)
+            for t in empties[:4]:
+                acts.append({"type": "use_tool", "tool": "hoe", "x": t["x"], "y": t["y"]})
         if not acts:
             # 没事干：用镰刀清一片草（看着像在干活）
             pt = state.get("tile") or {}
