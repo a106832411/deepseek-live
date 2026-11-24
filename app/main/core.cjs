@@ -929,13 +929,15 @@ function downloadFile(url, dest) {
 function playMp3(file, durSec) {
   if (process.env.WT_NO_AUDIO === '1') return Promise.resolve();
   return new Promise((resolve) => {
+    // 注意：WMPlayer.OCX 需要消息泵才会真正播放（否则卡在 transitioning，静默无声）
     const ps = [
+      'Add-Type -AssemblyName System.Windows.Forms',
       '$ErrorActionPreference="SilentlyContinue"',
       '$w = New-Object -ComObject WMPlayer.OCX',
       '$w.URL = "' + file.replace(/\\/g, '\\\\').replace(/"/g, '`"') + '"',
       '$w.controls.play()',
-      '$limit = ' + Math.max(15, Math.ceil((durSec || 180) + 15)),
-      'for ($i = 0; $i -lt $limit; $i++) { Start-Sleep -Seconds 1; if ($w.playState -eq 1 -or $w.playState -eq 8) { break } }',
+      '$limit = ' + Math.max(60, Math.ceil(((durSec || 180) + 20) * 4)),
+      'for ($i = 0; $i -lt $limit; $i++) { Start-Sleep -Milliseconds 250; [System.Windows.Forms.Application]::DoEvents(); if ($w.playState -eq 1 -or $w.playState -eq 8) { break } }',
       '$w.controls.stop()',
       'try { $w.close() } catch {}'
     ].join('; ');
