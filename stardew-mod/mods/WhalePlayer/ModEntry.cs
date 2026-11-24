@@ -3458,8 +3458,28 @@ namespace WhalePlayer
             if (!this.buyPending) return;
             if (!(Game1.activeClickableMenu is ShopMenu))
             {
+                // 界面被外部关掉（常见：goto 看门狗 close_menu）：把剩下的直接买完，别半途而废
+                var proto2 = this.buyTarget as Item;
+                int remain = this.buyLeft;
+                if (proto2 != null && remain > 0)
+                {
+                    int afford = this.buyUnit > 0 ? Game1.player.Money / this.buyUnit : remain;
+                    int n2 = Math.Min(remain, Math.Max(0, afford));
+                    if (n2 > 0)
+                    {
+                        var piece2 = proto2.getOne();
+                        piece2.Stack = n2;
+                        if (Game1.player.addItemToInventoryBool(piece2, false))
+                        {
+                            int cost2 = n2 * this.buyUnit;
+                            Game1.player.Money -= cost2;
+                            this.buySpent += cost2;
+                            this.buyLeft -= n2;
+                            this.Monitor.Log($"shop_buy: 界面被关，直接补买 {n2} × {proto2.Name}（-{cost2}g，剩 {this.buyLeft}）", LogLevel.Info);
+                        }
+                    }
+                }
                 this.buyPending = false;
-                this.Monitor.Log("shop_buy: 商店界面被关掉，购买中止", LogLevel.Warn);
                 return;
             }
             if (this.buyDelayTicks > 0) { this.buyDelayTicks--; return; }
