@@ -3510,7 +3510,9 @@ def ensure_seeds(state, crop, count):
     if not crop:
         return False
     inv = state.get("inventory") or []
-    en = CROP_EN.get(crop, crop)
+    # 种子名优先用 SEED_EN（内部名，如 Pepper Seeds），别再拼 "Hot Pepper"+" Seeds"
+    en = SEED_EN.get(crop) or CROP_EN.get(crop, crop)
+    seed_name = en if any(k in en for k in ("Seed", "Starter", "Bulb", "Tuber", "Shoot")) else en + " Seeds"
     # 2026-11-22 修：以前只要物品名包含作物名就算「有种子」，收获下来的果实
     # （Blueberry / 蓝莓）也满足 → 误判不用买种，后面 plant 全被 mod 以「没有种子」拒绝。
     # 现在必须名字里真的带 Seeds/种子。
@@ -3523,14 +3525,14 @@ def ensure_seeds(state, crop, count):
     if (state.get("money") or 0) < 200:
         log(f"钱不够买{crop}种子（{state.get('money')}g）")
         return False
-    log(f"背包没有{en} Seeds → 走去皮埃尔商店买 {count} 包")
+    log(f"背包没有{seed_name} → 走去皮埃尔商店买 {count} 包")
     loc = go_to_shop(log_fn=log)
-    order = {"actionType": "shop_buy", "item": f"{en} Seeds", "count": int(count)}
+    order = {"actionType": "shop_buy", "item": seed_name, "count": int(count)}
     if loc != "SeedShop":
         log(f"  没进到店里（当前 {loc}）→ 远程开商店兜底")
         order["remote"] = True
     send_order(order)
-    got = wait_purchase(f"{en} Seeds", int(count), log_fn=log)
+    got = wait_purchase(seed_name, int(count), log_fn=log)
     send_order({"actionType": "close_menu"})
     time.sleep(1.0)
     inv = summarize(read_state()).get("inventory") or []
