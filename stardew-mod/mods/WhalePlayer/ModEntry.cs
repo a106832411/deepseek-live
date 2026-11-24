@@ -75,6 +75,7 @@ namespace WhalePlayer
         private bool holdingDone = false;
         private bool catchDone = false;
         private int hopIndex = 0;
+        private int hopFailTotal = 0;   // 门口反复走不到的累计次数（用于兜底传送）
         private Dictionary<string, HashSet<string>> graph = null;
         private string travelDest = null;  // 目标场景（goto 动作）
         private Point hopApproach = Point.Zero;
@@ -1207,6 +1208,8 @@ namespace WhalePlayer
         {
             var cur = Game1.player.currentLocation?.Name ?? "";
             if (string.IsNullOrEmpty(dest)) { this.Monitor.Log("goto: 没给目标", LogLevel.Warn); return; }
+            // 皮埃尔商店不是传送点（是 Town 里的一扇门）：先到 Town，剩下的走门交给上层
+            if (dest == "SeedShop") { dest = "Town"; this.Monitor.Log("goto: SeedShop 走门 → 先到 Town", LogLevel.Info); }
             if (cur == dest) { this.Monitor.Log($"goto: 已经在 {dest}", LogLevel.Info); this.gotoShop = false; return; }
             var next = this.DynamicNextHop(cur, dest) ?? NextHop(cur, dest);
             if (next == null)
@@ -1233,6 +1236,7 @@ namespace WhalePlayer
                 this.gotoShop = false;
                 this.hopApproach = Point.Zero;
                 this.hopAttempts.Clear();
+                this.hopFailTotal = 0;
                 this.Monitor.Log($"goto: 已到达 {name}", LogLevel.Info);
                 return;
             }
@@ -1241,30 +1245,35 @@ namespace WhalePlayer
             // 改成按调用次数递减（每调用扣 30），warpCooldown=120 → 4 次 ≈ 2 秒，够等黑屏淡入。
             if (this.warpCooldown > 0) { this.warpCooldown -= 30; return; }
 
-            var next = this.DynamicNextHop(name, this.travelDest ?? "") ?? NextHop(name, this.travelDest ?? "");
-            if (next == null)
-            {
-                this.gotoShop = false;
-                this.Monitor.Log($"goto: {name} 找不到去 {this.travelDest} 的路", LogLevel.Warn);
-                return;
-            }
+            // 选门：按「离目标更近」的顺序列出相邻地图，逐个验证门口是否真的走得到，
+            // 避免选了一个被地形隔开的门然后死磕/兜底传送（2026-11-25 修）
             var pt0 = Game1.player.Tile;
-            var cands = loc.warps
-                .Where(w => (w.TargetName ?? "") == next)
-                .OrderBy(w => Math.Abs(w.X - (int)pt0.X) + Math.Abs(w.Y - (int)pt0.Y))
-                .ToList();
-            if (cands.Count == 0)
+            string next = null;
+            StardewValley.Warp warp = null;
+            Point target = Point.Zero;
+            foreach (var hop in this.HopOrder(name, this.travelDest ?? ""))
+            {
+                var cs = loc.warps
+                    .Where(w => (w.TargetName ?? "") == hop)
+                    .OrderBy(w => Math.Abs(w.X - (int)pt0.X) + Math.Abs(w.Y - (int)pt0.Y))
+                    .ToList();
+                if (cs.Count == 0) continue;
+                foreach (var w in cs)
+                {
+                    var t = this.DoorTarget(loc, w, pt0);
+                    int probe = this.ProbePath(loc, t);
+                    if (probe > 0) { next = hop; warp = w; target = t; break; }
+                    this.Monitor.Log($"goto: {name} 门 {hop}({w.X},{w.Y}) 不可达（探路={probe}），换一个", LogLevel.Debug);
+                }
+                if (warp != null) break;
+            }
+            if (warp == null)
             {
                 this.gotoShop = false;
-                var names = string.Join("、", loc.warps.Select(w => $"{w.TargetName}({w.X},{w.Y})"));
-                this.Monitor.Log($"goto: {name} 没有去 {next} 的传送点；现有：{names}", LogLevel.Warn);
+                this.Monitor.Log($"goto: {name} 附近所有出口都走不到，放弃去 {this.travelDest}（交给上层换目标）", LogLevel.Warn);
                 return;
             }
-            if (this.hopIndex >= cands.Count) this.hopIndex = 0;
-            var warp = cands[this.hopIndex];
-
-            var pt = Game1.player.Tile;
-            int dist = Math.Abs((int)pt.X - warp.X) + Math.Abs((int)pt.Y - warp.Y);
+            int dist = Math.Abs((int)pt0.X - warp.X) + Math.Abs((int)pt0.Y - warp.Y);
 
             // 已经在门口：过图（读图淡入，等同玩家穿过门/地图边缘）
             bool edgeWarp = warp.X <= 2 || warp.Y <= 2
@@ -1279,8 +1288,8 @@ namespace WhalePlayer
                     if (destLoc?.Map?.Layers != null && destLoc.Map.Layers.Count > 0)
                     {
                         int w = destLoc.Map.Layers[0].LayerWidth, h = destLoc.Map.Layers[0].LayerHeight;
-                        tx = Math.Min(Math.Max(tx, 1), w - 2);
-                        ty = Math.Min(Math.Max(ty, 1), h - 2);
+                        tx = Math.Min(Math.Max(tx, 2), w - 3);   // 至少离边 2 格：贴边多半是往返回转门，会来回弹
+                        ty = Math.Min(Math.Max(ty, 2), h - 3);
                     }
                 }
                 catch { }
@@ -1295,7 +1304,95 @@ namespace WhalePlayer
             // 正在走路就等
             if (Game1.player.controller != null) return;
 
-            // 选落脚点：门本身可走就走到门上，否则走到最近的可走邻格
+
+            int tries = this.hopAttempts.TryGetValue(name, out var n) ? n : 0;
+            tries++;
+            this.hopAttempts[name] = tries;
+            if (tries > 4)
+            {
+                this.hopAttempts[name] = 0;
+                this.gotoShop = false;
+                this.Monitor.Log($"goto: {name} 走向 {warp.TargetName}({warp.X},{warp.Y}) 连续 4 次失败，放弃这次旅行（不传送，交给上层换目标）", LogLevel.Warn);
+                return;
+            }
+            try
+            {
+                var ctrl = new StardewValley.Pathfinding.PathFindController(
+                    Game1.player, loc, target, 3);
+                int plen = ctrl != null && ctrl.pathToEndPoint != null ? ctrl.pathToEndPoint.Count : -1;
+                var ptNow = Game1.player.Tile;
+                this.Monitor.Log($"goto: {name} 走向门口 ({target.X},{target.Y})，距门 {dist} 格（第 {tries} 次）| 起点({ptNow.X},{ptNow.Y}) 可走={this.IsSafeTile(loc, (int)ptNow.X, (int)ptNow.Y)} 路径={plen}", LogLevel.Info);
+                if (plen <= 0)
+                {
+                    // 诊断：起点到底能不能走？分别试 4 个方向 2 格
+                    foreach (var off in new[] { new Point(0, 2), new Point(2, 0), new Point(-2, 0), new Point(0, -2) })
+                    {
+                        try
+                        {
+                            var t2 = new Point((int)ptNow.X + off.X, (int)ptNow.Y + off.Y);
+                            var c2 = new StardewValley.Pathfinding.PathFindController(Game1.player, loc, t2, 3);
+                            int l2 = c2 != null && c2.pathToEndPoint != null ? c2.pathToEndPoint.Count : -1;
+                            this.Monitor.Log($"  diag: ({ptNow.X},{ptNow.Y})→({t2.X},{t2.Y}) 路径={l2} 目标可走={this.IsSafeTile(loc, t2.X, t2.Y)}", LogLevel.Info);
+                        }
+                        catch (Exception e2) { this.Monitor.Log("  diag 异常: " + e2.Message, LogLevel.Warn); }
+                    }
+                }
+                Game1.player.controller = ctrl;
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"goto 寻路失败：{ex.Message}", LogLevel.Warn);
+            }
+        }
+
+        /// <summary>按「离目标更近」的顺序列出当前地图的邻居（用于挑一条走得通的路线）。</summary>
+        private List<string> HopOrder(string from, string dest)
+        {
+            var list = new List<string>();
+            try
+            {
+                if (this.graph == null) this.BuildGraph();
+                if (this.graph != null && this.graph.TryGetValue(from, out var nbrs))
+                {
+                    foreach (var n in nbrs)
+                    {
+                        if (n == dest) { list.Insert(0, n); continue; }
+                        if (this.DistTo(n, dest) >= 0) list.Add(n);
+                    }
+                    list = list.OrderBy(x => x == dest ? 0 : this.DistTo(x, dest)).ToList();
+                }
+            }
+            catch { }
+            var old = this.DynamicNextHop(from, dest) ?? NextHop(from, dest);
+            if (old != null && !list.Contains(old)) list.Insert(0, old);
+            return list;
+        }
+
+        /// <summary>BFS 步数（走不到返回 -1）。</summary>
+        private int DistTo(string from, string dest)
+        {
+            if (string.IsNullOrEmpty(from) || string.IsNullOrEmpty(dest)) return -1;
+            if (from == dest) return 0;
+            if (this.graph == null || !this.graph.ContainsKey(from) || !this.graph.ContainsKey(dest)) return -1;
+            var seen = new HashSet<string> { from };
+            var q = new Queue<KeyValuePair<string, int>>();
+            q.Enqueue(new KeyValuePair<string, int>(from, 0));
+            while (q.Count > 0)
+            {
+                var kv = q.Dequeue();
+                foreach (var n in this.graph[kv.Key])
+                {
+                    if (!seen.Add(n)) continue;
+                    if (n == dest) return kv.Value + 1;
+                    q.Enqueue(new KeyValuePair<string, int>(n, kv.Value + 1));
+                }
+            }
+            return -1;
+        }
+
+        /// <summary>算门口落脚点：门可走就踩门上，否则用最近的可走邻格，边缘再往内收 2 格。</summary>
+        private Point DoorTarget(GameLocation loc, StardewValley.Warp warp, Vector2 from)
+        {
             Point target;
             if (this.IsSafeTile(loc, warp.X, warp.Y)) target = new Point(warp.X, warp.Y);
             else
@@ -1304,13 +1401,11 @@ namespace WhalePlayer
                 {
                     new Point(warp.X, warp.Y - 1), new Point(warp.X, warp.Y + 1),
                     new Point(warp.X + 1, warp.Y), new Point(warp.X - 1, warp.Y)
-                }.OrderBy(c => Math.Abs(c.X - (int)pt.X) + Math.Abs(c.Y - (int)pt.Y));
+                }.OrderBy(c => Math.Abs(c.X - (int)from.X) + Math.Abs(c.Y - (int)from.Y));
                 Point pick = Point.Zero;
                 foreach (var c in near) if (this.IsSafeTile(loc, c.X, c.Y)) { pick = c; break; }
                 target = pick == Point.Zero ? new Point(warp.X, warp.Y) : pick;
             }
-            // 门在地图边缘时，目标点往内收 2 格：PathFindController 走到边界格常失败，
-            // 表现为「门口走不到 → 兜底传送」（2026-11-19 修）
             try
             {
                 int mw = loc.Map.Layers[0].LayerWidth, mh = loc.Map.Layers[0].LayerHeight;
@@ -1319,27 +1414,18 @@ namespace WhalePlayer
                 target = new Point(cx, cy);
             }
             catch { }
+            return target;
+        }
 
-            int tries = this.hopAttempts.TryGetValue(name, out var n) ? n : 0;
-            tries++;
-            this.hopAttempts[name] = tries;
-            if (tries > 4)
-            {
-                this.hopAttempts[name] = 0;
-                this.hopIndex = (this.hopIndex + 1) % cands.Count;
-                this.Monitor.Log($"goto: {name} 这个门口走不到，换下一个（{this.hopIndex + 1}/{cands.Count}）", LogLevel.Warn);
-                return;
-            }
+        /// <summary>探路：从当前位置到目标能否走通（返回路径长度，-1 表示走不通）。</summary>
+        private int ProbePath(GameLocation loc, Point target)
+        {
             try
             {
-                Game1.player.controller = new StardewValley.Pathfinding.PathFindController(
-                    Game1.player, loc, target, 3);
-                this.Monitor.Log($"goto: {name} 走向门口 ({target.X},{target.Y})，距门 {dist} 格（第 {tries} 次）", LogLevel.Info);
+                var c = new StardewValley.Pathfinding.PathFindController(Game1.player, loc, target, 3);
+                return c != null && c.pathToEndPoint != null ? c.pathToEndPoint.Count : -1;
             }
-            catch (Exception ex)
-            {
-                this.Monitor.Log($"goto 寻路失败：{ex.Message}", LogLevel.Warn);
-            }
+            catch { return -1; }
         }
 
         private bool IsSafeTile(GameLocation loc, int x, int y)
@@ -3173,17 +3259,39 @@ namespace WhalePlayer
             if (stock == null || stock.Count == 0) { this.Monitor.Log("shop_buy: 商店没货", LogLevel.Warn); return; }
 
             ISalable target = null;
+            var stockNames = new List<string>();
             foreach (var key in stock.Keys)
             {
-                var nm = key?.Name ?? "";
-                var id = (key as Item)?.ItemId ?? "";
-                if (id == want || nm.IndexOf(want, StringComparison.OrdinalIgnoreCase) >= 0)
+                var item = key as Item;
+                var names = new List<string>();
+                try { if (!string.IsNullOrEmpty(key?.Name)) names.Add(key.Name); } catch { }
+                try { if (!string.IsNullOrEmpty(item?.DisplayName)) names.Add(item.DisplayName); } catch { }
+                try { if (!string.IsNullOrEmpty(item?.ItemId)) names.Add(item.ItemId); } catch { }
+                try
                 {
-                    target = key;
-                    break;
+                    var d = item != null ? ItemRegistry.GetData(item.QualifiedItemId) : null;
+                    if (d != null && !string.IsNullOrEmpty(d.InternalName)) names.Add(d.InternalName);   // 内部英文名（本地化前的名字）
                 }
+                catch { }
+                if (stockNames.Count < 40) stockNames.Add(string.Join("/", names.Distinct()));
+                foreach (var nm in names)
+                {
+                    if (string.IsNullOrEmpty(nm)) continue;
+                    if (string.Equals(nm, want, StringComparison.OrdinalIgnoreCase)
+                        || nm.IndexOf(want, StringComparison.OrdinalIgnoreCase) >= 0
+                        || want.IndexOf(nm, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        target = key;
+                        break;
+                    }
+                }
+                if (target != null) break;
             }
-            if (target == null) { this.Monitor.Log($"shop_buy: 商店里没有「{want}」", LogLevel.Warn); return; }
+            if (target == null)
+            {
+                this.Monitor.Log($"shop_buy: 商店里没有「{want}」；货架有：{string.Join("、", stockNames)}", LogLevel.Warn);
+                return;
+            }
 
             var menu = new ShopMenu("SeedShop", stock, 0, "Pierre", null, null, true);
             Game1.activeClickableMenu = menu;                  // 画面里弹出商店

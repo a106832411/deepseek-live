@@ -133,7 +133,16 @@ def send_order(action):
 
 
 # ---------------- LLM ----------------
+class LlmUnavailable(Exception):
+    """本地/远程模型连不上：调用方走规则兜底，不要每轮刷错误。"""
+
+_llm_dead = False
+
+
 def llm_chat(messages, temperature=0.3, max_tokens=600):
+    global _llm_dead
+    if _llm_dead:
+        return ""   # 已确认连不上：直接返回空，调用方走规则兜底
     payload = {
         "model": LLM_MODEL,
         "messages": messages,
@@ -153,8 +162,13 @@ def llm_chat(messages, temperature=0.3, max_tokens=600):
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {LLM_KEY}"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=180) as r:
-        data = json.loads(r.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=180) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except urllib.error.URLError as e:
+        _llm_dead = True
+        log("LLM 不可用（" + str(e) + "），改用规则")
+        return ""
     usage = data.get("usage") or {}
     pt = int(usage.get("prompt_tokens") or 0)
     ct = int(usage.get("completion_tokens") or 0)
@@ -377,6 +391,9 @@ def pick_crops(season=None, day=None, top=3):
             continue
         en = SEED_EN.get(name)
         if not en:
+            continue
+        # 皮埃尔不卖的种子（杨桃/上古/仙人掌…）：背包里有才种，没有就别选（否则买了也买不到）
+        if en in NOT_IN_PIERRE and count_seeds(en) <= 0:
             continue
         out.append((name, en, days, regrow, profit))
     out.sort(key=lambda r: -r[4])
@@ -2262,6 +2279,10 @@ def plan_day_rules(state):
         name, seed, days, price, regrow, gday = row
         if days + 1 > remaining or seed > budget:
             continue
+        # 皮埃尔不卖的种子（杨桃在沙漠绿洲）：背包里没有就别规划，否则买不到
+        en = SEED_EN.get(name)
+        if en in NOT_IN_PIERRE and count_seeds(en, state) <= 0:
+            continue
         if best is None or gday > best[0]:
             best = (gday, name, seed, days + 1)
     if not best:
@@ -2360,7 +2381,55 @@ def make_hints(state):
     return hints[:5]
 
 
+def _rule_plan(state, goal=None):
+    """LLM 不可用时的规则动作计划：出室内→去农场→收菜/浇水/播种/除草。"""
+    loc = str(state.get("location") or "")
+    dp = _day_plan or {}
+    crop = str(dp.get("crop") or "")
+    seed_en = SEED_EN.get(crop, "")
+    have = count_seeds(seed_en, state) if seed_en else 0
+    tiles = state.get("tiles") or []
+    ready = [t for t in tiles if t.get("cropReady")]
+    dry = state.get("dry_tiles") or []
+    tilled = []
+    for tok in (state.get("tilled_tiles") or []):
+        try:
+            a2, b2 = str(tok).split(",")[:2]
+            tilled.append({"x": int(float(a2)), "y": int(float(b2))})
+        except Exception:
+            continue
+    acts = []
+    if loc != "Farm":
+        acts.append({"type": "goto", "location": "Farm"})
+    else:
+        for t in ready[:4]:
+            acts.append({"type": "harvest", "x": t["x"], "y": t["y"]})
+        if not acts and dry:
+            for d in dry[:6]:
+                acts.append({"type": "use_tool", "tool": "wateringcan", "x": d["x"], "y": d["y"]})
+        if not acts and have > 0 and tilled:
+            for t in tilled[:6]:
+                acts.append({"type": "plant", "x": t["x"], "y": t["y"]})
+        if not acts:
+            # 没事干：用镰刀清一片草（看着像在干活）
+            pt = state.get("tile") or {}
+            px, py = int(pt.get("x", 0)), int(pt.get("y", 0))
+            grass = [t for t in tiles if t.get("breakable") and t.get("obj") == "草"]
+            grass.sort(key=lambda t: abs(t["x"] - px) + abs(t["y"] - py))
+            for t in grass[:6]:
+                acts.append({"type": "use_tool", "tool": "scythe", "x": t["x"], "y": t["y"]})
+    if not acts:
+        acts.append({"type": "goto", "location": "Farm"})
+    return {"goal": goal or (dp.get("goal") or "规则模式：农场干活"), "actions": acts}
+
+
 def make_plan(state, goal=None):
+    global _llm_dead
+    if not _llm_dead and not llm_available():
+        _llm_dead = True
+        log("LLM 不在线，本轮起走规则计划")
+    if _llm_dead:
+        return _rule_plan(state, goal)
     dp = _day_plan if _day_plan.get("day") == state.get("day") else {}
     goal_line = (f"人工目标：{goal}" if goal else
                  (f"今日计划：{dp.get('goal')}（作物 {dp.get('crop') or '-'}，种子 {dp.get('seeds') or 0}）"
@@ -2402,7 +2471,12 @@ def llm_available(timeout=3):
         req = urllib.request.Request(LLM_BASE.rstrip("/") + "/models",
                                      headers={"Authorization": f"Bearer {LLM_KEY}"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status == 200
+            if r.status != 200:
+                return False
+            body = json.loads(r.read().decode("utf-8") or "{}")
+            models = [str(m.get("id") or "") for m in (body.get("data") or [])]
+            # 服务在跑但一个模型都没有（ollama 空库）→ 当不可用
+            return any(models)
     except Exception:
         return False
 
@@ -2574,6 +2648,9 @@ def validate_actions(state, actions):
                 log(f"  锄地坐标吸附：({a.get('x')},{a.get('y')}) → {snap}")
                 a = dict(a, x=snap[0], y=snap[1])
                 tile = {"x": snap[0], "y": snap[1], "crop": None, "obj": None}
+        if tile is None and t == "use_tool" and str(a.get("tool") or "").lower() in ("wateringcan", "watering_can"):
+            if (a.get("x"), a.get("y")) in dry:
+                tile = {"x": a.get("x"), "y": a.get("y"), "crop": "?", "waterState": "干地"}
         if tile is None and t == "plant":
             snap = nearest(tilled)
             if snap:
@@ -3196,13 +3273,20 @@ def ensure_near(state, x, y):
     px, py = _pos()
     if abs(px - x) + abs(py - y) <= 1:
         return True
-    if abs(px - x) + abs(py - y) > 20:
-        log(f"  目标 ({x},{y}) 太远（{abs(px-x)+abs(py-y)} 格），不追")
+    dist0 = abs(px - x) + abs(py - y)
+    if dist0 > 140:
+        log(f"  目标 ({x},{y}) 太远（{dist0} 格），不追")
         return False
+    # 远距离：先整段走到目标附近（mod 的寻路已经修好，能走长路），再微调到旁边
+    if dist0 > 6:
+        log(f"  目标较远（{dist0} 格），先走过去")
+        send_order({"actionType": "walk_to", "x": x, "y": y})
+        if wait_pos((x, y), timeout=min(60.0, 6.0 + dist0 * 0.5)):
+            return True
     for cand in ((x - 1, y), (x + 1, y), (x, y + 1), (x, y - 1)):   # 2026-11-22：四个都试，别只试左右
         log(f"  先走到 ({cand[0]},{cand[1]}) 旁边")
         send_order({"actionType": "walk_to", "x": cand[0], "y": cand[1]})
-        if wait_pos(cand, timeout=min(8.0, 2.0 + (abs(px - cand[0]) + abs(py - cand[1])) * 0.3)):
+        if wait_pos(cand, timeout=min(20.0, 3.0 + (abs(px - cand[0]) + abs(py - cand[1])) * 0.4)):
             return True
     return False
 
@@ -3368,6 +3452,11 @@ def main():
             time.sleep(args.interval)
         except KeyboardInterrupt:
             break
+        except LlmUnavailable:
+            log("LLM 不可用（连不上模型服务），继续用规则玩")
+            if not args.loop:
+                raise
+            time.sleep(5)
         except Exception as e:
             log(f"出错：{e}")
             if not args.loop:
