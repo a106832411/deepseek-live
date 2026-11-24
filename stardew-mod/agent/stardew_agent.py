@@ -319,6 +319,29 @@ CROPS = {
 # 中文作物名 → 英文种子名（商店按英文名买，种植也按英文名匹配）
 # 皮埃尔（SeedShop）不卖的种子：杨桃(沙漠)、上古种子、仙人掌、芋头、菠萝、宝石甜莓等
 BAD_TILES = {}   # (x,y) -> 时间戳：走不到的格子，短期内别再试
+BAD_FILE = r"D:\live\logs\.bad_tiles.json"
+
+
+def _load_bad():
+    try:
+        with open(BAD_FILE, encoding="utf-8") as fh:
+            for k, v in (json.load(fh) or {}).items():
+                x, y = str(k).split(",")[:2]
+                BAD_TILES[(int(x), int(y))] = float(v)
+    except Exception:
+        pass
+
+
+def _save_bad():
+    try:
+        os.makedirs(os.path.dirname(BAD_FILE), exist_ok=True)
+        with open(BAD_FILE, "w", encoding="utf-8") as fh:
+            json.dump({f"{k[0]},{k[1]}": v for k, v in BAD_TILES.items()}, fh)
+    except Exception:
+        pass
+
+
+_load_bad()
 
 NOT_IN_PIERRE = ("Starfruit Seeds", "Ancient Seeds", "Cactus Seeds", "Taro Tuber",
                  "Pineapple Seeds", "Rare Seed", "Rice Shoot")
@@ -2432,7 +2455,9 @@ def _rule_plan(state, goal=None):
             # 没事干：用镰刀清一片草（看着像在干活）
             pt = state.get("tile") or {}
             px, py = int(pt.get("x", 0)), int(pt.get("y", 0))
-            grass = [t for t in tiles if t.get("breakable") and t.get("obj") == "草"]
+            grass = [t for t in tiles if t.get("breakable") and t.get("obj") == "草"
+                     and (not BAD_TILES.get((int(t.get("x", 0)), int(t.get("y", 0))))
+                          or time.time() - BAD_TILES[(int(t.get("x", 0)), int(t.get("y", 0)))] > 900)]
             grass.sort(key=lambda t: abs(t["x"] - px) + abs(t["y"] - py))
             for t in grass[:6]:
                 acts.append({"type": "use_tool", "tool": "scythe", "x": t["x"], "y": t["y"]})
@@ -3342,6 +3367,7 @@ def execute(plan, state=None, dry=False):
         elif at in ("use_tool", "interact", "plant"):
             if not ensure_near(state or summarize(read_state()), act["x"], act["y"]):
                 BAD_TILES[(act["x"], act["y"])] = time.time()
+                _save_bad()
                 log(f"  {i}/{len(actions)} 走不到 ({act['x']},{act['y']}) 旁边，跳过（记为坏点）")
                 continue
             send_order(act)
