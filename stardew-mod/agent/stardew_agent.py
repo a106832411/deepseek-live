@@ -2410,8 +2410,18 @@ def make_hints(state):
 def _rule_plan(state, goal=None):
     """LLM 不可用时的规则动作计划：出室内→去农场→收菜/浇水/播种/除草/回家睡觉。"""
     loc = str(state.get("location") or "")
+    # summarize 把时间格式化成 "23:50" 字符串，直接 int() 会抛异常 → 必须兼容两种格式
+    _raw_t = state.get("time")
     try:
-        _t = int(state.get("time") or 0)
+        if isinstance(_raw_t, int):
+            _t = _raw_t
+        else:
+            _s = str(_raw_t or "").strip()
+            if ":" in _s:
+                _h, _m = _s.split(":")[:2]
+                _t = int(_h) * 100 + int(_m)
+            else:
+                _t = int("".join(ch for ch in _s if ch.isdigit()) or 0)
     except Exception:
         _t = 0
     # 23:00 之后必须回家睡觉：不然凌晨 2 点累倒，每晚扣 1000g（实测钱每天准时 -1000）
