@@ -2436,8 +2436,13 @@ def _rule_plan(state, goal=None):
     if _t >= 2100:   # 21:00 就回家：从田里走回农舍要 1~2 小时游戏时间，23:00 动身会过午夜挨罚
         if loc == "FarmHouse":
             return {"goal": "累了，睡觉", "actions": [{"type": "sleep"}]}
-        return {"goal": "回家睡觉", "actions": [{"type": "goto", "location": "FarmHouse"},
-                                                {"type": "sleep"}]}
+        acts = []
+        if _t < 2350:
+            acts.append({"type": "goto", "location": "FarmHouse"})
+        # 走不到门口（被田地/障碍卡住）也别耽误：直接传送回屋再睡
+        acts.append({"type": "warp_house"})
+        acts.append({"type": "sleep"})
+        return {"goal": "回家睡觉", "actions": acts}
     dp = _day_plan or {}
     crop = str(dp.get("crop") or "")
     seed_en = SEED_EN.get(crop, "")
