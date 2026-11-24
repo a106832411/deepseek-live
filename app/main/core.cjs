@@ -892,6 +892,20 @@ async function neteaseUrl(id) {
   return outer;
 }
 
+function isValidAudio(file) {
+  try {
+    const st = fs.statSync(file);
+    if (!st.size || st.size < 200 * 1024) return false;      // 太小：多半是 HTML 错误页
+    const fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(4);
+    fs.readSync(fd, buf, 0, 4, 0);
+    fs.closeSync(fd);
+    if (buf.slice(0, 3).toString('latin1') === 'ID3') return true;   // ID3 标签
+    if (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0) return true;    // MPEG 帧头
+    return false;
+  } catch (e) { return false; }
+}
+
 function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
     const attempt = (u, redirects = 0) => {
@@ -1043,9 +1057,40 @@ async function songQueueLoop() {
           if (!u) throw new Error('无播放地址');
           await downloadFile(u, file);
         }
+        if (!isValidAudio(file)) throw new Error('下载到的不是音频（可能是错误页）');
         await playMp3(file, item.song.dur);
       } catch (e) {
-        log('播放失败: ' + e.message);
+        log('播放失败: ' + e.message + '，先找同名免费版本');
+        let played = false;
+        try {
+          const alt = await neteaseFreeAlternative(item.song.name);
+          if (alt) {
+            await downloadFile(alt.url, file);
+            if (isValidAudio(file)) {
+              log('免费版本播放: 《' + alt.song.name + '》- ' + alt.song.artist);
+              await playMp3(file, alt.song.dur || item.song.dur);
+              played = true;
+            }
+          }
+        } catch (eAlt) { log('免费版本失败: ' + eAlt.message); }
+        try {
+          const qq = played ? [] : await qqSearch(item.query || item.song.name, 5);
+          for (const cand of qq) {
+            try {
+              const u2 = await qqUrl(cand.id);
+              if (!u2) continue;
+              await downloadFile(u2, file);
+              if (!isValidAudio(file)) continue;
+              log('QQ 兜底播放: 《' + cand.name + '》');
+              await playMp3(file, cand.dur || item.song.dur);
+              played = true;
+              break;
+            } catch (e2) { log('QQ 候选失败: ' + e2.message); }
+          }
+        } catch (e3) { log('QQ 兜底异常: ' + e3.message); }
+        if (!played) {
+          try { await enqueueSpeech('抱歉，这首《' + item.song.name + '》的播放地址有问题，先跳过啦。'); } catch (e4) {}
+        }
       } finally {
         try { fs.unlinkSync(file); } catch (e) {}
         state.song.queue.shift();
@@ -1056,6 +1101,21 @@ async function songQueueLoop() {
   } finally {
     state.song.playing = false;
   }
+}
+
+/** 同名免费版本：VIP 歌拿不到地址时，找 fee=8 的同名版本兜底 */
+async function neteaseFreeAlternative(title) {
+  try {
+    const list = await neteaseSearch(title, 10);
+    for (const s of list) {
+      if (!s || !s.id) continue;
+      const nm = String(s.name || '');
+      if (!(nm === title || nm.startsWith(title) || title.startsWith(nm))) continue;
+      const u = await neteaseUrl(s.id);
+      if (u && !/outer\/url/.test(u)) return { song: s, url: u };
+    }
+  } catch (e) { log('找免费版本失败: ' + e.message); }
+  return null;
 }
 
 async function requestSong(name, query) {
