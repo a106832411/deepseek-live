@@ -2399,6 +2399,13 @@ def _rule_plan(state, goal=None):
         except Exception:
             continue
     acts = []
+    pt0 = state.get("tile") or {}
+    px0, py0 = int(pt0.get("x", 0)), int(pt0.get("y", 0))
+    def _dist(t):
+        return abs(int(t.get("x", 0)) - px0) + abs(int(t.get("y", 0)) - py0)
+    ready.sort(key=_dist)
+    dry.sort(key=_dist)
+    tilled.sort(key=_dist)
     if loc != "Farm":
         acts.append({"type": "goto", "location": "Farm"})
     else:
@@ -3283,6 +3290,8 @@ def ensure_near(state, x, y):
         send_order({"actionType": "walk_to", "x": x, "y": y})
         if wait_pos((x, y), timeout=min(60.0, 6.0 + dist0 * 0.5)):
             return True
+        log(f"  远距离走不过去（目标 {x},{y}），本轮放弃")
+        return False
     for cand in ((x - 1, y), (x + 1, y), (x, y + 1), (x, y - 1)):   # 2026-11-22：四个都试，别只试左右
         log(f"  先走到 ({cand[0]},{cand[1]}) 旁边")
         send_order({"actionType": "walk_to", "x": cand[0], "y": cand[1]})

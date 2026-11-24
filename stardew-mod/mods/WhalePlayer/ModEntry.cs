@@ -56,7 +56,8 @@ namespace WhalePlayer
         private int bedFixCount = 0;
         private int fixCooldownTicks = 0;
         private int dlgStuckTicks = 0;
-        private bool gotoShop = false;     // 兼容旧名：跨图状态机
+        private bool gotoShop = false;
+        private double stateWriteAccumMs = 0;   // 状态写盘节流（按真实毫秒）     // 兼容旧名：跨图状态机
         private System.Collections.IEnumerator saveEnum = null;
         private bool saveRequested = false;
         private bool autoFish = false;
@@ -588,7 +589,9 @@ namespace WhalePlayer
             if (e.IsMultipleOf(3)) this.TickCatchVerify();
             if (e.IsMultipleOf(6)) this.TickPurchase();      // 看得见的购买：分批扣钱入包
             if (e.IsMultipleOf(6)) this.ProcessOrders();     // ~0.1s，动作更跟手
-            if (e.IsMultipleOf(15)) this.WriteState();           // ~0.25s，状态刷新更快
+            // 900fps 下 tick 计数会退化：按真实时间每 250ms 写一次状态，避免和读取方抢锁
+            this.stateWriteAccumMs += Game1.currentGameTime.ElapsedGameTime.TotalMilliseconds;
+            if (this.stateWriteAccumMs >= 250) { this.stateWriteAccumMs = 0; this.WriteState(); }
         }
 
         // ---------------- 订单 ----------------
