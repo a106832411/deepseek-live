@@ -100,8 +100,14 @@ function onEvent(ev) {
     seen.set(key, now);
     addLine('<span class="nick">' + esc(ev.name) + '</span>　' + esc(text.replace(/（.*?元.*?）/g, '')));
   } else if (ev.type === 'gift') {
+    const key = 'g:' + (ev.name || '') + ':' + (ev.gift || '') + ':' + (ev.num || 1), now = Date.now();
+    if (seen.has(key) && now - seen.get(key) < 90000) return;
+    seen.set(key, now);
     addLine('<span class="nick">' + esc(ev.name) + '</span>　送出 ' + esc(ev.gift || '礼物') + (ev.num > 1 ? ' ×' + ev.num : '') + ' 🎁', 'gift');
-  } else if (ev.type === 'enter') {
+  } else if (ev.type === 'enter' || ev.type === 'follow') {
+    const key = 'e:' + (ev.name || ''), now = Date.now();
+    if (seen.has(key) && now - seen.get(key) < 90000) return;
+    seen.set(key, now);
     addLine('<span class="nick">' + esc(ev.name) + '</span>　来了 👋', 'enter');
   }
 }
@@ -111,10 +117,14 @@ function connect() {
     try {
       const j = JSON.parse(m.data);
       if (j.kind === 'event') onEvent(j.event);
-      else if (j.kind === 'reply') addLine('<span class="nick">小深</span>　' + esc(j.text), 'me');
-      else if (j.kind === 'hello' && Array.isArray(j.recent)) {
-        j.recent.slice().reverse().forEach((x) => { if (x.kind === 'event') onEvent({ type:'danmaku', name:x.name, text:x.text }); });
+      else if (j.kind === 'reply') {
+        const key = 'r:' + String(j.text || ''), now = Date.now();
+        if (!(seen.has(key) && now - seen.get(key) < 20000)) {
+          seen.set(key, now);
+          addLine('<span class="nick">小深</span>　' + esc(j.text), 'me');
+        }
       }
+      // hello 不再回放历史事件
     } catch (e) {}
   };
   ws.onclose = () => setTimeout(connect, 3000);

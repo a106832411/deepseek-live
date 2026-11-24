@@ -52,11 +52,25 @@ function addEvent(ev) {
     seen.set(key, now);
     addLine('<span class="nick">' + esc(ev.name) + '</span> 来了');
   } else if (ev.type === 'gift') {
+    const key = 'g:' + (ev.name || '') + ':' + (ev.gift || '') + ':' + (ev.num || 1);
+    const now = Date.now();
+    if (seen.has(key) && now - seen.get(key) < 90000) return;
+    seen.set(key, now);
     addLine('<span class="nick">' + esc(ev.name) + '</span> 送出 ' + esc(ev.gift || '礼物') + (ev.num > 1 ? ' ×' + ev.num : ''));
+  } else if (ev.type === 'follow') {
+    const key = 'f:' + (ev.name || '');
+    const now = Date.now();
+    if (seen.has(key) && now - seen.get(key) < 90000) return;
+    seen.set(key, now);
+    addLine('<span class="nick">' + esc(ev.name) + '</span> 关注了');
   }
 }
 
 function addReply(text) {
+  const key = 'r:' + String(text || '');
+  const now = Date.now();
+  if (seen.has(key) && now - seen.get(key) < 20000) return;   // reply 与 speak 会各发一次
+  seen.set(key, now);
   addLine('<span class="nick">小深：</span>' + esc(text), 'me reply');
 }
 
@@ -68,9 +82,7 @@ function connect() {
       if (j.kind === 'event') addEvent(j.event);
       else if (j.kind === 'reply' || j.kind === 'speak') addReply(j.text);
       else if (j.kind === 'sing' && j.action === 'start') addReply('🎤 清唱《' + String(j.title || j.name || '') + '》');
-      else if (j.kind === 'hello' && Array.isArray(j.recent)) {
-        j.recent.slice().reverse().forEach((x) => { if (x.kind === 'event') addEvent({ type: 'danmaku', name: x.name, text: x.text }); });
-      }
+      // hello 不再回放历史事件：OBS 刷新/重连会把旧事件重复显示
     } catch (e) {}
   };
   ws.onclose = () => setTimeout(connect, 3000);

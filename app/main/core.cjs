@@ -663,10 +663,8 @@ function playWavHandle(file) {
     return { promise: Promise.resolve(), kill() {} };
   }
   const code = [
-    'import sys, soundfile as sf, sounddevice as sd',
-    'y, sr = sf.read(sys.argv[1], dtype="float32")',
-    'sd.play(y, sr)',
-    'sd.wait()'
+    'import sys, winsound',
+    'winsound.PlaySound(sys.argv[1], winsound.SND_FILENAME)'
   ].join('\n');
   const p = spawn(pythonPath(), ['-c', code, file], { windowsHide: true });
   const promise = new Promise((resolve) => {
