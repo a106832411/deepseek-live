@@ -152,19 +152,33 @@ def enter_mine():
     return False
 
 
+mine_bad_tiles = set()   # 敲不动的石头（矿洞装饰大石/不可破坏）
+
+
 def mine_round(n_tiles=6):
     """敲附近石头，然后找梯子。"""
     s = state()
     loc = s.get("location")
+    # 矿洞大堂里的 interactable 是电梯（17,3），不是梯子；大堂必须走 (23,9) 下矿
+    if loc == "Mine":
+        log("  在大堂，先走 (23,9) 下矿")
+        descend()
+        time.sleep(2)
+        s = state()
+        loc = s.get("location")
     rocks = [t for t in s.get("tiles") or [] if t.get("breakable")]
     rocks.sort(key=lambda t: abs(t["x"] - pos(s)[0]) + abs(t["y"] - pos(s)[1]))
     log(f"[{loc}] 附近石头 {len(rocks)} 个，体力 {s.get('stamina')}")
     done = 0
     for t in rocks[:n_tiles]:
+        if (t["x"], t["y"]) in mine_bad_tiles:
+            continue
         ok = mine_one(t)
         log(f"  敲 ({t['x']},{t['y']}) {t.get('obj')} → {'成功' if ok else '失败'}")
         if ok:
             done += 1
+        else:
+            mine_bad_tiles.add((t["x"], t["y"]))   # 敲不动就别再试，记下来
     # 找梯子/洞口
     s = state()
     ladder = next((t for t in s.get("tiles") or [] if t.get("interactable")), None)
