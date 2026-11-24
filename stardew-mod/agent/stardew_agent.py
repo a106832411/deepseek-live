@@ -2467,12 +2467,15 @@ def _rule_plan(state, goal=None):
             # 没事干：用镰刀清一片草（看着像在干活）
             pt = state.get("tile") or {}
             px, py = int(pt.get("x", 0)), int(pt.get("y", 0))
-            grass = [t for t in tiles if t.get("breakable") and t.get("obj") == "草"
-                     and (not BAD_TILES.get((int(t.get("x", 0)), int(t.get("y", 0))))
-                          or time.time() - BAD_TILES[(int(t.get("x", 0)), int(t.get("y", 0)))] > 900)]
-            grass.sort(key=lambda t: abs(t["x"] - px) + abs(t["y"] - py))
-            for t in grass[:6]:
-                acts.append({"type": "use_tool", "tool": "scythe", "x": t["x"], "y": t["y"]})
+            # 清地：按物体类型选工具（草→镰刀，树/嫩枝→斧头，石头→镐子）
+            TOOL_BY_OBJ = {"草": "scythe", "树": "axe", "嫩枝": "axe", "石头": "pickaxe"}
+            breaks = [t for t in tiles
+                      if t.get("breakable") and t.get("obj") in TOOL_BY_OBJ
+                      and (not BAD_TILES.get((int(t.get("x", 0)), int(t.get("y", 0))))
+                           or time.time() - BAD_TILES[(int(t.get("x", 0)), int(t.get("y", 0)))] > 900)]
+            breaks.sort(key=_dist)
+            for t in breaks[:6]:
+                acts.append({"type": "use_tool", "tool": TOOL_BY_OBJ[t["obj"]], "x": t["x"], "y": t["y"]})
     if not acts:
         acts.append({"type": "goto", "location": "Farm"})
     return {"goal": goal or (dp.get("goal") or "规则模式：农场干活"), "actions": acts}
@@ -3506,7 +3509,11 @@ def main():
                 send_order({"actionType": "scan_all"})
                 time.sleep(2.0)
                 state = summarize(read_state())
-                log(f"  重新扫描：格子 {len(state.get('tiles') or [])}")
+                try:
+                    _n = len(read_state().get("tiles") or [])
+                except Exception:
+                    _n = len(state.get("tiles") or [])
+                log(f"  重新扫描：格子 {_n}（摘要只显示 {len(state.get('tiles') or [])}）")
             # 时间停滞（多半是商店/对话界面没关）→ 主动关界面，别干等
             _now_t = state.get("time")
             if _now_t is not None and _now_t == _watch.get("time"):
