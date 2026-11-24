@@ -3619,6 +3619,17 @@ def main():
                 except Exception:
                     _n = len(state.get("tiles") or [])
                 log(f"  重新扫描：格子 {_n}（摘要只显示 {len(state.get('tiles') or [])}）")
+            # 坐标跑出地图（负数/超大）→ 调 fix_position 拉回来，否则游戏时间会冻住
+            _p0 = state.get("tile") or {}
+            try:
+                _x0, _y0 = int(_p0.get("x", 0)), int(_p0.get("y", 0))
+            except Exception:
+                _x0, _y0 = 0, 0
+            if _x0 < 0 or _y0 < 0 or _x0 > 150 or _y0 > 150:
+                log(f"  坐标越界 ({_x0},{_y0})，调用 fix_position 修正")
+                send_order({"actionType": "fix_position"})
+                time.sleep(2.5)
+                state = summarize(read_state())
             # 位置连续 3 轮不动（多半被树/水塘围住）→ 回农舍再出来，重置到开阔地
             _pt = state.get("tile") or {}
             _ptk = (_pt.get("x"), _pt.get("y"))
