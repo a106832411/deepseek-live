@@ -3461,11 +3461,13 @@ namespace WhalePlayer
             var bin = farm?.getShippingBin(Game1.player);
             if (bin == null) { this.Monitor.Log("ship: 找不到出货箱", LogLevel.Warn); return; }
             int moved = 0;
+            // 作物(-75/-79/-80) + 鱼(-4) + 矿物(-12) + 宝石(-2) + 动物产品(-5/-6) + 工匠品(-26)
+            var shipCats = new HashSet<int> { -75, -79, -80, -4, -12, -2, -5, -6, -26 };
             for (int i = 0; i < Game1.player.Items.Count; i++)
             {
                 if (!(Game1.player.Items[i] is StardewValley.Object obj)) continue;
                 int cat = obj.Category;
-                if (cat != -75 && cat != -79 && cat != -80) continue;   // 只收作物
+                if (!shipCats.Contains(cat)) continue;
                 bin.AddRange(new List<Item> { obj });
                 Game1.player.Items[i] = null;
                 moved += obj.Stack;
