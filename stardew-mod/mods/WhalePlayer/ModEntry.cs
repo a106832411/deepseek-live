@@ -83,6 +83,7 @@ namespace WhalePlayer
         private Point hopWarp = Point.Zero;
         private int warpCooldown = 0;
         private Vector2 doorTile = new Vector2(-1, -1);
+        private Vector2 mineDoor = new Vector2(-1, -1);   // Mountain 里矿洞入口那扇门
         private Vector2 pendingDoorTile = new Vector2(-1, -1);
         private int pendingDoorTicks = 0;
         private string pendingDoorAction = null;
@@ -1248,6 +1249,11 @@ namespace WhalePlayer
             // 改成按调用次数递减（每调用扣 30），warpCooldown=120 → 4 次 ≈ 2 秒，够等黑屏淡入。
             if (this.warpCooldown > 0) { this.warpCooldown -= 30; return; }
 
+            // 目标是矿洞：Mountain 里的矿洞入口是「门」不是传送点，单独走门进去
+            if ((this.travelDest ?? "") == "Mine" && name == "Mountain" && this.TryEnterMineDoor(loc))
+            {
+                return;
+            }
             // 选门：按「离目标更近」的顺序列出相邻地图，逐个验证门口是否真的走得到，
             // 避免选了一个被地形隔开的门然后死磕/兜底传送（2026-11-25 修）
             var pt0 = Game1.player.Tile;
@@ -1415,6 +1421,22 @@ namespace WhalePlayer
                 }.OrderBy(c => Math.Abs(c.X - (int)from.X) + Math.Abs(c.Y - (int)from.Y));
                 Point pick = Point.Zero;
                 foreach (var c in near) if (this.IsSafeTile(loc, c.X, c.Y)) { pick = c; break; }
+                // 门正前方也不可走（矿洞洞口常见）：按半径 2~4 找最近的可走格
+                if (pick == Point.Zero)
+                {
+                    for (int r = 2; r <= 4 && pick == Point.Zero; r++)
+                    {
+                        for (int dx = -r; dx <= r && pick == Point.Zero; dx++)
+                        {
+                            for (int dy = -r; dy <= r; dy++)
+                            {
+                                if (Math.Abs(dx) != r && Math.Abs(dy) != r) continue;
+                                int tx2 = warp.X + dx, ty2 = warp.Y + dy;
+                                if (this.IsSafeTile(loc, tx2, ty2)) { pick = new Point(tx2, ty2); break; }
+                            }
+                        }
+                    }
+                }
                 target = pick == Point.Zero ? new Point(warp.X, warp.Y) : pick;
             }
             try
@@ -1437,6 +1459,63 @@ namespace WhalePlayer
                 return c != null && c.pathToEndPoint != null ? c.pathToEndPoint.Count : -1;
             }
             catch { return -1; }
+        }
+
+        /// <summary>Mountain 里的矿洞入口是门（Action: Mine / EnterMine），走到门口触发。</summary>
+        private bool TryEnterMineDoor(GameLocation loc)
+        {
+            try
+            {
+                if (this.mineDoor.X < 0)
+                {
+                    int w = loc.Map.Layers[0].LayerWidth, h = loc.Map.Layers[0].LayerHeight;
+                    for (int y = 0; y < h && this.mineDoor.X < 0; y++)
+                    {
+                        for (int x = 0; x < w; x++)
+                        {
+                            string a = null;
+                            foreach (var layer in new[] { "Buildings", "Back", "Front" })
+                            {
+                                try { a = loc.doesTileHaveProperty(x, y, "Action", layer); } catch { }
+                                if (!string.IsNullOrEmpty(a) && (a.Contains("Mine") || a.Contains("mine")))
+                                {
+                                    this.mineDoor = new Vector2(x, y);
+                                    this.Monitor.Log($"goto: 找到矿洞入口 ({x},{y}) action={a}", LogLevel.Info);
+                                    break;
+                                }
+                            }
+                            if (this.mineDoor.X >= 0) break;
+                        }
+                    }
+                    if (this.mineDoor.X < 0)
+                    {
+                        this.Monitor.Log("goto: Mountain 里找不到矿洞入口", LogLevel.Warn);
+                        return false;
+                    }
+                }
+                var pl = Game1.player;
+                int dist = Math.Abs((int)pl.Tile.X - (int)this.mineDoor.X) + Math.Abs((int)pl.Tile.Y - (int)this.mineDoor.Y);
+                if (dist <= 1)
+                {
+                    bool ok = loc.checkAction(new xTile.Dimensions.Location((int)this.mineDoor.X, (int)this.mineDoor.Y), Game1.viewport, pl);
+                    this.Monitor.Log($"goto: 触发矿洞入口 ({this.mineDoor.X},{this.mineDoor.Y}) = {ok}", LogLevel.Info);
+                    return true;
+                }
+                if (pl.controller == null)
+                {
+                    // 走到门口旁边（门本身可能不可走）
+                    Point t = new Point((int)this.mineDoor.X, (int)this.mineDoor.Y + 1);
+                    if (!this.IsSafeTile(loc, t.X, t.Y)) t = new Point((int)this.mineDoor.X, (int)this.mineDoor.Y - 1);
+                    Game1.player.controller = new StardewValley.Pathfinding.PathFindController(Game1.player, loc, t, 3);
+                    this.Monitor.Log($"goto: 走向矿洞入口 ({t.X},{t.Y})，距门 {dist} 格", LogLevel.Info);
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log("goto 矿洞入口异常：" + ex.Message, LogLevel.Warn);
+                return false;
+            }
         }
 
         private bool IsSafeTile(GameLocation loc, int x, int y)
