@@ -2088,6 +2088,38 @@ namespace WhalePlayer
             }
 
             var pl = Game1.player;
+            // LockedDoorWarp <tx> <ty> <target> [start end]：直接按门上的 Action 传送，最稳
+            try
+            {
+                if (Math.Abs(pl.Tile.X - door.X) + Math.Abs(pl.Tile.Y - door.Y) <= 2)
+                {
+                    string act = null;
+                    foreach (var layer in new[] { "Buildings", "Back", "Front" })
+                    {
+                        try { act = loc.doesTileHaveProperty((int)door.X, (int)door.Y, "Action", layer); } catch { }
+                        if (!string.IsNullOrEmpty(act)) break;
+                    }
+                    if (!string.IsNullOrEmpty(act) && act.StartsWith("LockedDoorWarp"))
+                    {
+                        var tk = act.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (tk.Length >= 4 && int.TryParse(tk[1], out int wx) && int.TryParse(tk[2], out int wy))
+                        {
+                            int t1 = tk.Length > 4 ? int.Parse(tk[4]) : 0;
+                            int t2 = tk.Length > 5 ? int.Parse(tk[5]) : 2400;
+                            int nowm = Game1.timeOfDay;
+                            if (nowm >= t1 && nowm <= t2)
+                            {
+                                this.Monitor.Log($"enter_house: 门 Action → {tk[3]}({wx},{wy})", LogLevel.Info);
+                                Game1.warpFarmer(tk[3], wx, wy, 2);
+                                return;
+                            }
+                            this.Monitor.Log($"enter_house: 门锁着（{nowm} 不在 {t1}-{t2}）", LogLevel.Warn);
+                            return;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { this.Monitor.Log("enter_house Action 传送异常：" + ex.Message, LogLevel.Warn); }
             // 店铺门是瓦片 Warp 属性（不在 loc.warps 里），checkAction 只会响一声不会传送
             // → 站到门旁边时直接按 Warp 属性 warpFarmer
             try
@@ -2143,11 +2175,20 @@ namespace WhalePlayer
                 this.Monitor.Log($"enter_house: 还没到门 ({door.X},{door.Y})，当前 ({pl.Tile.X},{pl.Tile.Y})，走过去", LogLevel.Info);
                 try
                 {
-                    if (pl.controller == null)
+                    // 必须强制换控制器：agent 的 walk_to 可能留着旧 controller，导致这里一直站着不动
+                    Point spot = Point.Zero;
+                    foreach (var cand in new[]
                     {
-                        var spot = new Point((int)door.X, (int)door.Y + 1);
-                        if (!this.IsSafeTile(loc, spot.X, spot.Y)) spot = new Point((int)door.X, (int)door.Y - 1);
+                        new Point((int)door.X, (int)door.Y + 1), new Point((int)door.X + 1, (int)door.Y),
+                        new Point((int)door.X - 1, (int)door.Y), new Point((int)door.X, (int)door.Y - 1)
+                    })
+                    {
+                        if (this.IsSafeTile(loc, cand.X, cand.Y)) { spot = cand; break; }
+                    }
+                    if (spot != Point.Zero)
+                    {
                         pl.controller = new StardewValley.Pathfinding.PathFindController(pl, loc, spot, 3);
+                        this.Monitor.Log($"enter_house: 强制走向门旁 ({spot.X},{spot.Y})", LogLevel.Info);
                     }
                 }
                 catch (Exception ex) { this.Monitor.Log("enter_house 走路异常：" + ex.Message, LogLevel.Warn); }
