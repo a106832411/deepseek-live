@@ -3733,8 +3733,10 @@ def main():
                     _tm = int(_tm_str)
             except Exception:
                 _winter, _tm = False, 0
-            # 冬季没有可种作物 → 按轮次轮换「深层挖矿 / 钓鱼 / 砍树 / 采集 / 机器熔炼 / 矿洞刷矿」
-            if _winter and 900 <= _tm < 1300 and _watch.get("burst_day") != f"{state.get('day')}":
+            # 每天 9:00-13:00 跑一轮「挖矿/钓鱼/砍树/采集/熔炼/制作」轮换（全季节，不只是冬天）；
+            # 地里有成熟作物优先收，先不收就晚点再轮换
+            _has_ready = any(t.get("cropReady") for t in (state.get("tiles") or []))
+            if 900 <= _tm < 1300 and _watch.get("burst_day") != f"{state.get('day')}" and not _has_ready:
                 _watch["burst_day"] = f"{state.get('day')}"
                 _burst = int(_watch.get("burst") or 0)
                 _watch["burst"] = _burst + 1
