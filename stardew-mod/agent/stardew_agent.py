@@ -3497,6 +3497,8 @@ def execute(plan, state=None, dry=False):
             time.sleep(0.55 if at == "use_tool" else 0.45)
             log(f"  {i}/{len(actions)} {at} ({act['x']},{act['y']})")
             # 锄地没效果（锄不出耕地）→ 记坏点，别每轮原地重复
+            if at == "harvest":
+                _watch["harvested_day"] = f"{state.get('day')}"
             if at == "use_tool" and str(act.get("tool") or "").lower() == "hoe":
                 try:
                     _r = read_state()
@@ -3758,7 +3760,8 @@ def main():
             # 每天 9:00-13:00 跑一轮「挖矿/钓鱼/砍树/采集/熔炼/制作」轮换（全季节，不只是冬天）；
             # 地里有成熟作物优先收，先不收就晚点再轮换
             _has_ready = any(t.get("cropReady") for t in (state.get("tiles") or []))
-            if 900 <= _tm < 1300 and _watch.get("burst_day") != f"{state.get('day')}" and not _has_ready:
+            _harvested_today = _watch.get("harvested_day") == f"{state.get('day')}"
+            if 900 <= _tm < 1300 and _watch.get("burst_day") != f"{state.get('day')}" and (not _has_ready or _harvested_today):
                 _watch["burst_day"] = f"{state.get('day')}"
                 _burst = int(_watch.get("burst") or 0)
                 _watch["burst"] = _burst + 1
