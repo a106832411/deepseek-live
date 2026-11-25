@@ -13,7 +13,13 @@ def log(msg):
 
 
 def state():
-    return A.summarize(A.read_state())
+    # 必须用原始扫描：summarize 只保留十几格，树/石头会「看不见」
+    raw = A.read_state()
+    try:
+        import json as _json
+        return _json.loads(_json.dumps(raw))
+    except Exception:
+        return raw
 
 
 def pos(s):
@@ -182,7 +188,7 @@ def main():
     else:
         log("未知活动")
     s = state()
-    log(f"===== 结束：{s.get('location')} 钱={s.get('money')} =====")
+    log(f"===== 结束：{s.get('location')} 钱={(s.get('player') or {}).get('money')} =====")
 
 
 if __name__ == "__main__":

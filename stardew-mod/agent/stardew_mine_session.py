@@ -27,7 +27,7 @@ def log(msg):
 
 
 def state():
-    return A.summarize(A.read_state())
+    return A.read_state()
 
 
 def pos(s):
