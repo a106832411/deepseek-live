@@ -3718,6 +3718,10 @@ def main():
                                         cwd=_os.path.dirname(_fp), timeout=1500,
                                         capture_output=True)
                     log(f"  {_label}结束 rc={_r.returncode}")
+                    # 打完就把战利品投出货箱，别全堆背包
+                    send_order({"actionType": "ship"})
+                    time.sleep(1.0)
+                    send_order({"actionType": "close_menu"})
                 except Exception as _fe:
                     log(f"  {_label}异常：{_fe}")
                 state = summarize(read_state())
