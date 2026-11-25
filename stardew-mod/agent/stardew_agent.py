@@ -2321,6 +2321,9 @@ def plan_day_rules(state):
         en = SEED_EN.get(name)
         if en in NOT_IN_PIERRE and count_seeds(en, state) <= 0:
             continue
+        # 皮埃尔不常卖（沙漠/节日/神器）的作物：背包里有种子才种
+        if name not in PIERRE_OK and count_seeds(en, state) <= 0:
+            continue
         if best is None or gday > best[0]:
             best = (gday, name, seed, days + 1)
     if not best:
