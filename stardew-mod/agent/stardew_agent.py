@@ -345,7 +345,9 @@ def _save_bad():
 _load_bad()
 
 NOT_IN_PIERRE = ("Starfruit Seeds", "Ancient Seeds", "Cactus Seeds", "Taro Tuber",
-                 "Pineapple Seeds", "Rare Seed", "Rice Shoot")
+                 "Pineapple Seeds", "Rare Seed", "Rice Shoot",
+                 # 草莓种子只在复活节卖，皮埃尔平时没有；咖啡豆要沙漠商队
+                 "Strawberry Seeds", "Coffee Bean")
 
 SEED_EN = {
     "防风草": "Parsnip Seeds", "大蒜": "Garlic Seeds", "土豆": "Potato Seeds",
