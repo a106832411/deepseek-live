@@ -691,6 +691,7 @@ namespace WhalePlayer
                 case "smelt": this.Smelt((string)jo["ore"] ?? "Copper", jo["times"] != null ? (int)jo["times"] : 10); break;
                 case "collect_machines": this.CollectMachines(); break;
                 case "craft": this.Craft((string)jo["item"] ?? "", jo["count"] != null ? (int)jo["count"] : 1); break;
+                case "recipes": this.DumpRecipes(); break;
                 case "fish_state": this.FishState(); break;
                 case "go_fish": this.GoFish(); break;
                 case "sort_chests": this.SortChests(); break;
@@ -3088,6 +3089,42 @@ namespace WhalePlayer
                 }
             }
             this.Monitor.Log("collect_machines: " + n, LogLevel.Info);
+        }
+
+        /// <summary>导出全部制作配方：名称/是否已学/材料够不够/产物，给 agent 决定做啥。</summary>
+        private void DumpRecipes()
+        {
+            try
+            {
+                var arr = new JArray();
+                var all = Game1.content.Load<Dictionary<string, string>>("Data/CraftingRecipes");
+                foreach (var key in all.Keys)
+                {
+                    try
+                    {
+                        var recipe = new CraftingRecipe(key, false);
+                        if (recipe == null || recipe.name == null) continue;
+                        bool have = false;
+                        try { have = recipe.doesFarmerHaveIngredientsInInventory(new List<Item>()); } catch { }
+                        var outItem = recipe.createItem();
+                        arr.Add(new JObject
+                        {
+                            ["name"] = key,
+                            ["learned"] = Game1.player.craftingRecipes.ContainsKey(key),
+                            ["have"] = have,
+                            ["output"] = recipe.name,
+                            ["outputId"] = outItem?.ItemId ?? "",
+                            ["big"] = recipe.bigCraftable,
+                            ["qty"] = outItem?.Stack ?? 1
+                        });
+                    }
+                    catch { }
+                }
+                var path = Path.Combine(this.Helper.DirectoryPath, "recipes.json");
+                File.WriteAllText(path, arr.ToString(Newtonsoft.Json.Formatting.Indented), new System.Text.UTF8Encoding(false));
+                this.Monitor.Log($"recipes: 导出 {arr.Count} 条 → {path}", LogLevel.Info);
+            }
+            catch (Exception ex) { this.Monitor.Log("recipes 异常：" + ex.Message, LogLevel.Warn); }
         }
 
         private void Craft(string itemName, int count)

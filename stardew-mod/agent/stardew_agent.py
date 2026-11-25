@@ -3720,6 +3720,7 @@ def main():
                     ("stardew_extra.py", ["--activity", "chop", "--minutes", "8"], "砍树捡木材"),
                     ("stardew_extra.py", ["--activity", "forage", "--minutes", "8"], "采集野果"),
                     ("stardew_extra.py", ["--activity", "machines"], "机器/熔炼"),
+                    ("stardew_craft.py", ["--craft", "2"], "制作/学配方"),
                     ("stardew_mine_session.py", ["--minutes", "12"], "矿洞刷矿"),
                 ]
                 _script, _args, _label = _jobs[_burst % len(_jobs)]
