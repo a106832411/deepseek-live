@@ -2085,6 +2085,18 @@ namespace WhalePlayer
             }
 
             var pl = Game1.player;
+            // 站在门格本身上是推不开门的（人被门框挡住）→ 先退到门下一格再交互
+            if (Math.Abs(pl.Tile.X - door.X) < 0.01f && Math.Abs(pl.Tile.Y - door.Y) < 0.01f)
+            {
+                try
+                {
+                    var spot = new Point((int)door.X, (int)door.Y + 1);
+                    Game1.player.controller = new StardewValley.Pathfinding.PathFindController(Game1.player, loc, spot, 3);
+                    this.Monitor.Log($"enter_house: 站在门格 ({door.X},{door.Y}) 上，退到 ({spot.X},{spot.Y}) 再推", LogLevel.Info);
+                }
+                catch (Exception ex) { this.Monitor.Log("enter_house 退步异常：" + ex.Message, LogLevel.Warn); }
+                return;
+            }
             if (Math.Abs(pl.Tile.X - door.X) + Math.Abs(pl.Tile.Y - door.Y) <= 1)
             {
                 try
