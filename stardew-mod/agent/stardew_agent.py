@@ -3660,6 +3660,16 @@ def main():
                 except Exception:
                     _n = len(state.get("tiles") or [])
                 log(f"  重新扫描：格子 {_n}（摘要只显示 {len(state.get('tiles') or [])}）")
+            # 节日（春季13彩蛋节等）会把 Town 换成临时地图 Temp，所有旅行都会失败 → 先离场
+            try:
+                _loc = str(state.get("location") or "")
+                if _loc in ("Temp", "Festival") or _loc.startswith("Temp") or str(state.get("festival")) in ("True", "true"):
+                    log(f"  在节日地图（{_loc}），先离场")
+                    send_order({"actionType": "leave_festival"})
+                    time.sleep(3)
+                    state = summarize(read_state())
+            except Exception:
+                pass
             # 站在农舍门格上会穿模（人物叠在门/墙上）→ 出门后先挪到门前空地
             try:
                 _pt2 = state.get("tile") or {}
