@@ -83,6 +83,7 @@ namespace WhalePlayer
         private Point hopWarp = Point.Zero;
         private int warpCooldown = 0;
         private Vector2 doorTile = new Vector2(-1, -1);
+        private string doorTileLoc = "";   // doorTile 缓存属于哪张图（换图必须重扫）
         private Vector2 mineDoor = new Vector2(-1, -1);   // Mountain 里矿洞入口那扇门
         private Vector2 pendingDoorTile = new Vector2(-1, -1);
         private int pendingDoorTicks = 0;
@@ -2048,6 +2049,8 @@ namespace WhalePlayer
             string want = jo != null && jo["action"] != null ? (string)jo["action"] : "FarmHouse";
             var loc = Game1.player.currentLocation;
             if (loc.Name == "FarmHouse") { this.Monitor.Log("enter_house: 已经在家", LogLevel.Info); return; }
+            // doorTile 是全局缓存：换地图后必须重扫，否则会拿农舍的门坐标去 Town 里找 SeedShop
+            if (this.doorTileLoc != loc.Name) { this.doorTile = new Vector2(-1, -1); this.doorTileLoc = loc.Name; }
 
             var door = jo != null && jo["x"] != null && jo["y"] != null
                 ? new Vector2((int)jo["x"], (int)jo["y"]) : this.doorTile;
@@ -2085,6 +2088,31 @@ namespace WhalePlayer
             }
 
             var pl = Game1.player;
+            // 店铺门是瓦片 Warp 属性（不在 loc.warps 里），checkAction 只会响一声不会传送
+            // → 站到门旁边时直接按 Warp 属性 warpFarmer
+            try
+            {
+                if (Math.Abs(pl.Tile.X - door.X) + Math.Abs(pl.Tile.Y - door.Y) <= 1)
+                {
+                    string warpProp = null;
+                    foreach (var layer in new[] { "Buildings", "Back", "Front", "Paths" })
+                    {
+                        try { warpProp = loc.doesTileHaveProperty((int)door.X, (int)door.Y, "Warp", layer); } catch { }
+                        if (!string.IsNullOrEmpty(warpProp)) break;
+                    }
+                    if (!string.IsNullOrEmpty(warpProp))
+                    {
+                        var parts = warpProp.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (parts.Length >= 3 && int.TryParse(parts[0], out int wx) && int.TryParse(parts[1], out int wy))
+                        {
+                            this.Monitor.Log($"enter_house: 门 ({door.X},{door.Y}) 瓦片传送 → {parts[2]}({wx},{wy})", LogLevel.Info);
+                            Game1.warpFarmer(parts[2], wx, wy, 2);
+                            return;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { this.Monitor.Log("enter_house 传送异常：" + ex.Message, LogLevel.Warn); }
             // 站在门格本身上是推不开门的（人被门框挡住）→ 先退到门下一格再交互
             if (Math.Abs(pl.Tile.X - door.X) < 0.01f && Math.Abs(pl.Tile.Y - door.Y) < 0.01f)
             {
@@ -2111,7 +2139,18 @@ namespace WhalePlayer
             }
             else
             {
-                this.Monitor.Log($"enter_house: 还没到门 ({door.X},{door.Y})，当前 ({pl.Tile.X},{pl.Tile.Y})", LogLevel.Info);
+                // 太远就自己走过去（之前只打日志，靠调用方走；调用方坐标写错就会永远推不开门）
+                this.Monitor.Log($"enter_house: 还没到门 ({door.X},{door.Y})，当前 ({pl.Tile.X},{pl.Tile.Y})，走过去", LogLevel.Info);
+                try
+                {
+                    if (pl.controller == null)
+                    {
+                        var spot = new Point((int)door.X, (int)door.Y + 1);
+                        if (!this.IsSafeTile(loc, spot.X, spot.Y)) spot = new Point((int)door.X, (int)door.Y - 1);
+                        pl.controller = new StardewValley.Pathfinding.PathFindController(pl, loc, spot, 3);
+                    }
+                }
+                catch (Exception ex) { this.Monitor.Log("enter_house 走路异常：" + ex.Message, LogLevel.Warn); }
             }
         }
 

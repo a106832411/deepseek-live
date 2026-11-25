@@ -496,6 +496,16 @@ def go_to_shop(log_fn=None, timeout=420):
         loc, _, _ = _loc_and_tile()
         if loc == "SeedShop":
             return loc
+        # 店没开就别白跑：9:00 前 / 17:00 后门是锁的，推也推不开（2026-11-25 实测）
+        try:
+            _st = summarize(read_state())
+            _tv = _st.get("time")
+            _tmin = _tv if isinstance(_tv, int) else int("".join(c for c in str(_tv) if c.isdigit()) or 0)
+            if _tmin and (_tmin < 900 or _tmin >= 1700):
+                _log(f"  商店没开（{_st.get('time')}），这一趟不去")
+                return loc
+        except Exception:
+            pass
         _log("  [买种] 出发去皮埃尔商店（Farm → Backwoods → Mountain → Town → 店门）")
         send_order({"actionType": "goto_shop"})
         t0 = time.time()
