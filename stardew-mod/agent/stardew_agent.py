@@ -3622,6 +3622,13 @@ def main():
     args = ap.parse_args()
 
     log(f"LLM: {LLM_BASE} model={LLM_MODEL}")
+    try:
+        import json as _pj0
+        _ps0 = _pj0.load(open(r"D:\live\logs\.play_state.json", encoding="utf-8"))
+        _watch["burst"] = int(_ps0.get("burst") or 0)
+        log(f"  轮换计数恢复：burst={_watch['burst']}")
+    except Exception:
+        pass
     rounds = 1 if (args.once or args.dry) else (args.rounds if args.loop else 1)
     for r in range(1, rounds + 1):
         try:
@@ -3701,6 +3708,12 @@ def main():
                 _watch["burst_day"] = f"{state.get('day')}"
                 _burst = int(_watch.get("burst") or 0)
                 _watch["burst"] = _burst + 1
+                try:
+                    import json as _pj
+                    _pj.dump({"burst": _watch["burst"], "day": state.get("day")},
+                             open(r"D:\live\logs\.play_state.json", "w", encoding="utf-8"))
+                except Exception:
+                    pass
                 _jobs = [
                     ("stardew_extra.py", ["--activity", "deep_mine", "--level", "40", "--minutes", "10"], "深层挖矿(40层)"),
                     ("stardew_fishsession.py", ["--minutes", "12"], "钓鱼"),
