@@ -70,8 +70,18 @@ def mine_some(n=8):
     brk.sort(key=lambda t: abs(t["x"] - pos(s)[0]) + abs(t["y"] - pos(s)[1]))
     ok = 0
     for t in brk[:n]:
-        A.send_order({"actionType": "walk_to", "x": t["x"] + 1, "y": t["y"]})
-        time.sleep(0.7)
+        # 先走到石头四邻里能站的那格，站不到就跳过（避免隔墙挥镐＝看起来穿墙）
+        stood = False
+        for cx, cy in ((t["x"] + 1, t["y"]), (t["x"] - 1, t["y"]), (t["x"], t["y"] + 1), (t["x"], t["y"] - 1)):
+            A.send_order({"actionType": "walk_to", "x": cx, "y": cy})
+            time.sleep(0.6)
+            _p = pos(state())
+            if abs(_p[0] - t["x"]) + abs(_p[1] - t["y"]) <= 1:
+                stood = True
+                break
+        if not stood:
+            mine_bad.add((t["x"], t["y"]))
+            continue
         A.send_order({"actionType": "use_tool", "tool": "pickaxe", "x": t["x"], "y": t["y"]})
         time.sleep(0.9)
         s2 = state()
