@@ -3624,7 +3624,7 @@ def main():
     log(f"LLM: {LLM_BASE} model={LLM_MODEL}")
     try:
         import json as _pj0
-        _ps0 = _pj0.load(open(r"D:\live\logs\.play_state.json", encoding="utf-8"))
+        _ps0 = _pj0.load(open(r"D:\live\logs\.play_state.json", encoding="utf-8-sig"))
         _watch["burst"] = int(_ps0.get("burst") or 0)
         log(f"  轮换计数恢复：burst={_watch['burst']}")
     except Exception:
