@@ -3646,7 +3646,12 @@ def main():
             # 站在农舍门格上会穿模（人物叠在门/墙上）→ 出门后先挪到门前空地
             try:
                 _pt2 = state.get("tile") or {}
-                if str(state.get("location") or "") == "Farm" and (int(_pt2.get("x", 0)), int(_pt2.get("y", 0))) in ((64, 14), (64, 15), (64, 16)):
+                _nowts = time.time()
+                _lastfix = float(_watch.get("door_fix_ts") or 0)
+                if (str(state.get("location") or "") == "Farm"
+                        and (int(_pt2.get("x", 0)), int(_pt2.get("y", 0))) in ((64, 14), (64, 15), (64, 16))
+                        and _nowts - _lastfix > 30):
+                    _watch["door_fix_ts"] = _nowts
                     log("  站在农舍门口会穿模，挪到门口空地")
                     send_order({"actionType": "walk_to", "x": 64, "y": 18})
                     time.sleep(1.6)
