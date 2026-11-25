@@ -3606,17 +3606,24 @@ namespace WhalePlayer
             if (bin == null) { this.Monitor.Log("ship: 找不到出货箱", LogLevel.Warn); return; }
             int moved = 0;
             // 作物(-75/-79/-80) + 鱼(-4) + 矿物(-12) + 宝石(-2) + 动物产品(-5/-6) + 工匠品(-26)
-            var shipCats = new HashSet<int> { -75, -79, -80, -4, -12, -2, -5, -6, -26 };
+            // 作物 -75/-79/-80；鱼 -4；矿物 -12；宝石 -2；动物产品 -5/-6；工匠品 -26；
+            // 矿石/金属 -15；建材资源 -16（木/石/纤维）；垃圾 -20/-21 也一起清
+            // 只卖「成品/战利品」：作物、鱼、宝石、动物产品、工匠品。
+            // 矿石(-15)/建材(-16)/晶洞(-12) 留着熔炼和制作，别当废品卖掉（14:07 实测一次被卖了 781 木头）
+            var shipCats = new HashSet<int> { -75, -79, -80, -4, -2, -5, -6, -26 };
+            var shipped = new List<string>();
             for (int i = 0; i < Game1.player.Items.Count; i++)
             {
                 if (!(Game1.player.Items[i] is StardewValley.Object obj)) continue;
                 int cat = obj.Category;
+                if (cat == -74) continue;   // 种子留着
                 if (!shipCats.Contains(cat)) continue;
+                if (shipped.Count < 8) shipped.Add($"{obj.Name}x{obj.Stack}");
                 bin.AddRange(new List<Item> { obj });
                 Game1.player.Items[i] = null;
                 moved += obj.Stack;
             }
-            this.Monitor.Log($"ship: 投入 {moved} 个作物", LogLevel.Info);
+            this.Monitor.Log($"ship: 投入 {moved} 个（{string.Join(", ", shipped)}）", LogLevel.Info);
         }
 
         /// <summary>强制起床：复位躺床状态与精灵动画（避免一直躺着）。</summary>
