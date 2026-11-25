@@ -143,6 +143,13 @@ def main():
     log("===== 挖矿结束，回农场 =====")
     A.send_order({"actionType": "warp_to", "location": "Farm"})
     time.sleep(3)
+    # 挖完就地熔炼，别让矿石堆在背包里等下一轮
+    A.send_order({"actionType": "smelt", "ore": "Copper", "times": 10})
+    time.sleep(6)
+    A.send_order({"actionType": "smelt", "ore": "Iron", "times": 10})
+    time.sleep(6)
+    A.send_order({"actionType": "collect_machines"})
+    time.sleep(2)
 
 
 if __name__ == "__main__":

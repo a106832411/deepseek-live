@@ -119,7 +119,9 @@ def act_machines():
     ore = next((x for x in inv if "Ore" in x), None)
     log(f"  矿石: {ore}")
     A.send_order({"actionType": "smelt", "ore": "Copper", "times": 10})
-    time.sleep(8)
+    time.sleep(6)
+    A.send_order({"actionType": "smelt", "ore": "Iron", "times": 10})
+    time.sleep(6)
     A.send_order({"actionType": "collect_machines"})
     time.sleep(2)
     s2 = state()
@@ -167,7 +169,13 @@ def act_deep_mine(level=20, minutes=8):
             break
     A.send_order({"actionType": "warp_to", "location": "Farm"})
     time.sleep(2)
-    log("  回农场")
+    A.send_order({"actionType": "smelt", "ore": "Copper", "times": 10})
+    time.sleep(5)
+    A.send_order({"actionType": "smelt", "ore": "Iron", "times": 10})
+    time.sleep(5)
+    A.send_order({"actionType": "collect_machines"})
+    time.sleep(2)
+    log("  回农场（并熔炼）")
 
 
 def main():
