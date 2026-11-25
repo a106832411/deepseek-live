@@ -3696,33 +3696,30 @@ def main():
                     _tm = int(_tm_str)
             except Exception:
                 _winter, _tm = False, 0
-            # 一天只够跑一轮（12 分钟现实 ≈ 一整个游戏日）：按轮次交替「挖矿 / 钓鱼」
-            if _winter and 900 <= _tm < 1700 and _watch.get("burst_day") != f"{state.get('day')}":
+            # 冬季没有可种作物 → 按轮次轮换「深层挖矿 / 钓鱼 / 砍树 / 采集 / 机器熔炼 / 矿洞刷矿」
+            if _winter and 900 <= _tm < 1300 and _watch.get("burst_day") != f"{state.get('day')}":
                 _watch["burst_day"] = f"{state.get('day')}"
                 _burst = int(_watch.get("burst") or 0)
                 _watch["burst"] = _burst + 1
-                if _burst % 2 == 0:
-                    log("  冬季没作物 → 今天去矿洞挖矿")
-                    try:
-                        import subprocess, sys as _sys, os as _os
-                        _fs = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "stardew_mine_session.py")
-                        _r = subprocess.run([_sys.executable, _fs, "--minutes", "12"],
-                                            cwd=_os.path.dirname(_fs), timeout=1500,
-                                            capture_output=True)
-                        log(f"  挖矿结束 rc={_r.returncode}")
-                    except Exception as _fe:
-                        log(f"  挖矿会话异常：{_fe}")
-                else:
-                    log("  冬季没作物 → 今天去钓鱼")
-                    try:
-                        import subprocess, sys as _sys, os as _os
-                        _fs = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "stardew_fishsession.py")
-                        _r = subprocess.run([_sys.executable, _fs, "--minutes", "12"],
-                                            cwd=_os.path.dirname(_fs), timeout=1500,
-                                            capture_output=True)
-                        log(f"  钓鱼结束 rc={_r.returncode}")
-                    except Exception as _fe:
-                        log(f"  钓鱼会话异常：{_fe}")
+                _jobs = [
+                    ("stardew_extra.py", ["--activity", "deep_mine", "--level", "40", "--minutes", "10"], "深层挖矿(40层)"),
+                    ("stardew_fishsession.py", ["--minutes", "12"], "钓鱼"),
+                    ("stardew_extra.py", ["--activity", "chop", "--minutes", "8"], "砍树捡木材"),
+                    ("stardew_extra.py", ["--activity", "forage", "--minutes", "8"], "采集野果"),
+                    ("stardew_extra.py", ["--activity", "machines"], "机器/熔炼"),
+                    ("stardew_mine_session.py", ["--minutes", "12"], "矿洞刷矿"),
+                ]
+                _script, _args, _label = _jobs[_burst % len(_jobs)]
+                log(f"  冬季活动轮换 → {_label}")
+                try:
+                    import subprocess, sys as _sys, os as _os
+                    _fp = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), _script)
+                    _r = subprocess.run([_sys.executable, _fp] + _args,
+                                        cwd=_os.path.dirname(_fp), timeout=1500,
+                                        capture_output=True)
+                    log(f"  {_label}结束 rc={_r.returncode}")
+                except Exception as _fe:
+                    log(f"  {_label}异常：{_fe}")
                 state = summarize(read_state())
 
             ensure_day_plan(state)
