@@ -666,6 +666,7 @@ namespace WhalePlayer
                 case "unstick": this.Unstick(); break;
                 case "ui_state": this.UiState(); break;
                 case "close_menu": this.CloseMenu(); break;
+                case "end_event": this.EndEvent(); break;
                 case "leave_mine": this.LeaveMine(); break;
                 case "reachable": this.Reachable(jo); break;
                 case "elevator_go": this.ElevatorGo(jo); break;
@@ -2207,6 +2208,31 @@ namespace WhalePlayer
                 this.Monitor.Log($"UI: menu={menu} dialogueUp={dlg} isQuestion={Game1.isQuestion} event={Game1.CurrentEvent?.id ?? "-"} usingTool={p.UsingTool} canMove={p.CanMove} isInBed={p.isInBed.Value} newDay={Game1.newDay} fade={Game1.fadeToBlack} gFade={Game1.globalFade} ctrl={(p.controller != null)} time={Game1.timeOfDay} loc={p.currentLocation?.Name}", LogLevel.Alert);
             }
             catch (Exception ex) { this.Monitor.Log("ui_state 异常: " + ex.Message, LogLevel.Warn); }
+        }
+
+        /// <summary>结束当前剧情/节日事件（人物被事件卡住、时间冻结时用）。</summary>
+        private void EndEvent()
+        {
+            try
+            {
+                var ev = Game1.CurrentEvent;
+                if (ev == null)
+                {
+                    this.Monitor.Log("end_event: 当前没有事件", LogLevel.Info);
+                    return;
+                }
+                this.Monitor.Log($"end_event: 结束事件 {ev.id}（festival={ev.isFestival}）", LogLevel.Info);
+                try { ev.exitEvent(); }
+                catch (Exception ex1)
+                {
+                    this.Monitor.Log("end_event: exitEvent 失败 → " + ex1.Message, LogLevel.Warn);
+                    try { ev.forceEndFestival(Game1.player); } catch { }
+                }
+                try { Game1.eventUp = false; } catch { }
+                this.Monitor.Log($"end_event: 处理完，CurrentEvent={(Game1.CurrentEvent == null ? "null" : "still")}", LogLevel.Info);
+                this.FixPosition();
+            }
+            catch (Exception ex) { this.Monitor.Log("end_event 异常：" + ex.Message, LogLevel.Warn); }
         }
 
         private void CloseMenu()

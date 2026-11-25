@@ -3671,11 +3671,17 @@ def main():
                 _watch["stuck"] = 0
             _watch["time"] = _now_t
             if _watch.get("stuck", 0) >= 2:
-                log("  游戏时间停滞，尝试关闭界面")
-                send_order({"actionType": "close_menu"})
-                time.sleep(1.5)
-                send_order({"actionType": "wake"})
-                time.sleep(1.0)
+                _ev = str(state.get("event") or "")
+                if _ev:
+                    log(f"  游戏时间停滞且事件 {_ev} 未结束 → end_event")
+                    send_order({"actionType": "end_event"})
+                    time.sleep(2.5)
+                else:
+                    log("  游戏时间停滞，尝试关闭界面")
+                    send_order({"actionType": "close_menu"})
+                    time.sleep(1.5)
+                    send_order({"actionType": "wake"})
+                    time.sleep(1.0)
                 state = summarize(read_state())
                 _watch["stuck"] = 0
             ensure_day_plan(state)
