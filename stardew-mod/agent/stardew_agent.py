@@ -344,6 +344,14 @@ def _save_bad():
 
 _load_bad()
 
+# 皮埃尔商店常卖的种子（中文作物名）。不在名单里的只有在背包里已有种子时才会被选。
+PIERRE_OK = {
+    "防风草", "大蒜", "土豆", "甘蓝菜", "花椰菜", "绿豆", "蓝爵", "郁金香",
+    "蓝莓", "甜瓜", "西红柿", "辣椒", "小萝卜", "虞美人", "小麦", "玉米",
+    "蔓越莓", "南瓜", "洋蓟", "甜菜", "茄子", "葡萄", "苋菜", "山药",
+    "小白菜", "玫瑰仙子", "啤酒花", "红叶卷心菜",
+}
+
 NOT_IN_PIERRE = ("Starfruit Seeds", "Ancient Seeds", "Cactus Seeds", "Taro Tuber",
                  "Pineapple Seeds", "Rare Seed", "Rice Shoot",
                  # 草莓种子只在复活节卖，皮埃尔平时没有；咖啡豆要沙漠商队
@@ -423,6 +431,8 @@ def pick_crops(season=None, day=None, top=3):
         # 皮埃尔不卖的种子（杨桃/上古/仙人掌…）：背包里有才种，没有就别选（否则买了也买不到）
         if en in NOT_IN_PIERRE and count_seeds(en) <= 0:
             continue
+        if name not in PIERRE_OK and count_seeds(en) <= 0:
+            continue   # 皮埃尔不卖（沙漠/节日/神器），背包里有才种
         out.append((name, en, days, regrow, profit))
     out.sort(key=lambda r: -r[4])
     return out[:top]
