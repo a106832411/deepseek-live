@@ -3756,7 +3756,7 @@ def main():
                     ("stardew_mine_session.py", ["--minutes", "12"], "矿洞刷矿"),
                 ]
                 _script, _args, _label = _jobs[_burst % len(_jobs)]
-                log(f"  冬季活动轮换 → {_label}")
+                log(f"  活动轮换 → {_label}")
                 try:
                     import subprocess, sys as _sys, os as _os
                     _fp = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), _script)
