@@ -3794,6 +3794,24 @@ def main():
                     log(f"  {_label}异常：{_fe}")
                 state = summarize(read_state())
 
+            # 每天检查一次稻草人覆盖（防乌鸦吃作物）
+            try:
+                _crops_now = [t for t in (state.get("tiles") or []) if t.get("crop")]
+                if (len(_crops_now) >= 25 and not _winter
+                        and _watch.get("scarecrow_day") != f"{state.get('day')}"):
+                    _watch["scarecrow_day"] = f"{state.get('day')}"
+                    log(f"  作物 {len(_crops_now)} 株 → 检查稻草人覆盖")
+                    try:
+                        import subprocess, sys as _sys, os as _os
+                        _sc = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "stardew_scarecrow.py")
+                        _r = subprocess.run([_sys.executable, _sc], cwd=_os.path.dirname(_sc),
+                                            timeout=300, capture_output=True)
+                        log(f"  稻草人检查结束 rc={_r.returncode}")
+                    except Exception as _se:
+                        log(f"  稻草人检查异常：{_se}")
+                    state = summarize(read_state())
+            except Exception:
+                pass
             ensure_day_plan(state)
             if _day_plan.get("crop"):
                 ensure_seeds(state, _day_plan.get("crop"), _day_plan.get("seeds") or 5)
