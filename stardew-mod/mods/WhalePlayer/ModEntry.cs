@@ -2798,6 +2798,8 @@ namespace WhalePlayer
                 if (it == null) continue;
                 // 只保留这五类工具（外加浇水壶）：锄头/鱼竿/斧子/镐子/镰刀/水壶
                 // 2026-11-21：水壶以前会被收进箱子，而 ensure_tools 不补造水壶 → 之后手动浇水全废
+                // 种子留在身上：收进箱子后 agent 会以为没种子，又去买一遍
+                if (it is StardewValley.Object seedObj && seedObj.Category == -74) { kept++; continue; }
                 if (it is Tool tl)
                 {
                     bool keep = tl is Hoe || tl is StardewValley.Tools.FishingRod

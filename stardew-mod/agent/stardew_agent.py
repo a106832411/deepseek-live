@@ -2445,8 +2445,10 @@ def _rule_plan(state, goal=None):
         _junk = any(not any(k in str(x) for k in ("Rod", "Pickaxe", "Hoe", "Axe", "Scythe", "Seeds"))
                     for x in _inv)
         if _junk:
-            return {"goal": "背包快满了，去出货", "actions": [
-                {"type": "goto", "location": "Farm"}, {"type": "ship"}]}
+            return {"goal": "背包快满了，先存箱子再出货", "actions": [
+                {"type": "goto", "location": "Farm"},
+                {"type": "stash_all"},
+                {"type": "ship"}]}
     # 23:00 之后必须回家睡觉：不然凌晨 2 点累倒，每晚扣 1000g（实测钱每天准时 -1000）
     if _t >= 2100:   # 21:00 就回家：从田里走回农舍要 1~2 小时游戏时间，23:00 动身会过午夜挨罚
         if loc == "FarmHouse":
@@ -2725,7 +2727,7 @@ def _extract_json(text):
 def normalize_action(a):
     t = a.get("type")
     if t in ("walk_to", "exit", "use_tool", "interact", "shop_buy", "ship", "sleep", "plant",
-             "goto_shop", "goto", "fish", "harvest",
+             "goto_shop", "goto", "fish", "harvest", "stash_all",
              # 2026-11-22：救援动作也要能过白名单（原来这几个全被当非法丢掉）
              "unstick", "warp_house", "warp_to", "close_menu", "enter_home", "go_fish", "stop_fish"):
         a = dict(a)
@@ -2780,7 +2782,7 @@ def validate_actions(state, actions):
             continue
         if t in ("walk_to", "exit", "shop_buy", "ship", "sleep", "goto_shop", "goto", "fish",
                       "unstick", "warp_house", "warp_to", "close_menu", "enter_home", "go_fish", "stop_fish",
-                      "harvest"):
+                      "harvest", "stash_all"):
             if t == "walk_to" and a.get("x") is not None:
                 tx, ty = a.get("x"), a.get("y")
                 if (tx, ty) not in tiles and (tx, ty) not in dry and abs(tx - px) + abs(ty - py) > 12:
