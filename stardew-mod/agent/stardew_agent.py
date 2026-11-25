@@ -3702,12 +3702,25 @@ def main():
                 try:
                     import subprocess, sys as _sys, os as _os
                     _fs = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "stardew_fishsession.py")
-                    _r = subprocess.run([_sys.executable, _fs, "--minutes", "15"],
+                    _r = subprocess.run([_sys.executable, _fs, "--minutes", "12"],
                                         cwd=_os.path.dirname(_fs), timeout=1500,
                                         capture_output=True)
                     log(f"  钓鱼结束 rc={_r.returncode}")
                 except Exception as _fe:
                     log(f"  钓鱼会话异常：{_fe}")
+                state = summarize(read_state())
+            elif _winter and 900 <= _tm < 1800 and _watch.get("mined_day") != f"{state.get('day')}":
+                _watch["mined_day"] = f"{state.get('day')}"
+                log("  冬季没作物 → 去矿洞挖矿")
+                try:
+                    import subprocess, sys as _sys, os as _os
+                    _fs = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "stardew_mine_session.py")
+                    _r = subprocess.run([_sys.executable, _fs, "--minutes", "12"],
+                                        cwd=_os.path.dirname(_fs), timeout=1500,
+                                        capture_output=True)
+                    log(f"  挖矿结束 rc={_r.returncode}")
+                except Exception as _fe:
+                    log(f"  挖矿会话异常：{_fe}")
                 state = summarize(read_state())
             ensure_day_plan(state)
             if _day_plan.get("crop"):
