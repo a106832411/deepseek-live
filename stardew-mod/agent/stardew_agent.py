@@ -3643,6 +3643,16 @@ def main():
                 except Exception:
                     _n = len(state.get("tiles") or [])
                 log(f"  重新扫描：格子 {_n}（摘要只显示 {len(state.get('tiles') or [])}）")
+            # 站在农舍门格上会穿模（人物叠在门/墙上）→ 出门后先挪到门前空地
+            try:
+                _pt2 = state.get("tile") or {}
+                if str(state.get("location") or "") == "Farm" and (int(_pt2.get("x", 0)), int(_pt2.get("y", 0))) in ((64, 14), (64, 15), (64, 16)):
+                    log("  站在农舍门口会穿模，挪到门口空地")
+                    send_order({"actionType": "walk_to", "x": 64, "y": 18})
+                    time.sleep(1.6)
+                    state = summarize(read_state())
+            except Exception:
+                pass
             # 坐标跑出地图（负数/超大）→ 调 fix_position 拉回来，否则游戏时间会冻住
             _p0 = state.get("tile") or {}
             try:
