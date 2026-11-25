@@ -3684,6 +3684,31 @@ def main():
                     time.sleep(1.0)
                 state = summarize(read_state())
                 _watch["stuck"] = 0
+            # 冬天没有可种作物 → 白天去钓鱼（用已经压测过的 fishsession），别在田里空转清草
+            try:
+                _winter = str(state.get("season") or "").strip() in ("winter", "冬")
+                _tm_str = str(state.get("time") or "")
+                _tm = 0
+                if ":" in _tm_str:
+                    _hh, _mm = _tm_str.split(":")[:2]
+                    _tm = int(_hh) * 100 + int(_mm)
+                elif _tm_str.isdigit():
+                    _tm = int(_tm_str)
+            except Exception:
+                _winter, _tm = False, 0
+            if _winter and 900 <= _tm < 1800 and _watch.get("fished_day") != f"{state.get('day')}":
+                _watch["fished_day"] = f"{state.get('day')}"
+                log("  冬季没有可种作物 → 去钓一阵鱼（复用 fishsession）")
+                try:
+                    import subprocess, sys as _sys, os as _os
+                    _fs = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "stardew_fishsession.py")
+                    _r = subprocess.run([_sys.executable, _fs, "--minutes", "15"],
+                                        cwd=_os.path.dirname(_fs), timeout=1500,
+                                        capture_output=True)
+                    log(f"  钓鱼结束 rc={_r.returncode}")
+                except Exception as _fe:
+                    log(f"  钓鱼会话异常：{_fe}")
+                state = summarize(read_state())
             ensure_day_plan(state)
             if _day_plan.get("crop"):
                 ensure_seeds(state, _day_plan.get("crop"), _day_plan.get("seeds") or 5)
