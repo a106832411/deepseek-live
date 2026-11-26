@@ -2524,6 +2524,13 @@ def _rule_plan(state, goal=None):
         except Exception:
             continue
     acts = []
+    # 固定播种区域（用户要求记住的田）：所有「锄地/播种」都限定在这里
+    _rect = plot_rect()
+    def _in_rect(x, y):
+        if not _rect:
+            return True
+        x1, y1, x2, y2 = _rect
+        return x1 <= x <= x2 and y1 <= y <= y2
     pt0 = state.get("tile") or {}
     px0, py0 = int(pt0.get("x", 0)), int(pt0.get("y", 0))
     def _dist(t):
@@ -2538,6 +2545,8 @@ def _rule_plan(state, goal=None):
     ready.sort(key=_dist)
     dry.sort(key=_dist)
     tilled.sort(key=_dist)
+    # 只种在记住的田里（外面的耕地不管）
+    tilled = [t for t in tilled if _in_rect(int(t["x"]), int(t["y"]))]
     if loc != "Farm":
         acts.append({"type": "goto", "location": "Farm"})
     else:
@@ -2563,7 +2572,10 @@ def _rule_plan(state, goal=None):
             _now2 = time.time()
             # 锄地位置：优先在已有作物/耕地的农田区域找（玩家脚边可能是农舍地基，锄不动）
             _crop_xy = [(int(t.get("x", 0)), int(t.get("y", 0))) for t in tiles if t.get("crop")]
-            if _crop_xy:
+            if _rect:
+                _ax = (_rect[0] + _rect[2]) // 2
+                _ay = (_rect[1] + _rect[3]) // 2
+            elif _crop_xy:
                 _ax = sum(p[0] for p in _crop_xy) // len(_crop_xy)
                 _ay = sum(p[1] for p in _crop_xy) // len(_crop_xy)
             elif loc == "Farm":
@@ -2574,6 +2586,7 @@ def _rule_plan(state, goal=None):
                 for dy in range(-6, 7):
                     x, y = _ax + dx, _ay + dy
                     if (x, y) in occupied or (x, y) in water: continue
+                    if not _in_rect(x, y): continue
                     _ts = BAD_TILES.get((x, y))
                     if _ts and _now2 - _ts < 900: continue   # 锄不出耕地的坏点
                     cand.append((abs(dx) + abs(dy), x, y))
