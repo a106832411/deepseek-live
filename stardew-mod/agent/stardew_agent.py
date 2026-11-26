@@ -2552,6 +2552,12 @@ def _rule_plan(state, goal=None):
     else:
         for t in ready[:4]:
             acts.append({"type": "harvest", "x": t["x"], "y": t["y"]})
+        # 换季后成片枯死作物：优先清掉（不清田里一直是枯枝，也挡播种）
+        _dead = [t for t in tiles if "枯死" in str(t.get("obj"))]
+        if _dead:
+            _dead.sort(key=_dist)
+            for t in _dead[:6]:
+                acts.append({"type": "use_tool", "tool": "scythe", "x": t["x"], "y": t["y"]})
         inv0 = [str(x) for x in (state.get("inventory") or [])]
         has_can = any(("Watering" in x) or ("喷壶" in x) for x in inv0)
         if not acts and dry and has_can:
@@ -2598,12 +2604,19 @@ def _rule_plan(state, goal=None):
             pt = state.get("tile") or {}
             px, py = int(pt.get("x", 0)), int(pt.get("y", 0))
             # 清地：按物体类型选工具（草→镰刀，树/嫩枝→斧头，石头→镐子）
-            TOOL_BY_OBJ = {"草": "scythe", "树": "axe", "嫩枝": "axe", "石头": "pickaxe"}
+            # 枯死作物/杂草也要能清（换季后大片枯死作物不清，田里就种不下去）
+            TOOL_BY_OBJ = {"草": "scythe", "杂草": "scythe", "枯死作物": "scythe",
+                           "树": "axe", "树桩": "axe", "嫩枝": "axe", "石头": "pickaxe"}
             breaks = [t for t in tiles
                       if t.get("breakable") and t.get("obj") in TOOL_BY_OBJ
                       and (not BAD_TILES.get((int(t.get("x", 0)), int(t.get("y", 0))))
                            or time.time() - BAD_TILES[(int(t.get("x", 0)), int(t.get("y", 0)))] > 900)]
-            breaks.sort(key=_dist)
+            # 田里的枯死作物/杂草优先清（不然种不下去）
+            def _prio(t):
+                inside = _in_rect(int(t.get("x", 0)), int(t.get("y", 0)))
+                dead = "枯死" in str(t.get("obj")) or "杂草" in str(t.get("obj"))
+                return (0 if (inside and dead) else (1 if inside else 2), _dist(t))
+            breaks.sort(key=_prio)
             for t in breaks[:6]:
                 acts.append({"type": "use_tool", "tool": TOOL_BY_OBJ[t["obj"]], "x": t["x"], "y": t["y"]})
     if not acts:
