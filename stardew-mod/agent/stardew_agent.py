@@ -39,7 +39,7 @@ ORDER_DIR = os.path.join(PLAYER_DIR, "orders")
 LLM_BASE = env("STARDEW_LLM_BASE", "http://127.0.0.1:11434/v1")
 LLM_MODEL = env("STARDEW_LLM_MODEL", "qwen25-7b-local")
 # 跨图移动方式：walk=只走路 / warp=连相邻地图也传送 / auto=两段以上路程直接传送（默认）
-TRAVEL_MODE = env("STARDEW_TRAVEL", "auto").lower()
+TRAVEL_MODE = env("STARDEW_TRAVEL", "walk").lower()   # 用户要求：正常跨图一律走地图，不传送
 LLM_KEY = env("STARDEW_LLM_KEY", "ollama")
 TOKEN_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stardew_tokens.jsonl")
 

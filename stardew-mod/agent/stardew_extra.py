@@ -167,8 +167,8 @@ def act_deep_mine(level=20, minutes=8):
             A.send_order({"actionType": "warp_to", "location": "Farm"})
             time.sleep(2)
             break
-    A.send_order({"actionType": "warp_to", "location": "Farm"})
-    time.sleep(2)
+    A.send_order({"actionType": "goto", "location": "Farm"})
+    time.sleep(10)
     A.send_order({"actionType": "smelt", "ore": "Copper", "times": 10})
     time.sleep(5)
     A.send_order({"actionType": "smelt", "ore": "Iron", "times": 10})

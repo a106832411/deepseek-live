@@ -44,8 +44,17 @@ def enter_mine():
     s = state()
     if in_mine(s.get("location")):
         return True
-    A.send_order({"actionType": "warp_to", "location": "Mine"})
-    time.sleep(4)
+    # 先按用户要求走路过去；走不到再传送兜底（矿洞在山里，步行路线可能被地形隔断）
+    A.send_order({"actionType": "goto", "location": "Mine"})
+    for _ in range(24):
+        time.sleep(2.5)
+        s = state()
+        if str(s.get("location")) in ("Mine",) or in_mine(s.get("location")):
+            break
+    s = state()
+    if str(s.get("location")) != "Mine" and not in_mine(s.get("location")):
+        A.send_order({"actionType": "warp_to", "location": "Mine"})
+        time.sleep(4)
     s = state()
     if str(s.get("location")) != "Mine":
         log(f"  传送进矿洞失败：{s.get('location')}")
@@ -151,8 +160,8 @@ def main():
             log("  没看到梯子，继续敲")
         time.sleep(0.5)
     log("===== 挖矿结束，回农场 =====")
-    A.send_order({"actionType": "warp_to", "location": "Farm"})
-    time.sleep(3)
+    A.send_order({"actionType": "goto", "location": "Farm"})
+    time.sleep(10)
     # 挖完就地熔炼，别让矿石堆在背包里等下一轮
     A.send_order({"actionType": "smelt", "ore": "Copper", "times": 10})
     time.sleep(6)
