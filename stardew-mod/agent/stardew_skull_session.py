@@ -23,7 +23,7 @@ def state():
 
 
 def pos(s):
-    t = s.get("player") or {}
+    t = s.get("tile") or (s.get("player") or {}).get("tile") or {}
     return int(t.get("x", -99)), int(t.get("y", -99))
 
 

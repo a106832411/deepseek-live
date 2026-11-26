@@ -3868,9 +3868,9 @@ def main():
                     pass
                 import random as _rnd
                 _MAIN_JOBS = [
-                    ("stardew_mine_session.py", ["--minutes", "12"], "矿洞刷矿", 4),
+                    ("stardew_skull_session.py", ["--minutes", "12"], "沙漠矿洞", 4),
                     ("stardew_fishsession.py", ["--minutes", "12"], "钓鱼", 4),
-                    ("stardew_mine_session.py", ["--minutes", "14"], "矿洞刷矿(长途)", 2),
+                    ("stardew_skull_session.py", ["--minutes", "14"], "沙漠矿洞(长途)", 2),
                 ]
                 _SIDE_JOBS = [
                     ("stardew_extra.py", ["--activity", "forage", "--minutes", "8"], "采集野果", 1),

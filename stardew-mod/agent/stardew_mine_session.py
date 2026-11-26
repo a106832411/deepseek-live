@@ -31,8 +31,9 @@ def state():
 
 
 def pos(s):
-    t = s.get("player") or {}
-    return t.get("x", 0), t.get("y", 0)
+    # 原始 state 把坐标放在 player.tile 里；summarize 过的放在顶层 tile
+    t = s.get("tile") or (s.get("player") or {}).get("tile") or {}
+    return int(t.get("x", 0)), int(t.get("y", 0))
 
 
 def in_mine(loc):
@@ -70,38 +71,40 @@ mine_bad = set()   # 敲不动/走不过去的石头，记下来别再试
 
 
 def mine_some(n=8):
-    s = state()
-    brk = [t for t in (s.get("tiles") or []) if t.get("breakable")]
-    brk = [t for t in brk if (t["x"], t["y"]) not in mine_bad]
-    brk.sort(key=lambda t: abs(t["x"] - pos(s)[0]) + abs(t["y"] - pos(s)[1]))
+    """一棵一棵来：走到石头正旁边（四向）→ 站定 → 挥镐 → 验证。站不到就 force_step 贴身。"""
     ok = 0
-    # 沙漠矿洞石头稀疏：最近的太远就先走过去，别直接判失败
-    if brk:
-        _p = pos(s)
-        _near = [t for t in brk if abs(t["x"] - _p[0]) + abs(t["y"] - _p[1]) <= 6]
-        if not _near and brk:
-            _t0 = brk[0]
-            A.send_order({"actionType": "walk_to", "x": _t0["x"], "y": _t0["y"] + 2})
-            time.sleep(2.0)
-            s = state()
-            brk = [t for t in (s.get("tiles") or []) if t.get("breakable")
-                   and (t["x"], t["y"]) not in mine_bad]
-            brk.sort(key=lambda t: abs(t["x"] - pos(s)[0]) + abs(t["y"] - pos(s)[1]))
-    for t in brk[:n]:
-        # 先走到石头四邻里能站的那格，站不到就跳过（避免隔墙挥镐＝看起来穿墙）
+    total = 0
+    for _ in range(n):
+        s = state()
+        brk = [t for t in (s.get("tiles") or []) if t.get("breakable") and (t["x"], t["y"]) not in mine_bad]
+        total = len(brk)
+        if not brk:
+            break
+        p = pos(s)
+        brk.sort(key=lambda t: abs(t["x"] - p[0]) + abs(t["y"] - p[1]))
+        t = brk[0]
         stood = False
         for cx, cy in ((t["x"] + 1, t["y"]), (t["x"] - 1, t["y"]), (t["x"], t["y"] + 1), (t["x"], t["y"] - 1)):
             A.send_order({"actionType": "walk_to", "x": cx, "y": cy})
-            time.sleep(0.6)
-            _p = pos(state())
-            if abs(_p[0] - t["x"]) + abs(_p[1] - t["y"]) <= 1:
+            time.sleep(1.4)
+            pp = pos(state())
+            if abs(pp[0] - t["x"]) + abs(pp[1] - t["y"]) == 1:
                 stood = True
                 break
         if not stood:
+            # 走不过去就别硬来：force_step 会把人物塞进石头里（之后就再也走不动）
             mine_bad.add((t["x"], t["y"]))
             continue
+        # 站定再挥（还在走的时候挥镐会被打断）
+        last = None
+        for _w in range(8):
+            pp = pos(state())
+            if pp == last:
+                break
+            last = pp
+            time.sleep(0.25)
         A.send_order({"actionType": "use_tool", "tool": "pickaxe", "x": t["x"], "y": t["y"]})
-        time.sleep(0.9)
+        time.sleep(1.4)
         s2 = state()
         still = any(z.get("x") == t["x"] and z.get("y") == t["y"] and z.get("breakable")
                     for z in (s2.get("tiles") or []))
@@ -109,7 +112,7 @@ def mine_some(n=8):
             mine_bad.add((t["x"], t["y"]))
         else:
             ok += 1
-    return ok, len(brk)
+    return ok, total
 
 
 def find_ladder_down():
