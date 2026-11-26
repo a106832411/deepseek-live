@@ -2552,12 +2552,20 @@ def _rule_plan(state, goal=None):
     else:
         for t in ready[:4]:
             acts.append({"type": "harvest", "x": t["x"], "y": t["y"]})
-        # 换季后成片枯死作物：优先清掉（不清田里一直是枯枝，也挡播种）
-        _dead = [t for t in tiles if "枯死" in str(t.get("obj"))]
-        if _dead:
-            _dead.sort(key=_dist)
-            for t in _dead[:6]:
-                acts.append({"type": "use_tool", "tool": "scythe", "x": t["x"], "y": t["y"]})
+        # 播种前先把「固定田」清干净：杂草/草/枯死作物/石头挡着的格子先清掉
+        _TOOLMAP = {"草": "scythe", "杂草": "scythe", "枯死作物": "scythe",
+                    "树": "axe", "树桩": "axe", "嫩枝": "axe", "石头": "pickaxe"}
+        _blocked = [t for t in tiles
+                    if t.get("breakable") and _in_rect(int(t.get("x", 0)), int(t.get("y", 0)))
+                    and str(t.get("obj")) in _TOOLMAP]
+        # 田外的大片枯死作物也顺手清（看着脏，也挡路）
+        _dead_out = [t for t in tiles if "枯死" in str(t.get("obj"))]
+        _clear = _blocked + [t for t in _dead_out if t not in _blocked]
+        if _clear:
+            _clear.sort(key=_dist)
+            for t in _clear[:6]:
+                acts.append({"type": "use_tool", "tool": _TOOLMAP.get(str(t.get("obj")), "scythe"),
+                             "x": t["x"], "y": t["y"]})
         inv0 = [str(x) for x in (state.get("inventory") or [])]
         has_can = any(("Watering" in x) or ("喷壶" in x) for x in inv0)
         if not acts and dry and has_can:
@@ -3821,8 +3829,15 @@ def main():
             # 地里有成熟作物优先收，先不收就晚点再轮换
             _has_ready = any(t.get("cropReady") for t in (state.get("tiles") or []))
             _harvested_today = _watch.get("harvested_day") == f"{state.get('day')}"
-            if 900 <= _tm < 1300 and _watch.get("burst_day") != f"{state.get('day')}" and (not _has_ready or _harvested_today):
-                _watch["burst_day"] = f"{state.get('day')}"
+            # 一天两个活动窗口：9-13 和 14-18（主线优先，支线随机）
+            _slot = None
+            if 900 <= _tm < 1300:
+                _slot = "am"
+            elif 1400 <= _tm < 1800:
+                _slot = "pm"
+            _slot_key = f"{state.get('day')}-{_slot}" if _slot else ""
+            if _slot and _watch.get("burst_slot") != _slot_key and (not _has_ready or _harvested_today):
+                _watch["burst_slot"] = _slot_key
                 _burst = int(_watch.get("burst") or 0)
                 _watch["burst"] = _burst + 1
                 try:
@@ -3831,16 +3846,26 @@ def main():
                              open(r"D:\live\logs\.play_state.json", "w", encoding="utf-8"))
                 except Exception:
                     pass
-                _jobs = [
-                    ("stardew_extra.py", ["--activity", "deep_mine", "--level", "40", "--minutes", "10"], "深层挖矿(40层)"),
-                    ("stardew_fishsession.py", ["--minutes", "12"], "钓鱼"),
-                    ("stardew_extra.py", ["--activity", "chop", "--minutes", "8"], "砍树捡木材"),
-                    ("stardew_extra.py", ["--activity", "forage", "--minutes", "8"], "采集野果"),
-                    ("stardew_extra.py", ["--activity", "machines"], "机器/熔炼"),
-                    ("stardew_craft.py", ["--craft", "2"], "制作/学配方"),
-                    ("stardew_mine_session.py", ["--minutes", "12"], "矿洞刷矿"),
+                import random as _rnd
+                _MAIN_JOBS = [
+                    ("stardew_mine_session.py", ["--minutes", "12"], "矿洞刷矿", 4),
+                    ("stardew_fishsession.py", ["--minutes", "12"], "钓鱼", 4),
+                    ("stardew_extra.py", ["--activity", "deep_mine", "--level", "40", "--minutes", "10"], "深层挖矿(40层)", 2),
                 ]
-                _script, _args, _label = _jobs[_burst % len(_jobs)]
+                _SIDE_JOBS = [
+                    ("stardew_extra.py", ["--activity", "forage", "--minutes", "8"], "采集野果", 1),
+                    ("stardew_craft.py", ["--craft", "2"], "制作/学配方", 1),
+                    ("stardew_extra.py", ["--activity", "chop", "--minutes", "8"], "砍树捡木材", 1),
+                    ("stardew_extra.py", ["--activity", "machines"], "机器/熔炼", 1),
+                ]
+                # 支线 25% 概率随机触发，其余走主线（挖矿/钓鱼）
+                if _rnd.random() < 0.25:
+                    _pool = _SIDE_JOBS
+                else:
+                    _pool = _MAIN_JOBS
+                _w = [j[3] for j in _pool]
+                _pick = _rnd.choices(_pool, weights=_w, k=1)[0]
+                _script, _args, _label = _pick[0], _pick[1], _pick[2]
                 log(f"  活动轮换 → {_label}")
                 try:
                     import subprocess, sys as _sys, os as _os
@@ -3877,7 +3902,9 @@ def main():
                 pass
             ensure_day_plan(state)
             if _day_plan.get("crop"):
-                ensure_seeds(state, _day_plan.get("crop"), _day_plan.get("seeds") or 5)
+                # 一次买够 3 次的量，别每次都跑商店
+                _need = int(_day_plan.get("seeds") or 5)
+                ensure_seeds(state, _day_plan.get("crop"), max(_need * 3, 60))
                 state = summarize(read_state())
             log(f"第 {r} 轮：{state['season']} 第{state['day']}天 {state['time']} "
                 f"{state['location']} 钱={state['money']} 体力={state['stamina']} 格子={len(state['tiles'])}")
