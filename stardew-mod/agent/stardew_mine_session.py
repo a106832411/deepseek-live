@@ -75,6 +75,18 @@ def mine_some(n=8):
     brk = [t for t in brk if (t["x"], t["y"]) not in mine_bad]
     brk.sort(key=lambda t: abs(t["x"] - pos(s)[0]) + abs(t["y"] - pos(s)[1]))
     ok = 0
+    # 沙漠矿洞石头稀疏：最近的太远就先走过去，别直接判失败
+    if brk:
+        _p = pos(s)
+        _near = [t for t in brk if abs(t["x"] - _p[0]) + abs(t["y"] - _p[1]) <= 6]
+        if not _near and brk:
+            _t0 = brk[0]
+            A.send_order({"actionType": "walk_to", "x": _t0["x"], "y": _t0["y"] + 2})
+            time.sleep(2.0)
+            s = state()
+            brk = [t for t in (s.get("tiles") or []) if t.get("breakable")
+                   and (t["x"], t["y"]) not in mine_bad]
+            brk.sort(key=lambda t: abs(t["x"] - pos(s)[0]) + abs(t["y"] - pos(s)[1]))
     for t in brk[:n]:
         # 先走到石头四邻里能站的那格，站不到就跳过（避免隔墙挥镐＝看起来穿墙）
         stood = False

@@ -3055,6 +3055,15 @@ def travel_to(dst, hop_timeout=200, log_fn=None):
     cur = str(st.get("location") or "")
     if cur == dst:
         return True
+    # 在矿洞里：先出来（leave_mine → 大堂），否则地图图里没有地下层到别处的路
+    if cur.startswith("UndergroundMine") or cur == "SkullCave":
+        _log("  在 %s 里，先出矿" % cur)
+        send_order({"actionType": "leave_mine"})
+        time.sleep(4)
+        st = summarize(read_state())
+        cur = str(st.get("location") or "")
+        if cur == dst:
+            return True
     # 2026-11-21 修：23:00 之后别走路了。深夜从沙漠/海滩走回农场要 4 个游戏小时，
     # 铁定踩 2:00 昏倒（今晚已经丢了 3 次 1000g）。太晚就直接传送。
     if _mins(st.get("time")) >= _mins("23:00"):
