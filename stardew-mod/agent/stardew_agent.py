@@ -3872,9 +3872,12 @@ def main():
                 try:
                     import subprocess, sys as _sys, os as _os
                     _fp = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), _script)
-                    _r = subprocess.run([_sys.executable, _fp] + _args,
-                                        cwd=_os.path.dirname(_fp), timeout=1500,
-                                        capture_output=True)
+                    # 子进程日志落到单独文件，方便排查（走路还是传送、挖了几层）
+                    _lf = _os.path.join(r"D:\live\logs", "burst-last.log")
+                    with open(_lf, "w", encoding="utf-8") as _fh:
+                        _r = subprocess.run([_sys.executable, _fp] + _args,
+                                            cwd=_os.path.dirname(_fp), timeout=1500,
+                                            stdout=_fh, stderr=subprocess.STDOUT)
                     log(f"  {_label}结束 rc={_r.returncode}")
                     # 打完就把战利品投出货箱，别全堆背包
                     send_order({"actionType": "ship"})
