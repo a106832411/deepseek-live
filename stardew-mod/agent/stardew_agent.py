@@ -2364,7 +2364,8 @@ def ensure_day_plan(state):
             '给出今天的计划，只输出 JSON：{"goal":"一句话","crop":"作物名","seeds":数字,"tasks":["..."]}')
     plan = {}
     # 默认用规则计划（0 延迟、0 token）；要模型参与就设 STARDEW_LLM_PLAN=1
-    if env("STARDEW_LLM_PLAN", "0") == "1":
+    # 旧版自由发挥式规划（小模型容易胡说，默认关；要开就设 STARDEW_LLM_FREEFORM=1）
+    if env("STARDEW_LLM_FREEFORM", "0") == "1" and env("STARDEW_LLM_PLAN", "0") == "1":
         try:
             plan = _extract_json(llm_chat([{"role": "system", "content": SYSTEM_PROMPT},
                                            {"role": "user", "content": user}],
@@ -2376,6 +2377,36 @@ def ensure_day_plan(state):
         except Exception:
             pass
     rule = plan_day_rules(state)
+    # 让本地模型做「选择题」而不是自由发挥：从规则候选里挑一个 + 说一句人话
+    if env("STARDEW_LLM_PLAN", "0") == "1" and llm_available():
+        try:
+            cands = pick_crops(season_key, int(day or 1), top=3)
+            opts = [c[0] for c in cands]
+            if opts:
+                q = (f"现在是{state.get('season')}第{day}天，资金{(state.get('player') or {}).get('money')}g。\n"
+                     f"候选作物：\n1) {opts[0]}\n" + (f"2) {opts[1]}\n" if len(opts) > 1 else "") +
+                     (f"3) {opts[2]}\n" if len(opts) > 2 else "") +
+                     '只输出 JSON：{"choice": 序号(1-3), "say": "一句今天的目标话术(20字内)"}')
+                t0 = time.time()
+                txt = llm_chat([{"role": "system", "content": "你是星露谷种田助手，只输出 JSON。"},
+                                {"role": "user", "content": q}], temperature=0.2, max_tokens=120)
+                pick = _extract_json(txt) or {}
+                idx = int(pick.get("choice") or 0)
+                log(f"  [LLM选择] {txt[:80]!r} 耗时{time.time()-t0:.1f}s")
+                if 1 <= idx <= len(opts):
+                    name = opts[idx - 1]
+                    row = next((r for r in CROPS.get(season_key, []) if r[0] == name), None)
+                    if row:
+                        n = min(int(max(0, int(money) - 200) // max(1, row[1])), 20)
+                        say = str(pick.get("say") or "").strip()
+                        _day_plan.update({"day": day, "season": season,
+                                          "goal": say or f"种 {n} 株{name}（{row[2]+1}天成熟，约{row[5]}g/格/天）",
+                                          "crop": name, "seeds": n, "gday": row[5],
+                                          "tasks": ["收获成熟作物", f"种 {n} 株{name}", "清理杂物"]})
+                        log(f"今日计划(LLM 选 {idx})：{_day_plan['goal']}")
+                        return _day_plan
+        except Exception as e:
+            log(f"  LLM 选择题失败（走规则）：{e}")
     mcrop = str(plan.get("crop") or "")
     mgday = _gday(season_key, mcrop)
     mdays = 0
@@ -2582,6 +2613,9 @@ def make_plan(state, goal=None):
         _llm_dead = True
         log("LLM 不在线，本轮起走规则计划")
     if _llm_dead:
+        return _rule_plan(state, goal)
+    # 本地 7B 一轮一次太慢：默认只让模型参与「今日计划/卡住救援」，动作仍用规则
+    if env("STARDEW_LLM_ACTIONS", "0") != "1":
         return _rule_plan(state, goal)
     dp = _day_plan if _day_plan.get("day") == state.get("day") else {}
     goal_line = (f"人工目标：{goal}" if goal else
