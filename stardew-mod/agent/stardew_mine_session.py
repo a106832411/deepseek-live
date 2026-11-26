@@ -52,9 +52,6 @@ def enter_mine():
         if str(s.get("location")) in ("Mine",) or in_mine(s.get("location")):
             break
     s = state()
-    if str(s.get("location")) != "Mine" and not in_mine(s.get("location")):
-        A.send_order({"actionType": "warp_to", "location": "Mine"})
-        time.sleep(4)
     s = state()
     if str(s.get("location")) != "Mine":
         log(f"  传送进矿洞失败：{s.get('location')}")

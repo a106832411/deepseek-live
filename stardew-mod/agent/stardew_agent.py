@@ -2494,11 +2494,10 @@ def _rule_plan(state, goal=None):
     if _t >= 2100:   # 21:00 就回家：从田里走回农舍要 1~2 小时游戏时间，23:00 动身会过午夜挨罚
         if loc == "FarmHouse":
             return {"goal": "累了，睡觉", "actions": [{"type": "sleep"}]}
+        # 用户要求一律走路：先 goto 回家；warp_house 只在走路失败时兜底（由 sleep 分支处理）
         acts = []
         if _t < 2350:
             acts.append({"type": "goto", "location": "FarmHouse"})
-        # 走不到门口（被田地/障碍卡住）也别耽误：直接传送回屋再睡
-        acts.append({"type": "warp_house"})
         acts.append({"type": "sleep"})
         return {"goal": "回家睡觉", "actions": acts}
     dp = _day_plan or {}
@@ -3634,6 +3633,16 @@ def execute(plan, state=None, dry=False):
             log(f"  {i}/{len(actions)} ship")
         elif at == "sleep":
             log(f"  {i}/{len(actions)} sleep（会进下一天并存档）")
+            _s0 = summarize(read_state())
+            if str(_s0.get("location") or "") != "FarmHouse":
+                # 还没进屋：先走路回家（走不到才传送兜底）
+                log("   不在屋里，先走回家")
+                travel_to("FarmHouse", hop_timeout=90, log_fn=log)
+                _s1 = summarize(read_state())
+                if str(_s1.get("location") or "") != "FarmHouse":
+                    log("   走路回家失败 → 传送兜底")
+                    send_order({"actionType": "warp_house"})
+                    time.sleep(3)
             before = summarize(read_state())
             send_order(act)
             t0 = time.time()
@@ -3852,7 +3861,7 @@ def main():
                 _MAIN_JOBS = [
                     ("stardew_mine_session.py", ["--minutes", "12"], "矿洞刷矿", 4),
                     ("stardew_fishsession.py", ["--minutes", "12"], "钓鱼", 4),
-                    ("stardew_extra.py", ["--activity", "deep_mine", "--level", "40", "--minutes", "10"], "深层挖矿(40层)", 2),
+                    ("stardew_mine_session.py", ["--minutes", "14"], "矿洞刷矿(长途)", 2),
                 ]
                 _SIDE_JOBS = [
                     ("stardew_extra.py", ["--activity", "forage", "--minutes", "8"], "采集野果", 1),
