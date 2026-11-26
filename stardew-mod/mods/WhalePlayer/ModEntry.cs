@@ -591,6 +591,17 @@ namespace WhalePlayer
             if (e.IsMultipleOf(3)) this.TickCatchVerify();
             if (e.IsMultipleOf(6)) this.TickPurchase();      // 看得见的购买：分批扣钱入包
             if (e.IsMultipleOf(6)) this.ProcessOrders();     // ~0.1s，动作更跟手
+            // 走路动画修复：有 controller 在走、但精灵被暂停/动画已结束时，人物会「滑步」没有走路动作
+            try
+            {
+                var pw = Game1.player;
+                if (pw.controller != null && !pw.UsingTool && pw.FarmerSprite.PauseForSingleAnimation)
+                {
+                    pw.FarmerSprite.PauseForSingleAnimation = false;
+                    pw.FarmerSprite.StopAnimation();
+                }
+            }
+            catch { }
             // 900fps 下 tick 计数会退化：按真实时间每 250ms 写一次状态，避免和读取方抢锁
             this.stateWriteAccumMs += Game1.currentGameTime.ElapsedGameTime.TotalMilliseconds;
             if (this.stateWriteAccumMs >= 250) { this.stateWriteAccumMs = 0; this.WriteState(); }
