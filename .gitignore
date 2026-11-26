@@ -53,3 +53,6 @@ assets/voice_ref/ref_*.wav
 
 # 人声分离/降噪中间产物
 assets/voice_ref/clean_work/
+
+# agent 运行期 token 统计（每轮追加，不进 git）
+stardew-mod/agent/stardew_tokens.jsonl
