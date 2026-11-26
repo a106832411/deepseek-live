@@ -3834,6 +3834,8 @@ def main():
             if 900 <= _tm < 1300:
                 _slot = "am"
             elif 1400 <= _tm < 1800:
+                _slot = "mid"
+            elif 1800 <= _tm < 2100:
                 _slot = "pm"
             _slot_key = f"{state.get('day')}-{_slot}" if _slot else ""
             if _slot and _watch.get("burst_slot") != _slot_key and (not _has_ready or _harvested_today):
@@ -3859,7 +3861,7 @@ def main():
                     ("stardew_extra.py", ["--activity", "machines"], "机器/熔炼", 1),
                 ]
                 # 支线 25% 概率随机触发，其余走主线（挖矿/钓鱼）
-                if _rnd.random() < 0.25:
+                if _rnd.random() < 0.10:   # 支线只占 10%，主线（挖矿/钓鱼）占满其余时间
                     _pool = _SIDE_JOBS
                 else:
                     _pool = _MAIN_JOBS
