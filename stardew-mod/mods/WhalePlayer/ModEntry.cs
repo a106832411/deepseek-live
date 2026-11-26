@@ -42,6 +42,7 @@ namespace WhalePlayer
         private string ordersDir;
         private string statePath;
         private int toolTicks = -1;
+        private int animSample = 0;   // 走路动画采样（排查滑步）
         private int stuckToolTicks = 0;
         private int barTicks = 0;
         private bool barSeen = false;
@@ -591,6 +592,13 @@ namespace WhalePlayer
             if (e.IsMultipleOf(3)) this.TickCatchVerify();
             if (e.IsMultipleOf(6)) this.TickPurchase();      // 看得见的购买：分批扣钱入包
             if (e.IsMultipleOf(6)) this.ProcessOrders();     // ~0.1s，动作更跟手
+            // 走路动画采样：每 6 tick 打一行，看帧号是否随位置变化
+            if (this.animSample > 0 && e.IsMultipleOf(6))
+            {
+                this.animSample--;
+                var pa = Game1.player;
+                this.Monitor.Log($"ANIM f={pa.FarmerSprite.CurrentAnimationFrame} pause={pa.FarmerSprite.PauseForSingleAnimation} sf={pa.Sprite.CurrentFrame} pos=({pa.position.X:F0},{pa.position.Y:F0}) ctrl={(pa.controller != null)} tool={pa.UsingTool}", LogLevel.Alert);
+            }
             // 走路动画修复：有 controller 在走、但精灵被暂停/动画已结束时，人物会「滑步」没有走路动作
             try
             {
@@ -677,6 +685,7 @@ namespace WhalePlayer
                 case "leave_festival": this.LeaveFestival(); break;
                 case "unstick": this.Unstick(); break;
                 case "ui_state": this.UiState(); break;
+                case "anim_state": this.animSample = 20; this.Monitor.Log("anim_state: 开始采样走路动画", LogLevel.Info); break;
                 case "close_menu": this.CloseMenu(); break;
                 case "end_event": this.EndEvent(); break;
                 case "leave_mine": this.LeaveMine(); break;
@@ -709,7 +718,7 @@ namespace WhalePlayer
                 case "sort_chests": this.SortChests(); break;
                 case "assign_chests": this.AssignChests(jo); break;
                 case "tidy": this.Tidy(jo); break;
-                case "stash_all": this.StashAll(); break;
+                case "stash_all": this.StashAll(jo); break;
                 default: this.Monitor.Log($"未知动作：{action}", LogLevel.Warn); break;
             }
         }
@@ -2875,8 +2884,10 @@ namespace WhalePlayer
             }
             this.Monitor.Log($"tidy: 种子箱{seedN} 作物箱{cropN} 杂物箱{miscN}，放不下 {failed}", LogLevel.Info);
         }
-        private void StashAll()
+        private void StashAll(JObject jo = null)
         {
+            var keepNames = new List<string>();
+            try { if (jo != null && jo["keep"] is JArray ka) foreach (var x in ka) keepNames.Add((string)x); } catch { }
             var loc = Game1.getFarm();
             var p = Game1.player;
             var chests = this.AllChests(loc);
@@ -2902,7 +2913,17 @@ namespace WhalePlayer
                 // 只保留这五类工具（外加浇水壶）：锄头/鱼竿/斧子/镐子/镰刀/水壶
                 // 2026-11-21：水壶以前会被收进箱子，而 ensure_tools 不补造水壶 → 之后手动浇水全废
                 // 种子留在身上：收进箱子后 agent 会以为没种子，又去买一遍
-                if (it is StardewValley.Object seedObj && seedObj.Category == -74) { kept++; continue; }
+                // 只保留：工具 + 当季要种的种子 + 调用方点名保留的物品（其余全进箱子）
+                bool keepThis = false;
+                if (it is StardewValley.Object seedObj && seedObj.Category == -74)
+                {
+                    keepThis = keepNames.Count == 0 || keepNames.Any(k => (it.Name ?? "").IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
+                }
+                else if (keepNames.Count > 0 && keepNames.Any(k => (it.Name ?? "").IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0))
+                {
+                    keepThis = true;
+                }
+                if (keepThis) { kept++; continue; }
                 if (it is Tool tl)
                 {
                     bool keep = tl is Hoe || tl is StardewValley.Tools.FishingRod

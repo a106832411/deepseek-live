@@ -3886,6 +3886,18 @@ def main():
                 _w = [j[3] for j in _pool]
                 _pick = _rnd.choices(_pool, weights=_w, k=1)[0]
                 _script, _args, _label = _pick[0], _pick[1], _pick[2]
+                # 出门玩之前先把背包理干净（材料进箱子，只留当季种子+工具）
+                try:
+                    _invb = state.get("inventory") or []
+                    if len(_invb) >= 12:
+                        _ck = [SEED_EN.get(str((_day_plan or {}).get("crop") or ""), "")] if (_day_plan or {}).get("crop") else []
+                        log(f"  活动前整理背包（{len(_invb)} 格）")
+                        send_order({"actionType": "stash_all", "keep": _ck})
+                        time.sleep(2.2)
+                        send_order({"actionType": "ship"})
+                        time.sleep(0.8)
+                except Exception:
+                    pass
                 log(f"  活动轮换 → {_label}")
                 try:
                     import subprocess, sys as _sys, os as _os
@@ -3905,6 +3917,26 @@ def main():
                     log(f"  {_label}异常：{_fe}")
                 state = summarize(read_state())
 
+            # 每天出门前先整理背包：材料进箱子，只留工具 + 当季种子
+            try:
+                _pt = state.get("tile") or {}
+                if (str(state.get("location") or "") in ("FarmHouse", "Farm")
+                        and _watch.get("tidy_day") != f"{state.get('day')}"):
+                    _inv_t = state.get("inventory") or []
+                    if len(_inv_t) >= 8:
+                        _watch["tidy_day"] = f"{state.get('day')}"
+                        _ck = []
+                        _crop_t = str((_day_plan or {}).get("crop") or "")
+                        if _crop_t:
+                            _ck = [SEED_EN.get(_crop_t, _crop_t)]
+                        log(f"  出门前整理背包（{len(_inv_t)} 格，保留 {_ck or '种子全留'}）")
+                        send_order({"actionType": "stash_all", "keep": _ck})
+                        time.sleep(2.2)
+                        send_order({"actionType": "ship"})
+                        time.sleep(1.0)
+                        state = summarize(read_state())
+            except Exception:
+                pass
             # 每天检查一次稻草人覆盖（防乌鸦吃作物）
             try:
                 _crops_now = [t for t in (state.get("tiles") or []) if t.get("crop")]
