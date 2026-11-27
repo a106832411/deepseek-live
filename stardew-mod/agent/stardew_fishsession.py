@@ -103,11 +103,12 @@ def main():
         while time.time() - start < args.minutes * 60:
             time.sleep(15)
             # 到点收工
-            if args.until:
-                cur = A._mins(st_date.get("time") if False else state().get("time"))
-                if cur >= A._mins(args.until):
-                    log("  到点收工（%s >= %s）" % (state().get("time"), args.until))
-                    break
+            # 到点收工：--until 没给就按 21:30（夜里 2 点前必须回家，不然昏倒扣钱）
+            _stop = args.until or "21:30"
+            cur = A._mins(state().get("time"))
+            if cur >= A._mins(_stop):
+                log("  到点收工（%s >= %s）" % (state().get("time"), _stop))
+                break
             # 00:00 自动回家睡觉
             try:
                 if A.handle_midnight(log_fn=log):

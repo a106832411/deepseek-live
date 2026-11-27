@@ -3115,6 +3115,21 @@ def travel_to(dst, hop_timeout=200, log_fn=None):
                 break
         _log("    → %s %s" % (hop, "OK" if ok else "失败"))
         if not ok:
+            # 卡在走不到的角落（比如山崖边）：先修复位置，再走一次
+            try:
+                send_order({"actionType": "fix_position"})
+                time.sleep(1.5)
+            except Exception:
+                pass
+            send_order({"actionType": "goto", "location": hop})
+            t2 = time.time()
+            while time.time() - t2 < 60:
+                time.sleep(2)
+                if str(summarize(read_state()).get("location") or "") == hop:
+                    ok = True
+                    break
+            _log("    → 脱困重试 %s %s" % (hop, "OK" if ok else "仍失败"))
+        if not ok:
             # 降级 1：关菜单 / 唤醒 / 抖开位置，再 goto 一次
             for act in ("close_menu", "wake", "unstick"):
                 try:
