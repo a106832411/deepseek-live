@@ -3065,14 +3065,9 @@ def travel_to(dst, hop_timeout=200, log_fn=None):
         cur = str(st.get("location") or "")
         if cur == dst:
             return True
-    # 2026-11-21 修：23:00 之后别走路了。深夜从沙漠/海滩走回农场要 4 个游戏小时，
-    # 铁定踩 2:00 昏倒（今晚已经丢了 3 次 1000g）。太晚就直接传送。
+    # 2026-11-27：用户要求一律走路，不再因为太晚就传送（时间晚了也走回去）
     if _mins(st.get("time")) >= _mins("23:00"):
-        _log("  现在 %s，太晚 → 直接传送到 %s" % (st.get("time"), dst))
-        send_order({"actionType": "warp_to", "location": dst})
-        time.sleep(6)
-        if str(summarize(read_state()).get("location")) == dst:
-            return True
+        _log("  现在 %s，太晚，但仍按规则走路回 %s（不传送）" % (st.get("time"), dst))
     path = route_path(cur, dst)
     hops = (len(path) - 1) if path else 99
     # 2026-11-23：加传送模式。走路一段要 40~55 秒，FarmHouse→Beach 四段要 3 分半；

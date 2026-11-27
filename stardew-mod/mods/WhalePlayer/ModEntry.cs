@@ -679,7 +679,7 @@ namespace WhalePlayer
                 case "fish": this.Fish(); break;
                 case "goto_shop": this.StartTravel("SeedShop"); break;
                 case "goto": this.StartTravel((string)jo["location"] ?? ""); break;
-                case "warp_to": this.WarpDirect((string)jo["location"] ?? ""); break;
+                case "warp_to": this.WarpDirect((string)jo["location"] ?? "", (bool?)jo["force"] == true); break;
                 case "shop_buy": this.ShopBuy(jo); break;
                 case "ship": this.Ship(); break;
                 case "fix_position": this.FixPosition(); break;
@@ -1230,8 +1230,27 @@ namespace WhalePlayer
         }
 
         /// <summary>直接过图：用目标地图里"返回当前地图"的门作为落点，一次淡入到达。</summary>
-        private void WarpDirect(string dest)
+        private void WarpDirect(string dest, bool force = false)
         {
+            // 用户规则：只有站在「换图节点」上才允许传送，正常赶路一律走路
+            if (!force)
+            {
+                bool nearNode = false;
+                var here = Game1.player.currentLocation;
+                if (here != null)
+                {
+                    foreach (var w in here.warps)
+                    {
+                        if (Math.Abs(Game1.player.TilePoint.X - w.X) + Math.Abs(Game1.player.TilePoint.Y - w.Y) <= 2) { nearNode = true; break; }
+                    }
+                    if (!nearNode && here.Name == "BusStop" && dest == "Desert") nearNode = true;   // 坐巴士
+                }
+                if (!nearNode)
+                {
+                    this.Monitor.Log($"warp_to {dest} 被拒绝：人不在换图节点（{here?.Name} {Game1.player.TilePoint.X},{Game1.player.TilePoint.Y}），请先走到门口", LogLevel.Warn);
+                    return;
+                }
+            }
             if (string.IsNullOrEmpty(dest)) { this.Monitor.Log("goto: 没给目标", LogLevel.Warn); return; }
             var cur = Game1.player.currentLocation?.Name ?? "";
             if (cur == dest) { this.Monitor.Log($"goto: 已经在 {dest}", LogLevel.Info); return; }
