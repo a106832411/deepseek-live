@@ -102,7 +102,8 @@ namespace WhalePlayer
         private int buyChunk = 1;
         private int buyDelayTicks = 0;
         private int buySpent = 0;
-        private int canMoveStuckTicks = 0;   // 钓鱼把 canMove 锁死的看门狗
+        private int canMoveStuckTicks = 0;
+        private DateTime lastStateErrAt = DateTime.MinValue;   // 钓鱼把 canMove 锁死的看门狗
 
         public override void Entry(IModHelper helper)
         {
@@ -599,6 +600,27 @@ namespace WhalePlayer
                 var pa = Game1.player;
                 this.Monitor.Log($"ANIM f={pa.FarmerSprite.CurrentAnimationFrame} pause={pa.FarmerSprite.PauseForSingleAnimation} sf={pa.Sprite.CurrentFrame} pos=({pa.position.X:F0},{pa.position.Y:F0}) ctrl={(pa.controller != null)} tool={pa.UsingTool}", LogLevel.Alert);
             }
+            // 凌晨 2:00：强制收杆/解锁，否则钓鱼状态机会把 canMove 锁死，卡在 2:00 过不了天
+            try
+            {
+                if (Game1.timeOfDay >= 2600 && (this.fishingPump || this.autoFish || !Game1.player.canMove || Game1.player.UsingTool))
+                {
+                    this.fishingPump = false;
+                    this.autoFish = false;
+                    try { Game1.player.canMove = true; } catch { }
+                    try { Game1.player.UsingTool = false; } catch { }
+                    try { Game1.player.EndUsingTool(); } catch { }
+                    try { Game1.player.completelyStopAnimatingOrDoingAction(); } catch { }
+                    try
+                    {
+                        var rod2 = Game1.player.CurrentTool as StardewValley.Tools.FishingRod;
+                        if (rod2 != null) { rod2.isFishing = false; rod2.castedButBobberStillInAir = false; }
+                    }
+                    catch { }
+                    this.Monitor.Log("凌晨 2:00 强制收杆解锁", LogLevel.Warn);
+                }
+            }
+            catch { }
             // 走路动画修复：有 controller 在走、但精灵被暂停/动画已结束时，人物会「滑步」没有走路动作
             try
             {
@@ -4046,7 +4068,11 @@ namespace WhalePlayer
             }
             catch (Exception ex)
             {
-                this.Monitor.Log($"状态写入失败：{ex.Message}", LogLevel.Trace);
+                if ((DateTime.Now - this.lastStateErrAt).TotalSeconds > 30)
+                {
+                    this.lastStateErrAt = DateTime.Now;
+                    this.Monitor.Log($"状态写入失败：{ex.Message}", LogLevel.Warn);
+                }
             }
         }
     }
