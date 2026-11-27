@@ -2549,8 +2549,9 @@ def _rule_plan(state, goal=None):
     if loc != "Farm":
         acts.append({"type": "goto", "location": "Farm"})
     else:
-        for t in ready[:4]:
-            acts.append({"type": "harvest", "x": t["x"], "y": t["y"]})
+        # 用户要求：用镰刀收割（CJB HarvestScythe），一次能收一片
+        for t in ready[:6]:
+            acts.append({"type": "use_tool", "tool": "scythe", "x": t["x"], "y": t["y"]})
         # 播种前先把「固定田」清干净：杂草/草/枯死作物/石头挡着的格子先清掉
         _TOOLMAP = {"草": "scythe", "杂草": "scythe", "枯死作物": "scythe",
                     "树": "axe", "树桩": "axe", "嫩枝": "axe", "石头": "pickaxe"}
